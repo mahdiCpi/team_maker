@@ -1,0 +1,118 @@
+# team_maker — example request configuration
+# Run with:  python -m team_maker create --config examples/software_delivery_request.yaml
+
+team_name: "Acme Software Delivery Team"
+purpose: >
+  Create a software engineering team that can build a software product end to end,
+  including system architecture, backend and frontend implementation, code review,
+  automated testing, deployment guidance, monitoring setup, and project coordination.
+
+output_path: "./generated_teams/acme_software_team"
+stack: "Python 3.11, FastAPI, React 18, PostgreSQL 15, Docker, GitHub Actions"
+
+# Default LLM used for any role without an explicit override
+default_llm:
+  provider: anthropic
+  model: claude-sonnet-4-6
+  api_key_env: ANTHROPIC_API_KEY
+
+template: software_delivery_team
+documentation_level: standard
+overwrite: false
+
+tags:
+  - startup
+  - mvp
+  - full-stack
+
+constraints:
+  - All data must remain within the EU (GDPR)
+  - No third-party analytics without explicit user consent
+  - APIs must be versioned from day one
+
+desired_roles:
+  - name: architect
+    description: >
+      Designs the overall system architecture, defines component boundaries,
+      API contracts, and key technical decisions.
+    # Uses default_llm (anthropic/claude-sonnet-4-6)
+
+  - name: backend_engineer
+    description: >
+      Implements server-side services, REST/GraphQL APIs, business logic,
+      and data persistence using Python and FastAPI.
+    capabilities:
+      - api_development
+      - database_design
+      - async_programming
+      - unit_testing
+    tools:
+      - code_writer
+      - test_runner
+      - linter
+    llm:
+      provider: anthropic
+      model: claude-sonnet-4-6
+      api_key_env: ANTHROPIC_API_KEY
+
+  - name: frontend_engineer
+    description: >
+      Implements React-based user interfaces, integrates with backend APIs,
+      and ensures accessibility and performance.
+    capabilities:
+      - react_development
+      - state_management
+      - accessibility
+      - component_testing
+    tools:
+      - code_writer
+      - browser_preview
+      - linter
+    llm:
+      provider: anthropic
+      model: claude-sonnet-4-6
+      api_key_env: ANTHROPIC_API_KEY
+
+  - name: reviewer_qa
+    description: >
+      Reviews code for correctness, security issues, and style.
+      Defines and executes the test strategy.
+    capabilities:
+      - code_review
+      - security_review
+      - test_strategy
+      - bug_detection
+    tools:
+      - code_reader
+      - test_runner
+      - static_analyser
+
+  - name: devops
+    description: >
+      Owns CI/CD pipeline, Docker containerisation, infrastructure-as-code,
+      monitoring setup, and the operational runbook.
+    capabilities:
+      - ci_cd
+      - docker
+      - infrastructure_as_code
+      - monitoring
+      - deployment_automation
+    tools:
+      - cli_runner
+      - config_generator
+      - monitoring_dashboard
+
+  - name: coordinator
+    description: >
+      Coordinates workflow, tracks delivery milestones, surfaces blockers,
+      and keeps communication clear between all roles.
+    is_optional: true
+    llm:
+      provider: anthropic
+      model: claude-haiku-4-5
+      api_key_env: ANTHROPIC_API_KEY
+
+metadata:
+  project: acme-platform
+  owner: platform-team
+  version: "1.0"
