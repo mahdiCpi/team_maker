@@ -131,6 +131,13 @@ class PipelineRunner:
     ) -> ArtifactManifest:
         manifest: ArtifactManifest = {}
 
+        # Detect whether any agent is routed to Ollama. If so, we emit a
+        # docker-compose stack with an `ollama` sidecar and point that agent's
+        # base_url at the in-network service instead of the host.
+        ollama_models = self._ollama_models_in_team(team)
+        in_compose = bool(ollama_models)
+        team.uses_ollama_sidecar = in_compose
+
         manifest["README.md"] = self._docs_gen.render_readme(team)
         manifest["team_config.yaml"] = self._render_team_config(team)
 
@@ -144,8 +151,10 @@ class PipelineRunner:
         manifest["docs/how_to_extend.md"] = self._docs_gen.render_how_to_extend(team)
         manifest["docs/model_routing.md"] = self._docs_gen.render_model_routing(team)
 
-        # Routing config — single LLM source of truth
-        manifest["routing_config.yaml"] = self._routing_gen.render(team)
+        # Routing config — single LLM source of truth. When we're emitting a
+        # compose stack the Ollama entries get their base_url rewritten to the
+        # service hostname.
+        manifest["routing_config.yaml"] = self._routing_gen.render(team, in_compose=in_compose)
 
         # Phase 2: full tool bindings module (sandbox-aware)
         manifest["tools.py"] = self._render_tools_module(request.sandbox)
@@ -161,7 +170,50 @@ class PipelineRunner:
             team.primary_framework, request.state_backend
         )
 
+        # Ollama sidecar: docker-compose.yml + Dockerfile + .dockerignore
+        if in_compose:
+            manifest["docker-compose.yml"] = self._render_compose(team, ollama_models)
+            manifest["Dockerfile"] = render_template("Dockerfile.j2")
+            manifest[".dockerignore"] = render_template(".dockerignore.j2")
+
         return manifest
+
+    # ------------------------------------------------------------------
+    # Ollama sidecar helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _ollama_models_in_team(team: GeneratedTeam) -> list[str]:
+        """Return the unique list of Ollama model tags this team needs, in
+        request order. Empty if no agent is routed to Ollama.
+        """
+        seen: list[str] = []
+        for agent in team.agents:
+            if agent.routing.provider == "ollama" and agent.routing.model not in seen:
+                seen.append(agent.routing.model)
+        return seen
+
+    @staticmethod
+    def _render_compose(team: GeneratedTeam, ollama_models: list[str]) -> str:
+        # Cloud provider env vars that should be passed through to the runner
+        # container (only if the team actually uses them).
+        cloud_env_vars: list[str] = []
+        for agent in team.agents:
+            env = agent.routing.api_key_env
+            if agent.routing.provider != "ollama" and env and env not in cloud_env_vars:
+                cloud_env_vars.append(env)
+
+        # Docker compose project prefix — lowercase, alnum + underscore.
+        project = "".join(
+            ch if ch.isalnum() else "_" for ch in team.team_name.lower()
+        ).strip("_") or "team"
+
+        return render_template(
+            "docker-compose.yml.j2",
+            compose_project=project,
+            ollama_models=ollama_models,
+            cloud_env_vars=cloud_env_vars,
+        )
 
     # ------------------------------------------------------------------
     # Static renderers
