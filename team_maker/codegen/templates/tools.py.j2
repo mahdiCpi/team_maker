@@ -29,7 +29,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Sandbox configuration
 # ---------------------------------------------------------------------------
-WORKSPACE_ROOT = os.path.abspath("{{ sandbox.workspace_mount }}")
+WORKSPACE_ROOT = os.environ.get("WORKSPACE_ROOT") or os.path.abspath("{{ sandbox.workspace_mount }}")
 SANDBOX_IMAGE = "{{ sandbox.image }}"
 SANDBOX_WORKSPACE = WORKSPACE_ROOT
 SANDBOX_NETWORK = "{{ sandbox.network }}"

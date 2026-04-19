@@ -66,6 +66,8 @@ services:
       OLLAMA_HOST: http://ollama:11434
       # Sandbox mode: false inside the compose runner (the container IS the sandbox)
       SANDBOX_ENABLED: "false"
+      # Override WORKSPACE_ROOT to point to the mounted volume inside the container
+      WORKSPACE_ROOT: /app/workspace
     volumes:
       - ./state:/app/state
       - ./workspace:/app/workspace

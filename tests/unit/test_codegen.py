@@ -327,6 +327,7 @@ def test_dockerignore_template_renders():
 def test_tools_template_uses_sandbox_workspace_mount():
     sandbox = SandboxConfig(workspace_mount="/app/workspace")
     out = render_template("tools.py.j2", sandbox=sandbox)
+    assert 'os.environ.get("WORKSPACE_ROOT")' in out
     assert 'os.path.abspath("/app/workspace")' in out
 
 
