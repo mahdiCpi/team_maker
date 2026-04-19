@@ -1,0 +1,254 @@
+"""
+tools.py — Tool bindings for this generated team.
+
+Maps the tool names in agents/*.yaml to real instances.
+Risky tools (shell, code_writer, docker_runner) run inside a Docker sandbox
+when SANDBOX_ENABLED=true.
+
+Requirements:
+    pip install crewai crewai-tools PyGithub
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+from typing import Any
+
+from crewai.tools import tool
+from state_store import read_state, write_state
+
+try:
+    from crewai_tools import FileReadTool, FileWriterTool, CodeDocsSearchTool, SerperDevTool
+    _crewai_tools = True
+except ImportError:
+    _crewai_tools = False
+    print("[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.")
+
+# ---------------------------------------------------------------------------
+# Sandbox configuration
+# ---------------------------------------------------------------------------
+SANDBOX_IMAGE = "{{ sandbox.image }}"
+SANDBOX_WORKSPACE = os.path.abspath("{{ sandbox.workspace_mount }}")
+SANDBOX_NETWORK = "{{ sandbox.network }}"
+{% if sandbox.extra_env %}
+SANDBOX_EXTRA_ENV: dict[str, str] = {
+{% for key, val in sandbox.extra_env.items() %}
+    "{{ key }}": os.environ.get("{{ key }}", "{{ val }}"),
+{% endfor %}
+}
+{% else %}
+SANDBOX_EXTRA_ENV: dict[str, str] = {}
+{% endif %}
+USE_SANDBOX = os.environ.get("SANDBOX_ENABLED", "false").lower() == "true"
+
+
+def _run_sandboxed(command: str) -> str:
+    """Execute a shell command directly or inside Docker (when SANDBOX_ENABLED=true)."""
+    if USE_SANDBOX:
+        os.makedirs(SANDBOX_WORKSPACE, exist_ok=True)
+        env_flags: list[str] = []
+        merged = {**SANDBOX_EXTRA_ENV, **{k: os.environ[k] for k in os.environ if k in SANDBOX_EXTRA_ENV}}
+        for k, v in merged.items():
+            env_flags += ["-e", f"{k}={v}"]
+        cmd = [
+            "docker", "run", "--rm",
+            "--network", SANDBOX_NETWORK,
+            "-v", f"{SANDBOX_WORKSPACE}:/workspace",
+            "-w", "/workspace",
+            *env_flags,
+            SANDBOX_IMAGE, "sh", "-c", command,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    else:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=60)
+    return (result.stdout + result.stderr).strip() or "(no output)"
+
+
+# ---------------------------------------------------------------------------
+# Custom tool definitions
+# ---------------------------------------------------------------------------
+
+@tool("shell_command")
+def shell_command_tool(command: str) -> str:
+    """Execute a shell command (sandboxed when SANDBOX_ENABLED=true)."""
+    return _run_sandboxed(command)
+
+
+@tool("code_writer")
+def code_writer_tool(path: str, content: str) -> str:
+    """Write content to a file, creating parent dirs as needed."""
+    if USE_SANDBOX:
+        escaped = content.replace("'", "'\\''")
+        return _run_sandboxed(f"mkdir -p \"$(dirname '{path}')\" && cat > '{path}' << 'EOF'\n{escaped}\nEOF")
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content, encoding="utf-8")
+    return f"Wrote {len(content)} bytes to {path}"
+
+
+@tool("http_client")
+def http_client_tool(url: str, method: str = "GET", body: str = "") -> str:
+    """Make an HTTP request and return the response body (up to 8 KB)."""
+    import urllib.request
+    req = urllib.request.Request(url, method=method.upper())
+    if body:
+        req.data = body.encode()
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read(8192).decode(errors="replace")
+
+
+@tool("test_runner")
+def test_runner_tool(path: str = ".", framework: str = "pytest") -> str:
+    """Run the test suite. Supports pytest, npm, go, cargo."""
+    cmds = {
+        "pytest": f"cd {path} && python -m pytest -v --tb=short 2>&1 | tail -60",
+        "npm":    f"cd {path} && npm test 2>&1 | tail -60",
+        "go":     f"cd {path} && go test ./... 2>&1 | tail -60",
+        "cargo":  f"cd {path} && cargo test 2>&1 | tail -60",
+    }
+    return _run_sandboxed(cmds.get(framework, cmds["pytest"]))
+
+
+@tool("docker_runner")
+def docker_runner_tool(image: str, command: str, mounts: str = "") -> str:
+    """Build or run a Docker container. mounts: comma-separated 'host:container' pairs."""
+    mount_flags: list[str] = []
+    for m in (mounts.split(",") if mounts else []):
+        mount_flags += ["-v", m.strip()]
+    cmd = ["docker", "run", "--rm", *mount_flags, image, "sh", "-c", command]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    return (result.stdout + result.stderr).strip() or "(no output)"
+
+
+@tool("git_account")
+def git_account_tool(action: str, repo: str = "", body: str = "") -> str:
+    """
+    Manage GitHub repos and PRs.
+    action: create_repo | clone | list_repos | create_pr | list_prs
+    repo: owner/name
+    body: JSON-encoded params
+    """
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if not token:
+        return "[error] GITHUB_TOKEN not set"
+    try:
+        from github import Github
+        gh = Github(token)
+        params = json.loads(body) if body else {}
+        if action == "create_repo":
+            user = gh.get_user()
+            r = user.create_repo(repo, **{k: params[k] for k in ("private", "description") if k in params})
+            return f"Created: {r.html_url}"
+        if action == "clone":
+            r = gh.get_repo(repo)
+            res = subprocess.run(["git", "clone", r.clone_url], capture_output=True, text=True)
+            return res.stdout + res.stderr
+        if action == "list_repos":
+            return "\n".join(r.full_name for r in gh.get_user().get_repos())
+        if action == "create_pr":
+            r = gh.get_repo(repo)
+            pr = r.create_pull(
+                title=params.get("title", "New PR"),
+                body=params.get("body", ""),
+                head=params.get("head", "main"),
+                base=params.get("base", "main"),
+            )
+            return f"PR: {pr.html_url}"
+        if action == "list_prs":
+            r = gh.get_repo(repo)
+            return "\n".join(f"#{pr.number} {pr.title}" for pr in r.get_pulls())
+        return f"[error] unknown action: {action}"
+    except ImportError:
+        return "[error] PyGithub not installed: pip install PyGithub"
+    except Exception as exc:
+        return f"[error] {exc}"
+
+
+@tool("state_reader")
+def state_reader_tool(key: str) -> str:
+    """Read a value from the shared team state store."""
+    value = read_state(key)
+    if value is None:
+        return f"(no entry for key: {key})"
+    return json.dumps(value, indent=2) if isinstance(value, (dict, list)) else str(value)
+
+
+@tool("state_writer")
+def state_writer_tool(key: str, value: str) -> str:
+    """Write a value to the shared team state store."""
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        parsed = value
+    write_state(key, parsed)
+    return f"Stored {key!r}"
+
+
+@tool("ci_tool")
+def ci_tool_tool(action: str, repo: str, workflow: str = "", ref: str = "main") -> str:
+    """Trigger or query GitHub Actions workflows. action: trigger | status"""
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if not token:
+        return "[error] GITHUB_TOKEN not set"
+    import urllib.request, urllib.error
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
+    if action == "trigger":
+        url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches"
+        req = urllib.request.Request(url, data=json.dumps({"ref": ref}).encode(),
+                                     headers=headers, method="POST")
+        try:
+            urllib.request.urlopen(req, timeout=15)
+            return f"Triggered {workflow} on {ref}"
+        except urllib.error.HTTPError as e:
+            return f"[error] {e.code}: {e.read().decode()}"
+    if action == "status":
+        url = f"https://api.github.com/repos/{repo}/actions/runs?per_page=5"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            runs = json.loads(resp.read())["workflow_runs"]
+        return "\n".join(f"#{r['id']} {r['name']} {r['status']} {r['conclusion']}" for r in runs)
+    return f"[error] unknown action: {action}"
+
+
+# ---------------------------------------------------------------------------
+# Tool registry
+# ---------------------------------------------------------------------------
+
+TOOL_REGISTRY: dict[str, Any] = {
+    "shell":        shell_command_tool,
+    "code_writer":  code_writer_tool,
+    "http_client":  http_client_tool,
+    "test_runner":  test_runner_tool,
+    "docker_runner": docker_runner_tool,
+    "git_account":  git_account_tool,
+    "state_reader": state_reader_tool,
+    "state_writer": state_writer_tool,
+    "ci_tool":      ci_tool_tool,
+}
+
+if _crewai_tools:
+    TOOL_REGISTRY.update({
+        "filesystem": [FileReadTool(), FileWriterTool()],
+        "code_reader": CodeDocsSearchTool(),
+    })
+    if os.environ.get("SERPER_API_KEY"):
+        TOOL_REGISTRY["web_search"] = SerperDevTool()
+    else:
+        print("[warn] SERPER_API_KEY not set — web_search unavailable.")
+
+
+def get_tools_for(tool_names: list[str]) -> list:
+    """Return tool instances for the given YAML tool name list."""
+    result = []
+    for name in tool_names:
+        entry = TOOL_REGISTRY.get(name)
+        if entry is None:
+            print(f"[warn] tool '{name}' not in registry — skipping.")
+            continue
+        if isinstance(entry, list):
+            result.extend(entry)
+        else:
+            result.append(entry)
+    return result

@@ -1,0 +1,146 @@
+"""
+run_example.py — AutoGen runner for {{ team.team_name }}
+
+Topology: {{ topology_pattern }}
+
+Edit agent configs in agents/ and routing in routing_config.yaml, then re-run.
+
+Compatibility:
+    pyautogen 0.2.x  — works as-is (GroupChat API)
+    autogen-agentchat 0.4.x — see AUTOGEN_V2 env var below
+
+Usage:
+    pip install -r requirements.txt
+    python run_example.py
+"""
+from __future__ import annotations
+
+import os
+import sys
+import yaml
+from pathlib import Path
+
+TEAM_ROOT = Path(__file__).parent
+{% if orchestrator_role %}
+ORCHESTRATOR_ROLE = "{{ orchestrator_role }}"
+{% else %}
+ORCHESTRATOR_ROLE = None
+{% endif %}
+
+with (TEAM_ROOT / "routing_config.yaml").open() as _f:
+    _ROUTING: dict = yaml.safe_load(_f).get("routing", {})
+
+
+def _llm_config(role: str) -> dict:
+    cfg = _ROUTING.get(role, {})
+    model = cfg.get("model", "gpt-4o")
+    api_key_env = cfg.get("api_key_env", "OPENAI_API_KEY")
+    api_key = os.environ.get(api_key_env, "")
+    if not api_key:
+        print(f"[warn] {api_key_env} not set; agent {role} may fail.")
+    return {"config_list": [{"model": model, "api_key": api_key}]}
+
+
+def _load_agent_cfg(role: str) -> dict:
+    with (TEAM_ROOT / "agents" / f"{role}.yaml").open() as f:
+        return yaml.safe_load(f)
+
+
+# ---------------------------------------------------------------------------
+# AutoGen 0.4.x path (agentchat package)
+# ---------------------------------------------------------------------------
+
+def _run_v4() -> None:
+    """Run using autogen-agentchat 0.4+ API."""
+    from autogen_agentchat.agents import AssistantAgent
+    from autogen_agentchat.teams import RoundRobinGroupChat, SelectorGroupChat
+    from autogen_agentchat.conditions import MaxMessageTermination
+    import asyncio
+
+    agents = []
+{% for agent in team.agents %}
+    _cfg_{{ agent.role }} = _load_agent_cfg("{{ agent.role }}")
+    agents.append(AssistantAgent(
+        name="{{ agent.role }}",
+        system_message=_cfg_{{ agent.role }}["backstory"] + "\n\nGoal: " + _cfg_{{ agent.role }}["goal"],
+        model_client=__import__("autogen_ext.models.openai", fromlist=["OpenAIChatCompletionClient"]).OpenAIChatCompletionClient(
+            model=_ROUTING.get("{{ agent.role }}", {}).get("model", "gpt-4o"),
+        ),
+    ))
+{% endfor %}
+
+{% if topology_pattern == "group_chat" %}
+    team_obj = SelectorGroupChat(agents, model_client=agents[0]._model_client,
+                                  termination_condition=MaxMessageTermination(max_messages=20))
+{% else %}
+    team_obj = RoundRobinGroupChat(agents, termination_condition=MaxMessageTermination(max_messages=len(agents) * 2))
+{% endif %}
+
+    async def _run():
+        result = await team_obj.run(task="Build a production-ready {{ team.team_name }} following best practices.")
+        print("\n--- RESULT ---")
+        for msg in result.messages:
+            print(f"[{msg.source}] {msg.content}\n")
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# AutoGen 0.2.x path (pyautogen package)
+# ---------------------------------------------------------------------------
+
+def _run_v2() -> None:
+    """Run using pyautogen 0.2.x API (GroupChat + ConversableAgent)."""
+    import autogen
+
+    agents: list[autogen.ConversableAgent] = []
+    agent_map: dict[str, autogen.ConversableAgent] = {}
+
+{% for agent in team.agents %}
+    _cfg_{{ agent.role }} = _load_agent_cfg("{{ agent.role }}")
+    _agent_{{ agent.role }} = autogen.ConversableAgent(
+        name="{{ agent.role }}",
+        system_message=_cfg_{{ agent.role }}["backstory"] + "\n\nGoal: " + _cfg_{{ agent.role }}["goal"],
+        llm_config=_llm_config("{{ agent.role }}"),
+        human_input_mode="NEVER",
+    )
+    agents.append(_agent_{{ agent.role }})
+    agent_map["{{ agent.role }}"] = _agent_{{ agent.role }}
+{% endfor %}
+
+    group_chat = autogen.GroupChat(
+        agents=agents,
+        messages=[],
+        max_round=20,
+        speaker_selection_method="auto",
+    )
+    manager_llm = _llm_config(ORCHESTRATOR_ROLE or agents[0].name)
+    manager = autogen.GroupChatManager(groupchat=group_chat, llm_config=manager_llm)
+
+    initiator = agent_map.get(ORCHESTRATOR_ROLE) or agents[0]
+    initiator.initiate_chat(
+        manager,
+        message="Build a production-ready {{ team.team_name }} following best practices.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entry point — auto-detect AutoGen version
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    try:
+        import autogen_agentchat  # noqa: F401
+        _run_v4()
+    except ImportError:
+        try:
+            import autogen  # noqa: F401
+            _run_v2()
+        except ImportError:
+            print("[error] Neither autogen-agentchat nor pyautogen is installed.")
+            print("  Install with: pip install pyautogen  OR  pip install autogen-agentchat autogen-ext")
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

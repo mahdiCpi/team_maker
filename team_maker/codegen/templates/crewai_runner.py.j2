@@ -1,0 +1,109 @@
+"""
+run_example.py — CrewAI runner for {{ team.team_name }}
+
+Edit agent configs in agents/ and task configs in tasks/, then re-run.
+
+Usage:
+    pip install -r requirements.txt
+    python run_example.py
+"""
+from __future__ import annotations
+
+import os
+import yaml
+from pathlib import Path
+from crewai import Agent, Task, Crew, Process
+
+from tools import get_tools_for
+
+TEAM_ROOT = Path(__file__).parent
+{% if orchestrator_role %}
+ORCHESTRATOR_ROLE = "{{ orchestrator_role }}"
+{% else %}
+ORCHESTRATOR_ROLE = None
+{% endif %}
+
+# LLM routing — edit routing_config.yaml to change which model each agent uses.
+with (TEAM_ROOT / "routing_config.yaml").open() as _f:
+    _ROUTING: dict = yaml.safe_load(_f).get("routing", {})
+
+
+def _build_llm(role: str):
+    cfg = _ROUTING.get(role, {})
+    if not cfg:
+        return None
+    provider = cfg.get("provider", "anthropic")
+    model = cfg.get("model", "claude-sonnet-4-6")
+    api_key_env = cfg.get("api_key_env")
+    if api_key_env and not os.environ.get(api_key_env):
+        print(f"[warn] {api_key_env} is not set; agent {role} may fail.")
+    if provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+        return ChatAnthropic(model=model)
+    if provider == "openai":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(model=model)
+    if provider == "ollama":
+        from langchain_ollama import OllamaLLM
+        return OllamaLLM(model=model)
+    return None
+
+
+def load_agent(role: str) -> Agent:
+    cfg_path = TEAM_ROOT / "agents" / f"{role}.yaml"
+    with cfg_path.open() as f:
+        cfg = yaml.safe_load(f)
+    return Agent(
+        role=cfg["role"],
+        goal=cfg["goal"],
+        backstory=cfg["backstory"],
+        llm=_build_llm(role),
+        tools=get_tools_for(cfg.get("tools", [])),
+        verbose=True,
+        allow_delegation=cfg.get("is_orchestrator", False),
+    )
+
+
+def load_task(name: str, agents: dict[str, Agent]) -> Task:
+    cfg_path = TEAM_ROOT / "tasks" / f"{name}.yaml"
+    with cfg_path.open() as f:
+        cfg = yaml.safe_load(f)
+    return Task(
+        description=cfg["description"],
+        expected_output=cfg["expected_output"],
+        agent=agents[cfg["agent_role"]],
+    )
+
+
+def main() -> None:
+    agent_roles = [{% for a in team.agents %}"{{ a.role }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+    agents = {role: load_agent(role) for role in agent_roles}
+
+    task_names = [{% for t in team.tasks %}"{{ t.name }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+    tasks = [load_task(name, agents) for name in task_names]
+
+{% if orchestrator_role %}
+    crew = Crew(
+        agents=list(agents.values()),
+        tasks=tasks,
+        process=Process.hierarchical,
+        manager_agent=agents["{{ orchestrator_role }}"],
+        verbose=True,
+    )
+{% else %}
+    crew = Crew(
+        agents=list(agents.values()),
+        tasks=tasks,
+        process=Process.sequential,
+        verbose=True,
+    )
+{% endif %}
+
+    goal = "Build a production-ready {{ team.team_name }} following best practices."
+    result = crew.kickoff(inputs={"goal": goal})
+    print("\n--- RESULT ---")
+    print(result)
+
+
+if __name__ == "__main__":
+    main()

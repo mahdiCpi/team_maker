@@ -6,7 +6,6 @@ from team_maker.schema.request import (
     ProviderConfig,
     RoleDefinition,
     TeamCreationRequest,
-    TeamTemplateId,
     DocumentationLevel,
 )
 
@@ -65,7 +64,6 @@ def full_request(tmp_path) -> TeamCreationRequest:
             model="claude-sonnet-4-6",
             api_key_env="ANTHROPIC_API_KEY",
         ),
-        template=TeamTemplateId.SOFTWARE_DELIVERY,
         documentation_level=DocumentationLevel.STANDARD,
         overwrite=True,
     )

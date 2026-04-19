@@ -14,13 +14,34 @@ dependencies = [
     "click>=8.1",
     "pyyaml>=6.0",
     "rich>=13.0",
+    "jinja2>=3.1",
 ]
 
 [project.optional-dependencies]
+anthropic = [
+    "anthropic>=0.40",
+]
+openai = [
+    "openai>=1.0",
+]
+llm = [
+    "anthropic>=0.40",
+    "openai>=1.0",
+]
+vector = [
+    "chromadb>=0.5",
+]
+all = [
+    "anthropic>=0.40",
+    "openai>=1.0",
+    "chromadb>=0.5",
+]
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
     "ruff>=0.3",
+    "anthropic>=0.40",
+    "openai>=1.0",
 ]
 
 [project.scripts]
@@ -29,6 +50,9 @@ team-maker = "team_maker.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["team_maker*"]
+
+[tool.setuptools.package-data]
+"team_maker.codegen" = ["templates/*.j2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

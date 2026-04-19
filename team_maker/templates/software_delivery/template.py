@@ -126,6 +126,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "progress_reporting",
         ],
         "tools": ["task_tracker", "communication_channel"],
+        "is_orchestrator": True,
     },
 }
 
@@ -265,6 +266,7 @@ class SoftwareDeliveryTemplate(BaseTeamTemplate):
             tools=role.tools or defaults.get("tools", []),
             routing=self._resolve_routing(role.llm, default_llm),
             is_optional=role.is_optional,
+            is_orchestrator=defaults.get("is_orchestrator", False),
         )
 
     def _build_agents(self, request: TeamCreationRequest) -> List[AgentSpec]:

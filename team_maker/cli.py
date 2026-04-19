@@ -56,11 +56,38 @@ def main() -> None:
     default=False,
     help="Overwrite an existing output directory.",
 )
+@click.option(
+    "--framework",
+    type=click.Choice(["crewai", "langgraph", "autogen"], case_sensitive=False),
+    default=None,
+    help="Override the runtime framework defined in the config.",
+)
+@click.option(
+    "--state-backend",
+    type=click.Choice(["file", "vector", "both"], case_sensitive=False),
+    default=None,
+    help="Override the shared state backend defined in the config.",
+)
+@click.option(
+    "--planner-model",
+    default=None,
+    help="Override the default planner LLM model (e.g. gpt-4o, claude-sonnet-4-5).",
+)
+@click.option(
+    "--no-planner",
+    is_flag=True,
+    default=False,
+    help="Force the template path even when desired_roles is empty (uses fallback defaults).",
+)
 @click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress progress output.")
 def create(
     config: Path,
     output: Optional[Path],
     overwrite: bool,
+    framework: Optional[str],
+    state_backend: Optional[str],
+    planner_model: Optional[str],
+    no_planner: bool,
     quiet: bool,
 ) -> None:
     """Generate a team package from a YAML request file."""
@@ -76,6 +103,18 @@ def create(
         raw["output_path"] = str(output)
     if overwrite:
         raw["overwrite"] = True
+    if framework is not None:
+        raw["framework"] = framework.lower()
+    if state_backend is not None:
+        raw["state_backend"] = state_backend.lower()
+    if planner_model is not None:
+        raw.setdefault("default_llm", {})["model"] = planner_model
+    if no_planner and not raw.get("desired_roles"):
+        # Force template path by injecting a minimal role list
+        raw["desired_roles"] = [
+            {"name": "coordinator", "description": "Coordinates the team and delegates work."},
+            {"name": "engineer", "description": "Implements the deliverables."},
+        ]
 
     # 3. Validate schema
     try:

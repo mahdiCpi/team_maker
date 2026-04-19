@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -14,18 +14,28 @@ class DocumentationLevel(str, Enum):
     FULL = "full"
 
 
-class TeamTemplateId(str, Enum):
-    SOFTWARE_DELIVERY = "software_delivery_team"
-    CUSTOM = "custom"
+class FrameworkChoice(str, Enum):
+    CREWAI = "crewai"
+    LANGGRAPH = "langgraph"
+    AUTOGEN = "autogen"
+
+
+class StateBackend(str, Enum):
+    FILE = "file"
+    VECTOR = "vector"
+    BOTH = "both"
 
 
 class ProviderConfig(BaseModel):
-    """LLM provider + model routing for a single agent."""
+    """LLM provider + model routing for a single agent or the planner."""
 
-    provider: str = Field(..., description="Provider name (e.g. anthropic, openai, ollama)")
-    model: str = Field(..., description="Model ID (e.g. claude-sonnet-4-6, gpt-4o)")
+    provider: str = Field(..., description="Provider name: anthropic | openai | ollama")
+    model: str = Field(..., description="Model ID (e.g. claude-sonnet-4-6, gpt-4o, llama3.2)")
     api_key_env: Optional[str] = Field(
         None, description="Environment variable that holds the API key"
+    )
+    base_url: Optional[str] = Field(
+        None, description="Custom base URL — required for Ollama (e.g. http://localhost:11434)"
     )
 
     @field_validator("provider")
@@ -39,8 +49,34 @@ class ProviderConfig(BaseModel):
         return v.strip()
 
 
+class GitAccountConfig(BaseModel):
+    """Credentials and settings for a Git hosting account."""
+
+    platform: Literal["github", "gitlab", "bitbucket"] = "github"
+    token_env: str = Field(
+        "GITHUB_TOKEN",
+        description="Environment variable holding the personal access token",
+    )
+    org_or_user: str = Field(
+        ..., description="GitHub org or username where repos will be created"
+    )
+    default_visibility: Literal["private", "public"] = "private"
+
+
+class SandboxConfig(BaseModel):
+    """Docker sandbox settings for tool execution."""
+
+    image: str = "python:3.12-slim"
+    workspace_mount: str = Field(
+        "./workspace",
+        description="Host path mounted as /workspace inside the container",
+    )
+    extra_env: Dict[str, str] = Field(default_factory=dict)
+    network: Literal["none", "host", "bridge"] = "bridge"
+
+
 class RoleDefinition(BaseModel):
-    """Specification for a single agent role within the team."""
+    """Optional hint for a single agent role — the LLM planner may expand or adjust these."""
 
     name: str = Field(..., description="snake_case role identifier, unique within the request")
     display_name: Optional[str] = Field(None, description="Human-readable role title")
@@ -66,21 +102,64 @@ class RoleDefinition(BaseModel):
         return self.display_name or self.name.replace("_", " ").title()
 
 
+_DEFAULT_PLANNING_LLM = ProviderConfig(
+    provider="anthropic",
+    model="claude-sonnet-4-6",
+    api_key_env="ANTHROPIC_API_KEY",
+)
+
+
 class TeamCreationRequest(BaseModel):
     """Root input model for a single team generation request."""
 
     team_name: str = Field(..., min_length=2, description="Short, unique name for the team")
-    purpose: str = Field(..., min_length=10, description="One-paragraph purpose statement")
+    purpose: str = Field(..., min_length=10, description="Natural-language description of what the team must build")
     output_path: str = Field(..., description="Directory path where the team package is written")
-    stack: Optional[str] = Field(None, description="Technology stack (informational)")
-    desired_roles: List[RoleDefinition] = Field(..., min_length=1)
-    default_llm: Optional[ProviderConfig] = Field(
-        None, description="Fallback LLM for roles without a specific assignment"
+    stack: Optional[str] = Field(None, description="Technology stack hint (e.g. 'Python, FastAPI, PostgreSQL')")
+    constraints: List[str] = Field(default_factory=list, description="Hard constraints the team must respect")
+
+    # LLM used by team_maker to infer agents, tools, and topology
+    planning_llm: ProviderConfig = Field(
+        default=_DEFAULT_PLANNING_LLM,
+        description="LLM used by the planner to design the team. Defaults to Anthropic claude-sonnet-4-6.",
     )
-    tools: List[str] = Field(default_factory=list, description="Tools shared across all agents")
-    constraints: List[str] = Field(default_factory=list)
+
+    # Agentic framework for the generated team
+    framework: FrameworkChoice = Field(
+        FrameworkChoice.CREWAI,
+        description="Primary agentic framework. crewai is the default; langgraph/autogen used where they excel.",
+    )
+
+    # State persistence
+    state_backend: StateBackend = Field(
+        StateBackend.FILE,
+        description="How agents persist state between tasks: file (JSON), vector (ChromaDB), or both.",
+    )
+
+    # Optional Git account for repo management tools
+    git_account: Optional[GitAccountConfig] = Field(
+        None,
+        description="If set, agents that need it receive a GitAccountTool bound to this account.",
+    )
+
+    # Docker sandbox for tool execution
+    sandbox: SandboxConfig = Field(
+        default_factory=SandboxConfig,
+        description="Docker sandbox configuration for executing tools safely.",
+    )
+
+    # Optional role hints — the LLM planner uses these as suggestions and may add more
+    desired_roles: List[RoleDefinition] = Field(
+        default_factory=list,
+        description="Optional role hints. If empty, the planner infers all roles from purpose.",
+    )
+
+    # Per-agent LLM fallback
+    default_llm: Optional[ProviderConfig] = Field(
+        None, description="Fallback LLM for agents without a specific assignment"
+    )
+
     documentation_level: DocumentationLevel = DocumentationLevel.STANDARD
-    template: TeamTemplateId = TeamTemplateId.SOFTWARE_DELIVERY
     overwrite: bool = Field(False, description="Allow overwriting an existing output directory")
     tags: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)

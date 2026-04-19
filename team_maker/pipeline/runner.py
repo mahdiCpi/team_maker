@@ -1,9 +1,16 @@
 """Core generation pipeline.
 
-Orchestrates: template selection → team generation → artifact building
+Orchestrates: planner/template → team generation → artifact building
 → writing → validation → report.
 
-No business logic lives here — this is pure orchestration.
+Strategy selection:
+  - desired_roles empty  → LLM planner infers everything
+  - desired_roles present → SoftwareDeliveryTemplate fills in defaults
+
+Framework selection (from AgentPlan or request.framework):
+  - crewai    → CrewAIAdapter
+  - langgraph → LangGraphAdapter
+  - autogen   → AutoGenAdapter
 """
 from __future__ import annotations
 
@@ -12,15 +19,16 @@ from pathlib import Path
 from typing import List
 
 from team_maker.artifacts.writer import ArtifactManifest, ArtifactWriter
+from team_maker.codegen import render_template
 from team_maker.domain.models import GeneratedTeam
+from team_maker.frameworks import get_adapter
 from team_maker.generators.agent import AgentGenerator
 from team_maker.generators.docs import DocsGenerator
 from team_maker.generators.report import ReportGenerator
 from team_maker.generators.routing import RoutingGenerator
 from team_maker.generators.task import TaskGenerator
-from team_maker.schema.request import TeamCreationRequest
-from team_maker.templates import registry as template_registry  # noqa: F401 – triggers registration
-import team_maker.templates  # noqa: F401 – ensure all templates are registered
+from team_maker.schema.request import SandboxConfig, StateBackend, TeamCreationRequest
+import team_maker.templates  # noqa: F401 – triggers template registration
 from team_maker.utils.fs import safe_output_path
 from team_maker.utils.yaml_utils import dump_yaml
 from team_maker.validation.validator import OutputValidator, ValidationResult
@@ -46,25 +54,34 @@ class PipelineRunner:
         self._writer = ArtifactWriter()
         self._validator = OutputValidator()
 
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
+
     def run(self, request: TeamCreationRequest) -> PipelineResult:
-        # 1. Resolve output path
         output_path = safe_output_path(request.output_path)
 
-        # 2. Select template and generate domain model
-        from team_maker.templates.registry import get_template
-        template = get_template(request.template.value)
-        team = template.generate(request)
+        # Phase 1: choose generation strategy
+        if request.desired_roles:
+            team = self._generate_from_template(request)
+        else:
+            team = self._generate_from_planner(request)
 
-        # 3. Build artifact manifest (all file contents in memory)
-        manifest = self._build_manifest(team, request)
+        # Phase 4: pick framework adapter. The request (YAML/CLI) is the source of
+        # truth — the planner's framework choice is advisory and only used when the
+        # request left the field at its schema default (crewai).
+        default_framework = type(request).model_fields["framework"].default.value
+        if request.framework.value != default_framework:
+            effective_framework = request.framework.value
+        else:
+            effective_framework = team.primary_framework or default_framework
+        team.primary_framework = effective_framework
+        adapter = get_adapter(effective_framework)
 
-        # 4. Write to disk (raises FileExistsError if dir non-empty and !overwrite)
+        manifest = self._build_manifest(team, request, adapter)
         written = self._writer.write(output_path, manifest, overwrite=request.overwrite)
-
-        # 5. Validate output (post-write)
         validation = self._validator.validate(output_path, team)
 
-        # 6. Write generation report (includes validation result)
         report_content = self._report_gen.render(team, request, written, validation)
         report_path = output_path / "generation_report.md"
         report_path.write_text(report_content, encoding="utf-8")
@@ -79,41 +96,76 @@ class PipelineRunner:
         )
 
     # ------------------------------------------------------------------
+    # Generation strategies
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _generate_from_template(request: TeamCreationRequest) -> GeneratedTeam:
+        from team_maker.templates.registry import get_template
+        template = get_template("software_delivery_team")
+        team = template.generate(request)
+        # Populate framework fields from request
+        team.primary_framework = request.framework.value
+        team.topology_pattern = (
+            "hierarchical" if any(a.is_orchestrator for a in team.agents) else "sequential"
+        )
+        return team
+
+    @staticmethod
+    def _generate_from_planner(request: TeamCreationRequest) -> GeneratedTeam:
+        from team_maker.llm.planner import TeamPlanner
+        from team_maker.llm.mapper import map_plan_to_team
+        planner = TeamPlanner.from_request(request)
+        plan = planner.plan(request)
+        return map_plan_to_team(plan, request)
+
+    # ------------------------------------------------------------------
     # Manifest construction
     # ------------------------------------------------------------------
 
     def _build_manifest(
-        self, team: GeneratedTeam, request: TeamCreationRequest
+        self,
+        team: GeneratedTeam,
+        request: TeamCreationRequest,
+        adapter,
     ) -> ArtifactManifest:
         manifest: ArtifactManifest = {}
 
-        # Top-level README
         manifest["README.md"] = self._docs_gen.render_readme(team)
-
-        # Team config
         manifest["team_config.yaml"] = self._render_team_config(team)
 
-        # Agent configs
         for agent in team.agents:
             manifest[f"agents/{self._agent_gen.filename(agent)}"] = self._agent_gen.render(agent)
 
-        # Task configs
         for task in team.tasks:
             manifest[f"tasks/{self._task_gen.filename(task)}"] = self._task_gen.render(task)
 
-        # Docs
         manifest["docs/how_to_run.md"] = self._docs_gen.render_how_to_run(team)
         manifest["docs/how_to_extend.md"] = self._docs_gen.render_how_to_extend(team)
         manifest["docs/model_routing.md"] = self._docs_gen.render_model_routing(team)
 
-        # Routing config
+        # Routing config — single LLM source of truth
         manifest["routing_config.yaml"] = self._routing_gen.render(team)
 
-        # Runner script
-        manifest["run_example.py"] = self._render_run_example(team)
+        # Phase 2: full tool bindings module (sandbox-aware)
+        manifest["tools.py"] = self._render_tools_module(request.sandbox)
 
-        # generation_report.md is written separately after validation (see run())
+        # Phase 3: state store module
+        manifest["state_store.py"] = self._render_state_store(request.state_backend)
+
+        # Phase 4: framework-specific runner
+        manifest["run_example.py"] = adapter.render_runner(team)
+
+        # Runtime requirements (framework + state backend aware)
+        manifest["requirements.txt"] = self._render_requirements(
+            team.primary_framework, request.state_backend
+        )
+
         return manifest
+
+    # ------------------------------------------------------------------
+    # Static renderers
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _render_team_config(team: GeneratedTeam) -> str:
@@ -124,112 +176,61 @@ class PipelineRunner:
             "template": team.template_used,
             "stack": team.stack,
             "documentation_level": team.documentation_level,
+            "primary_framework": team.primary_framework,
+            "topology_pattern": team.topology_pattern,
             "agents": [a.role for a in team.agents],
             "tasks": [t.name for t in team.tasks],
             "constraints": team.constraints,
             "tags": team.tags,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
+        if team.planner_reasoning:
+            data["planner_reasoning"] = team.planner_reasoning
         return dump_yaml(data)
 
     @staticmethod
-    def _render_run_example(team: GeneratedTeam) -> str:
-        agent_lines = "\n".join(
-            f'    "{a.role}": {{'
-            f'"role": "{a.role}", '
-            f'"goal": "{a.goal[:60].rstrip()}...", '
-            f'"backstory": "{a.backstory[:60].rstrip()}..."'
-            f'}},'
-            for a in team.agents
+    def _render_tools_module(sandbox: SandboxConfig) -> str:
+        return render_template("tools.py.j2", sandbox=sandbox)
+
+    @staticmethod
+    def _render_state_store(state_backend: StateBackend) -> str:
+        use_vector = state_backend in (StateBackend.VECTOR, StateBackend.BOTH)
+        use_file = state_backend in (StateBackend.FILE, StateBackend.BOTH)
+        return render_template(
+            "state_store.py.j2",
+            use_vector=use_vector,
+            use_file=use_file,
         )
-        task_lines = "\n".join(
-            f'    Task(description="{t.description[:80].rstrip()}...", '
-            f'expected_output="{t.expected_output[:60].rstrip()}...", '
-            f'agent=agents["{t.agent_role}"]),'
-            for t in team.tasks
-        )
-        return f'''\
-"""
-run_example.py — Example runner for {team.team_name}
 
-This script is a starting point.  Edit agent configs in agents/ and task
-configs in tasks/ then re-run this script.
+    @staticmethod
+    def _render_requirements(framework: str, state_backend: StateBackend) -> str:
+        base = [
+            "pyyaml>=6.0",
+            "PyGithub>=2.1",
+        ]
+        framework_deps = {
+            "crewai": [
+                "crewai>=0.80.0",
+                "crewai-tools>=0.25.0",
+                "langchain-anthropic>=0.3.0",
+                "langchain-openai>=0.3.0",
+                "langchain-ollama>=0.2.0",
+            ],
+            "langgraph": [
+                "langgraph>=0.2.0",
+                "langchain-core>=0.3.0",
+                "langchain-anthropic>=0.3.0",
+                "langchain-openai>=0.3.0",
+                "langchain-ollama>=0.2.0",
+            ],
+            "autogen": [
+                "pyautogen>=0.2.0",
+            ],
+        }
+        deps = base + framework_deps.get(framework, framework_deps["crewai"])
+        if state_backend in (StateBackend.VECTOR, StateBackend.BOTH):
+            deps.append("chromadb>=0.5")
 
-Requirements:
-    pip install crewai pyyaml
-
-Usage:
-    python run_example.py
-"""
-from __future__ import annotations
-
-import os
-import yaml
-from pathlib import Path
-from crewai import Agent, Task, Crew, Process
-
-
-TEAM_ROOT = Path(__file__).parent
-
-
-def load_agent(role: str) -> Agent:
-    cfg_path = TEAM_ROOT / "agents" / f"{{role}}.yaml"
-    with cfg_path.open() as f:
-        cfg = yaml.safe_load(f)
-
-    # Resolve LLM from routing config (simple env-var-based approach)
-    llm_cfg = cfg.get("llm", {{}})
-    api_key_env = llm_cfg.get("api_key_env")
-    if api_key_env and not os.environ.get(api_key_env):
-        print(f"[warn] {{api_key_env}} is not set; agent {{role}} may fail at runtime.")
-
-    return Agent(
-        role=cfg["role"],
-        goal=cfg["goal"],
-        backstory=cfg["backstory"],
-        verbose=True,
-        allow_delegation=False,
-    )
-
-
-def load_task(name: str, agents: dict[str, Agent]) -> Task:
-    cfg_path = TEAM_ROOT / "tasks" / f"{{name}}.yaml"
-    with cfg_path.open() as f:
-        cfg = yaml.safe_load(f)
-    agent = agents[cfg["agent_role"]]
-    return Task(
-        description=cfg["description"],
-        expected_output=cfg["expected_output"],
-        agent=agent,
-    )
-
-
-def main() -> None:
-    # Load agents
-    agent_roles = {", ".join(f'"{a.role}"' for a in team.agents[:6])}
-    agents = {{role: load_agent(role) for role in agent_roles}}
-
-    # Load tasks in dependency order
-    task_names = {", ".join(f'"{t.name}"' for t in team.tasks)}
-    tasks = [load_task(name, agents) for name in task_names]
-
-    # Assemble the crew
-    crew = Crew(
-        agents=list(agents.values()),
-        tasks=tasks,
-        process=Process.sequential,
-        verbose=True,
-    )
-
-    # Kick off with your goal
-    goal = (
-        "Build a production-ready {team.team_name.lower()} following best practices."
-    )
-    result = crew.kickoff(inputs={{"goal": goal}})
-    print("\\n--- RESULT ---")
-    print(result)
-
-
-if __name__ == "__main__":
-    main()
-'''
+        lines = ["# Runtime dependencies — install with: pip install -r requirements.txt"]
+        lines += sorted(deps)
+        return "\n".join(lines) + "\n"

@@ -1,0 +1,184 @@
+"""
+run_example.py — LangGraph runner for {{ team.team_name }}
+
+Topology: {{ topology_pattern }}
+{% if topology_edges %}
+Edges: {% for src, dst in topology_edges %}{{ src }}→{{ dst }}{% if not loop.last %}, {% endif %}{% endfor %}
+
+{% endif %}
+Edit agent configs in agents/ and routing in routing_config.yaml, then re-run.
+
+Usage:
+    pip install -r requirements.txt
+    python run_example.py
+"""
+from __future__ import annotations
+
+import os
+import re
+import yaml
+from pathlib import Path
+from typing import TypedDict, Optional
+
+from langgraph.graph import StateGraph, END
+from langchain_core.messages import HumanMessage, SystemMessage
+
+TEAM_ROOT = Path(__file__).parent
+{% if orchestrator_role %}
+ORCHESTRATOR_ROLE = "{{ orchestrator_role }}"
+{% else %}
+ORCHESTRATOR_ROLE = None
+{% endif %}
+
+with (TEAM_ROOT / "routing_config.yaml").open() as _f:
+    _ROUTING: dict = yaml.safe_load(_f).get("routing", {})
+
+
+class TeamState(TypedDict):
+    goal: str
+    current_output: str
+    messages: list
+    completed: list
+    next_node: Optional[str]   # set by agents to request conditional routing
+
+
+def _build_llm(role: str):
+    cfg = _ROUTING.get(role, {})
+    provider = cfg.get("provider", "anthropic")
+    model = cfg.get("model", "claude-sonnet-4-6")
+    api_key_env = cfg.get("api_key_env")
+    if api_key_env and not os.environ.get(api_key_env):
+        print(f"[warn] {api_key_env} not set; agent {role} may fail.")
+    if provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+        return ChatAnthropic(model=model)
+    if provider == "openai":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(model=model)
+    from langchain_ollama import OllamaLLM
+    return OllamaLLM(model=model)
+
+
+def make_agent_node(role: str):
+    cfg_path = TEAM_ROOT / "agents" / f"{role}.yaml"
+    with cfg_path.open() as f:
+        cfg = yaml.safe_load(f)
+    llm = _build_llm(role)
+
+    def node(state: TeamState) -> TeamState:
+        messages = [
+            SystemMessage(content=f"You are {cfg['role']}. {cfg['backstory']}"),
+            HumanMessage(
+                content=(
+                    f"Goal: {cfg['goal']}\n\n"
+                    f"Project goal: {state['goal']}\n\n"
+                    f"Previous output:\n{state.get('current_output', '(none yet)')}\n\n"
+                    "Advance the project goal based on your role.\n"
+{% if topology_pattern == "graph" %}
+                    "If you want to route to a specific next agent, end your response with "
+                    "'ROUTE_TO: <role_name>' on its own line."
+{% endif %}
+                )
+            ),
+        ]
+        response = llm.invoke(messages)
+        content = response.content if hasattr(response, "content") else str(response)
+
+        # Phase 7: extract optional routing directive from agent output
+        next_node = None
+{% if topology_pattern == "graph" %}
+        match = re.search(r"ROUTE_TO:\s*(\w+)", content)
+        if match:
+            next_node = match.group(1)
+            content = content[:match.start()].rstrip()
+{% endif %}
+
+        return {
+            **state,
+            "current_output": content,
+            "messages": state.get("messages", []) + [{"role": role, "content": content}],
+            "completed": state.get("completed", []) + [role],
+            "next_node": next_node,
+        }
+
+    node.__name__ = role
+    return node
+
+{% if topology_pattern == "graph" and topology_edges %}
+
+# Phase 7: conditional routing — each node routes to the destination in the edge
+# list, or follows an explicit ROUTE_TO directive in the agent's output.
+_EDGE_MAP: dict[str, list[str]] = {}
+{% for src, dst in topology_edges %}
+_EDGE_MAP.setdefault("{{ src }}", []).append("{{ dst }}")
+{% endfor %}
+
+
+def make_router(role: str):
+    """Return a routing function for conditional edges after the given node."""
+    default_targets = _EDGE_MAP.get(role, [END])
+
+    def router(state: TeamState) -> str:
+        explicit = state.get("next_node")
+        if explicit and explicit in _EDGE_MAP.get(role, []):
+            return explicit
+        return default_targets[0] if default_targets else END
+
+    router.__name__ = f"route_{role}"
+    return router
+{% endif %}
+
+
+def build_graph():
+    workflow = StateGraph(TeamState)
+
+    # Register one node per agent
+{% for agent in team.agents %}
+    workflow.add_node("{{ agent.role }}", make_agent_node("{{ agent.role }}"))
+{% endfor %}
+
+{% if topology_pattern == "graph" and topology_edges %}
+    # Graph topology with conditional edges (Phase 7)
+    workflow.set_entry_point("{{ topology_edges[0][0] }}")
+{% for src, dst in topology_edges %}
+    workflow.add_conditional_edges("{{ src }}", make_router("{{ src }}"), {"{{ dst }}": "{{ dst }}", END: END})
+{% endfor %}
+{% elif orchestrator_role %}
+    # Hierarchical: orchestrator runs first, then worker agents in sequence
+    worker_roles = [{% for a in team.agents %}{% if a.role != orchestrator_role %}"{{ a.role }}"{% if not loop.last %}, {% endif %}{% endif %}{% endfor %}]
+    workflow.set_entry_point("{{ orchestrator_role }}")
+    if worker_roles:
+        workflow.add_edge("{{ orchestrator_role }}", worker_roles[0])
+        for src_r, dst_r in zip(worker_roles[:-1], worker_roles[1:]):
+            workflow.add_edge(src_r, dst_r)
+        workflow.add_edge(worker_roles[-1], END)
+    else:
+        workflow.add_edge("{{ orchestrator_role }}", END)
+{% else %}
+    # Sequential chain
+    _roles = [{% for a in team.agents %}"{{ a.role }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+    workflow.set_entry_point(_roles[0])
+    for _src, _dst in zip(_roles[:-1], _roles[1:]):
+        workflow.add_edge(_src, _dst)
+    workflow.add_edge(_roles[-1], END)
+{% endif %}
+
+    return workflow.compile()
+
+
+def main() -> None:
+    graph = build_graph()
+    initial: TeamState = {
+        "goal": "Build a production-ready {{ team.team_name }} following best practices.",
+        "current_output": "",
+        "messages": [],
+        "completed": [],
+        "next_node": None,
+    }
+    result = graph.invoke(initial)
+    print("\n--- RESULT ---")
+    print(result["current_output"])
+
+
+if __name__ == "__main__":
+    main()

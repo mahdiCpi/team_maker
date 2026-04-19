@@ -3,7 +3,10 @@ from team_maker.schema.request import (
     RoleDefinition,
     ProviderConfig,
     DocumentationLevel,
-    TeamTemplateId,
+    FrameworkChoice,
+    StateBackend,
+    GitAccountConfig,
+    SandboxConfig,
 )
 
 __all__ = [
@@ -11,5 +14,8 @@ __all__ = [
     "RoleDefinition",
     "ProviderConfig",
     "DocumentationLevel",
-    "TeamTemplateId",
+    "FrameworkChoice",
+    "StateBackend",
+    "GitAccountConfig",
+    "SandboxConfig",
 ]

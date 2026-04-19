@@ -11,7 +11,6 @@ from team_maker.schema.request import (
     ProviderConfig,
     RoleDefinition,
     TeamCreationRequest,
-    TeamTemplateId,
 )
 
 
@@ -29,6 +28,8 @@ def _required_files():
         "README.md",
         "team_config.yaml",
         "run_example.py",
+        "tools.py",
+        "requirements.txt",
         "generation_report.md",
         "docs/how_to_run.md",
         "docs/how_to_extend.md",
@@ -73,7 +74,8 @@ def test_agent_yaml_files_are_valid(full_request):
         data = yaml.safe_load(agent_file.read_text())
         assert "role" in data
         assert "goal" in data
-        assert "llm" in data
+        # LLM config lives in routing_config.yaml, not agent files
+        assert "llm" not in data
 
 
 def test_task_yaml_files_are_valid(full_request):
@@ -162,7 +164,7 @@ def test_pipeline_overwrites_when_flag_set(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_per_agent_llm_routing_in_generated_yaml(tmp_path):
+def test_per_agent_llm_routing_in_routing_config(tmp_path):
     request = TeamCreationRequest(
         team_name="Routing Test Team",
         purpose="Validating per-agent LLM routing in the generated YAML artifacts.",
@@ -184,17 +186,12 @@ def test_per_agent_llm_routing_in_generated_yaml(tmp_path):
         overwrite=True,
     )
     result = _run(request)
-    arch_data = yaml.safe_load(
-        (result.output_path / "agents" / "architect.yaml").read_text()
-    )
-    assert arch_data["llm"]["provider"] == "openai"
-    assert arch_data["llm"]["model"] == "gpt-4o"
+    routing = yaml.safe_load((result.output_path / "routing_config.yaml").read_text())["routing"]
 
-    be_data = yaml.safe_load(
-        (result.output_path / "agents" / "backend_engineer.yaml").read_text()
-    )
-    assert be_data["llm"]["provider"] == "anthropic"
-    assert be_data["llm"]["model"] == "claude-opus-4-7"
+    assert routing["architect"]["provider"] == "openai"
+    assert routing["architect"]["model"] == "gpt-4o"
+    assert routing["backend_engineer"]["provider"] == "anthropic"
+    assert routing["backend_engineer"]["model"] == "claude-opus-4-7"
 
 
 # ---------------------------------------------------------------------------

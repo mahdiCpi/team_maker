@@ -1,0 +1,85 @@
+"""
+state_store.py — Shared team state for agent coordination.
+
+Agents use state_reader / state_writer tools (tools.py) to publish and
+consume shared knowledge across the workflow.
+
+Active backends: {% if use_file %}file{% endif %}{% if use_vector %}, vector (ChromaDB){% endif %}
+
+State is persisted in the state/ directory alongside this file.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+_STATE_DIR = Path(__file__).parent / "state"
+_STATE_FILE = _STATE_DIR / "team_state.json"
+
+__all__ = ["read_state", "write_state", "list_keys", "clear_state"]
+
+
+def _load() -> dict:
+    if _STATE_FILE.exists():
+        return json.loads(_STATE_FILE.read_text(encoding="utf-8"))
+    return {}
+
+
+def _save(data: dict) -> None:
+    _STATE_DIR.mkdir(parents=True, exist_ok=True)
+    _STATE_FILE.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def read_state(key: str) -> Any:
+    """Return the value at key, or None if absent."""
+    return _load().get(key)
+
+
+def write_state(key: str, value: Any) -> None:
+    """Store value at key, overwriting any existing entry."""
+    data = _load()
+    data[key] = value
+    _save(data)
+
+
+def list_keys() -> list[str]:
+    """Return all keys currently stored."""
+    return list(_load().keys())
+
+
+def clear_state() -> None:
+    """Wipe the entire state store."""
+    _save({})
+{% if use_vector %}
+
+
+# ---------------------------------------------------------------------------
+# Vector store — ChromaDB for semantic recall across state entries
+# ---------------------------------------------------------------------------
+
+try:
+    import chromadb
+    _chroma_client = chromadb.PersistentClient(path=str(_STATE_DIR / "chroma"))
+    _chroma_col = _chroma_client.get_or_create_collection("team_state")
+    _vector_available = True
+except ImportError:
+    _vector_available = False
+    print("[warn] chromadb not installed — vector_search unavailable.")
+
+__all__ += ["vector_upsert", "vector_search"]
+
+
+def vector_upsert(key: str, text: str) -> None:
+    """Embed and index text in the vector store under the given key."""
+    if _vector_available:
+        _chroma_col.upsert(ids=[key], documents=[text])
+
+
+def vector_search(query: str, n_results: int = 3) -> list[str]:
+    """Return the top-n most semantically similar entries to the query."""
+    if not _vector_available:
+        return []
+    results = _chroma_col.query(query_texts=[query], n_results=n_results)
+    return results.get("documents", [[]])[0]
+{% endif %}
