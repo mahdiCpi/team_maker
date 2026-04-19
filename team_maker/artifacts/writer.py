@@ -1,6 +1,7 @@
 """Writes a manifest of {relative_path: content} entries to an output directory."""
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Dict
 
@@ -8,6 +9,10 @@ from team_maker.utils.fs import ensure_dir
 
 # Type alias for clarity
 ArtifactManifest = Dict[str, str]
+
+# Subdirectories team_maker owns — cleared on overwrite so stale agent/task
+# files from previous runs don't confuse the loader.
+_OWNED_SUBDIRS = ("agents", "tasks", "docs")
 
 
 class ArtifactWriter:
@@ -30,6 +35,9 @@ class ArtifactWriter:
         self._check_output_path(output_path, overwrite)
         ensure_dir(output_path)
 
+        if overwrite:
+            self._clear_owned_subdirs(output_path)
+
         written: list[str] = []
         for rel_path, content in manifest.items():
             dest = output_path / rel_path
@@ -37,6 +45,19 @@ class ArtifactWriter:
             dest.write_text(content, encoding="utf-8")
             written.append(rel_path)
         return written
+
+    @staticmethod
+    def _clear_owned_subdirs(output_path: Path) -> None:
+        """Wipe team_maker-owned subdirs so stale files don't persist.
+
+        Runtime artefacts (.venv, state/, workspace/, runner.log, __pycache__)
+        are intentionally left alone so repeated overwrites don't blow away
+        the user's venv or the team's state.
+        """
+        for sub in _OWNED_SUBDIRS:
+            sub_path = output_path / sub
+            if sub_path.is_dir():
+                shutil.rmtree(sub_path)
 
     @staticmethod
     def _check_output_path(path: Path, overwrite: bool) -> None:
