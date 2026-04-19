@@ -101,9 +101,9 @@ planning_llm:
   api_key_env: OPENAI_API_KEY
 
 default_llm:
-  provider: openai
-  model: gpt-4o-mini
-  api_key_env: OPENAI_API_KEY
+  provider: ollama
+  model: hermes3:3b
+  base_url: http://localhost:11434
 
 framework: crewai
 state_backend: file
