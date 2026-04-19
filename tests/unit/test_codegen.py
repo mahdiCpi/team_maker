@@ -270,7 +270,7 @@ def test_compose_template_renders_with_single_ollama_model():
     assert "ollama pull qwen3:8b" in out
     assert "ollama_models:/root/.ollama" in out
     assert "OLLAMA_HOST: http://ollama:11434" in out
-    assert "test_team_ollama" in out
+    assert "container_name" not in out
 
 
 def test_compose_template_includes_multiple_models():
@@ -322,3 +322,21 @@ def test_dockerignore_template_renders():
     assert "__pycache__/" in out
     assert "state/" in out
     assert "workspace/" in out
+
+
+def test_tools_template_uses_sandbox_workspace_mount():
+    sandbox = SandboxConfig(workspace_mount="/app/workspace")
+    out = render_template("tools.py.j2", sandbox=sandbox)
+    assert 'os.path.abspath("/app/workspace")' in out
+
+
+def test_compose_healthcheck_uses_http_api():
+    out = render_template(
+        "docker-compose.yml.j2",
+        compose_project="t",
+        ollama_models=["hermes3:3b"],
+        cloud_env_vars=[],
+    )
+    assert "curl" in out
+    assert "localhost:11434" in out
+    assert '["CMD", "ollama", "list"]' not in out

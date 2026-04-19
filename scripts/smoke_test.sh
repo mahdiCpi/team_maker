@@ -213,6 +213,28 @@ if ! grep -q -E '(RESULT|result|hello)' "$LOG_FILE"; then
     log "  ⚠ no obvious result banner in log — agents may not have completed"
 fi
 
+HELLO_PY="$TEAM_DIR/workspace/hello.py"
+if [ ! -f "$HELLO_PY" ]; then
+    log "  ❌ workspace/hello.py was not created — artifact persistence failed"
+    FAIL=true
+else
+    log "  ✓ workspace/hello.py exists"
+    python - "$HELLO_PY" <<'EOF'
+import sys, importlib.util
+spec = importlib.util.spec_from_file_location("hello", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+assert hasattr(mod, "add"), "hello.py must define add()"
+result = mod.add(2, 3)
+assert result == 5, f"add(2, 3) returned {result}, expected 5"
+print("  ✓ add(2, 3) == 5")
+EOF
+    if [ $? -ne 0 ]; then
+        log "  ❌ add(2, 3) verification failed"
+        FAIL=true
+    fi
+fi
+
 if $FAIL; then
     log "❌ smoke test failed"
     exit 4

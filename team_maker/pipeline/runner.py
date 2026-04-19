@@ -202,6 +202,8 @@ class PipelineRunner:
             env = agent.routing.api_key_env
             if agent.routing.provider != "ollama" and env and env not in cloud_env_vars:
                 cloud_env_vars.append(env)
+        if "OPENAI_API_KEY" in cloud_env_vars:
+            cloud_env_vars.remove("OPENAI_API_KEY")
 
         # Docker compose project prefix — lowercase, alnum + underscore.
         project = "".join(

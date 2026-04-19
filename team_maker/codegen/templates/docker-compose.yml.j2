@@ -14,12 +14,11 @@
 services:
   ollama:
     image: ollama/ollama:latest
-    container_name: {{ compose_project }}_ollama
     restart: unless-stopped
     volumes:
       - ollama_models:/root/.ollama
     healthcheck:
-      test: ["CMD", "ollama", "list"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/ > /dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -29,7 +28,6 @@ services:
 
   ollama-init:
     image: ollama/ollama:latest
-    container_name: {{ compose_project }}_ollama_init
     depends_on:
       ollama:
         condition: service_healthy
@@ -55,13 +53,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: {{ compose_project }}_runner
     depends_on:
       ollama-init:
         condition: service_completed_successfully
     environment:
       # Cloud provider keys — pass through from host if set (empty otherwise)
-{% for env_var in cloud_env_vars %}
+      OPENAI_API_KEY: ${{ '{' }}OPENAI_API_KEY:-{{ '}' }}
+{% for env_var in cloud_env_vars if env_var != "OPENAI_API_KEY" %}
       {{ env_var }}: ${{ '{' }}{{ env_var }}:-{{ '}' }}
 {% endfor %}
       # Where the runner should talk to Ollama
