@@ -178,17 +178,31 @@ fi
 
 mkdir -p "$TEAM_DIR/workspace"
 LOG_FILE="$TEAM_DIR/runner.log"
-log "running run_example.py (SANDBOX_ENABLED=true, timeout ${RUNNER_TIMEOUT}s) ..."
-log "  → output streamed to $LOG_FILE"
 
-set +e
-( cd "$TEAM_DIR" && \
-  timeout "$RUNNER_TIMEOUT" \
-    env SANDBOX_ENABLED=true OPENAI_API_KEY="$OPENAI_API_KEY" \
-    python run_example.py ) 2>&1 | tee "$LOG_FILE"
-RC=${PIPESTATUS[0]}
-set -e
-deactivate
+# Check if docker-compose.yml was generated (indicates Ollama sidecar)
+if [ -f "$TEAM_DIR/docker-compose.yml" ]; then
+    log "running via docker-compose (ollama sidecar, timeout ${RUNNER_TIMEOUT}s) ..."
+    log "  → output streamed to $LOG_FILE"
+    set +e
+    ( cd "$TEAM_DIR" && \
+      timeout "$RUNNER_TIMEOUT" \
+        env OPENAI_API_KEY="$OPENAI_API_KEY" \
+        docker compose up --build ) 2>&1 | tee "$LOG_FILE"
+    RC=${PIPESTATUS[0]}
+    set -e
+else
+    log "running run_example.py (SANDBOX_ENABLED=true, timeout ${RUNNER_TIMEOUT}s) ..."
+    log "  → output streamed to $LOG_FILE"
+    set +e
+    ( cd "$TEAM_DIR" && \
+      timeout "$RUNNER_TIMEOUT" \
+        env SANDBOX_ENABLED=true OPENAI_API_KEY="$OPENAI_API_KEY" \
+        python run_example.py ) 2>&1 | tee "$LOG_FILE"
+    RC=${PIPESTATUS[0]}
+    set -e
+fi
+
+deactivate 2>/dev/null || true
 
 # ---------- step 7: assertions ----------------------------------------------
 
