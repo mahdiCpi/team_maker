@@ -227,6 +227,25 @@ def ci_tool_tool(action: str, repo: str, workflow: str = "", ref: str = "main") 
         return "\n".join(f"#{r['id']} {r['name']} {r['status']} {r['conclusion']}" for r in runs)
     return f"[error] unknown action: {action}"
 
+{% if suggested_tools %}
+
+# ---------------------------------------------------------------------------
+# User-supplied tool stubs — implement these before running the team
+# ---------------------------------------------------------------------------
+{% for t in suggested_tools %}
+
+@tool("{{ t.name }}")
+def {{ t.name }}_tool(input: str) -> str:
+    """{{ t.description }}"""
+{% for env_var in t.env_vars %}
+    {{ env_var | lower }} = os.environ.get("{{ env_var }}", "")
+    if not {{ env_var | lower }}:
+        return "[error] {{ env_var }} not set"
+{% endfor %}
+    # TODO: implement {{ t.name }}
+    raise NotImplementedError("Stub for '{{ t.name }}' — fill in tools.py")
+{% endfor %}
+{% endif %}
 
 # ---------------------------------------------------------------------------
 # Tool registry
@@ -242,6 +261,9 @@ TOOL_REGISTRY: dict[str, Any] = {
     "state_reader": state_reader_tool,
     "state_writer": state_writer_tool,
     "ci_tool":      ci_tool_tool,
+{% for t in suggested_tools %}
+    "{{ t.name }}": {{ t.name }}_tool,
+{% endfor %}
 }
 
 if _crewai_tools:

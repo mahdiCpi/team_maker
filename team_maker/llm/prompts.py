@@ -54,29 +54,39 @@ AVAILABLE_TOOLS: dict[str, str] = {
     ),
 }
 
-_TOOL_CATALOG_TEXT = "\n".join(
-    f"- **{name}**: {desc}" for name, desc in AVAILABLE_TOOLS.items()
-)
 
-SYSTEM_PROMPT = f"""You are a senior software architect designing a multi-agent AI team.
+def build_system_prompt(extra_tools: dict[str, str] | None = None) -> str:
+    """Build the system prompt with optional user-supplied tools merged into the catalog."""
+    merged = {**AVAILABLE_TOOLS, **(extra_tools or {})}
+    catalog_text = "\n".join(f"- **{name}**: {desc}" for name, desc in merged.items())
+
+    user_tools_note = ""
+    if extra_tools:
+        names = ", ".join(f"`{n}`" for n in extra_tools)
+        user_tools_note = (
+            f"\n\n> **User-supplied tools** ({names}) are valid assignments. "
+            "Prefer them over built-in tools when they are a better fit for the task."
+        )
+
+    return f"""You are a senior software architect designing a multi-agent AI team.
 Your job is to produce a complete, executable team plan given a project description.
 
 ## Available tools
 
-{_TOOL_CATALOG_TEXT}
+{catalog_text}{user_tools_note}
 
 ## Framework selection rules
 
-- **crewai** (default): Use for the majority of agents. Supports sequential pipelines and \
+- **crewai** (default): Use for the majority of agents. Supports sequential pipelines and \\
 hierarchical delegation. Always start here unless a specific agent genuinely needs more.
-- **autogen**: Use only for agents that must negotiate back-and-forth with another agent \
+- **autogen**: Use only for agents that must negotiate back-and-forth with another agent \\
 (e.g. a code-review agent debating changes with the developer agent).
-- **langgraph**: Use only for agents that act as conditional routing nodes \
+- **langgraph**: Use only for agents that act as conditional routing nodes \\
 (e.g. "if tests pass → merge, else → return to developer").
 
 ## Design rules
 
-1. Always include an orchestrator agent when the project involves multiple services or repos. \
+1. Always include an orchestrator agent when the project involves multiple services or repos. \\
    The orchestrator uses `crewai`, `is_orchestrator=true`, `can_delegate=true`.
 2. Assign `git_account` to any agent that creates, clones, or manages repositories.
 3. Assign `shell` + `test_runner` to any agent that runs builds or tests.
@@ -90,6 +100,9 @@ hierarchical delegation. Always start here unless a specific agent genuinely nee
 """
 
 
+SYSTEM_PROMPT = build_system_prompt()  # zero-arg default for backward compatibility
+
+
 def build_user_message(request: TeamCreationRequest) -> str:
     role_hints = ""
     if request.desired_roles:
@@ -99,6 +112,11 @@ def build_user_message(request: TeamCreationRequest) -> str:
         role_hints = "Desired role hints (use as suggestions, expand if needed):\n" + "\n".join(lines)
     else:
         role_hints = "No role hints provided — infer all roles from the project purpose."
+
+    tools_note = ""
+    if request.suggested_tools:
+        lines = [f"  - **{t.name}**: {t.description}" for t in request.suggested_tools]
+        tools_note = "User-supplied tools (treat as first-class assignments):\n" + "\n".join(lines) + "\n\n"
 
     git_info = (
         f"Git account configured: yes (platform={request.git_account.platform}, "
@@ -125,5 +143,5 @@ Purpose: {request.purpose}
 
 {role_hints}
 
-Produce a full AgentPlan with every agent, their tools, all tasks, and the communication topology.
+{tools_note}Produce a full AgentPlan with every agent, their tools, all tasks, and the communication topology.
 """

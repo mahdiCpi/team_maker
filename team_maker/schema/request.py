@@ -63,6 +63,25 @@ class GitAccountConfig(BaseModel):
     default_visibility: Literal["private", "public"] = "private"
 
 
+class ToolSuggestion(BaseModel):
+    """A custom tool the user wants the planner to consider assigning to agents."""
+
+    name: str = Field(..., description="snake_case tool identifier, unique within the request")
+    description: str = Field(
+        ..., min_length=10, description="What the tool does — shown verbatim to the planner LLM"
+    )
+    env_vars: List[str] = Field(
+        default_factory=list, description="Env vars required at runtime (e.g. SLACK_WEBHOOK_URL)"
+    )
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not re.match(r"^[a-z][a-z0-9_]*$", v):
+            raise ValueError("Tool name must be snake_case (lowercase letters, digits, underscores)")
+        return v
+
+
 class SandboxConfig(BaseModel):
     """Docker sandbox settings for tool execution."""
 
@@ -152,6 +171,15 @@ class TeamCreationRequest(BaseModel):
     desired_roles: List[RoleDefinition] = Field(
         default_factory=list,
         description="Optional role hints. If empty, the planner infers all roles from purpose.",
+    )
+
+    # Optional tool suggestions — the planner merges these with the built-in tool catalog
+    suggested_tools: List[ToolSuggestion] = Field(
+        default_factory=list,
+        description=(
+            "Custom tools the planner may assign to agents. "
+            "Stubs are generated in tools.py — fill in the implementation."
+        ),
     )
 
     # Per-agent LLM fallback

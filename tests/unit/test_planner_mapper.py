@@ -228,3 +228,42 @@ def test_map_stores_planner_reasoning():
     plan = _make_plan()
     team = map_plan_to_team(plan, _make_request())
     assert team.planner_reasoning == "Test reasoning."
+
+
+# ---------------------------------------------------------------------------
+# build_system_prompt
+# ---------------------------------------------------------------------------
+
+
+def test_build_system_prompt_default_contains_catalog():
+    from team_maker.llm.prompts import build_system_prompt, AVAILABLE_TOOLS
+
+    prompt = build_system_prompt()
+    for name in AVAILABLE_TOOLS:
+        assert name in prompt
+
+
+def test_build_system_prompt_merges_extra_tools():
+    from team_maker.llm.prompts import build_system_prompt
+
+    extra = {"slack_notifier": "Send a Slack message to a channel."}
+    prompt = build_system_prompt(extra_tools=extra)
+    assert "slack_notifier" in prompt
+    assert "Send a Slack message" in prompt
+    # built-in tools still present
+    assert "git_account" in prompt
+
+
+def test_build_system_prompt_extra_tools_note():
+    from team_maker.llm.prompts import build_system_prompt
+
+    extra = {"stripe_tool": "Charge a credit card via Stripe API."}
+    prompt = build_system_prompt(extra_tools=extra)
+    assert "User-supplied tools" in prompt
+    assert "`stripe_tool`" in prompt
+
+
+def test_build_system_prompt_no_extra_same_as_constant():
+    from team_maker.llm.prompts import build_system_prompt, SYSTEM_PROMPT
+
+    assert build_system_prompt() == SYSTEM_PROMPT

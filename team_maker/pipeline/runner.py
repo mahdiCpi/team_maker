@@ -156,8 +156,8 @@ class PipelineRunner:
         # service hostname.
         manifest["routing_config.yaml"] = self._routing_gen.render(team, in_compose=in_compose)
 
-        # Phase 2: full tool bindings module (sandbox-aware)
-        manifest["tools.py"] = self._render_tools_module(request.sandbox)
+        # Phase 2: full tool bindings module (sandbox-aware + user-suggested tools)
+        manifest["tools.py"] = self._render_tools_module(request.sandbox, request.suggested_tools)
 
         # Phase 3: state store module
         manifest["state_store.py"] = self._render_state_store(request.state_backend)
@@ -243,8 +243,8 @@ class PipelineRunner:
         return dump_yaml(data)
 
     @staticmethod
-    def _render_tools_module(sandbox: SandboxConfig) -> str:
-        return render_template("tools.py.j2", sandbox=sandbox)
+    def _render_tools_module(sandbox: SandboxConfig, suggested_tools: list) -> str:
+        return render_template("tools.py.j2", sandbox=sandbox, suggested_tools=suggested_tools)
 
     @staticmethod
     def _render_state_store(state_backend: StateBackend) -> str:

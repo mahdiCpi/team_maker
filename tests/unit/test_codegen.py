@@ -71,7 +71,7 @@ def _make_team(
 
 
 def test_tools_template_renders_default_sandbox():
-    out = render_template("tools.py.j2", sandbox=SandboxConfig())
+    out = render_template("tools.py.j2", sandbox=SandboxConfig(), suggested_tools=[])
     assert "SANDBOX_IMAGE = \"python:3.12-slim\"" in out
     assert "SANDBOX_NETWORK = \"bridge\"" in out
     assert "SANDBOX_EXTRA_ENV: dict[str, str] = {}" in out
@@ -83,13 +83,13 @@ def test_tools_template_renders_default_sandbox():
 
 def test_tools_template_renders_extra_env():
     sandbox = SandboxConfig(extra_env={"FOO": "bar", "ACCESS_TOKEN": ""})
-    out = render_template("tools.py.j2", sandbox=sandbox)
+    out = render_template("tools.py.j2", sandbox=sandbox, suggested_tools=[])
     assert '"FOO": os.environ.get("FOO", "bar")' in out
     assert '"ACCESS_TOKEN": os.environ.get("ACCESS_TOKEN", "")' in out
 
 
 def test_tools_template_is_valid_python():
-    out = render_template("tools.py.j2", sandbox=SandboxConfig())
+    out = render_template("tools.py.j2", sandbox=SandboxConfig(), suggested_tools=[])
     compile(out, "<tools.py>", "exec")
 
 
@@ -326,7 +326,7 @@ def test_dockerignore_template_renders():
 
 def test_tools_template_uses_sandbox_workspace_mount():
     sandbox = SandboxConfig(workspace_mount="/app/workspace")
-    out = render_template("tools.py.j2", sandbox=sandbox)
+    out = render_template("tools.py.j2", sandbox=sandbox, suggested_tools=[])
     assert 'os.environ.get("WORKSPACE_ROOT")' in out
     assert 'os.path.abspath("/app/workspace")' in out
 
@@ -341,3 +341,19 @@ def test_compose_healthcheck_uses_http_api():
     assert "curl" in out
     assert "localhost:11434" in out
     assert '["CMD", "ollama", "list"]' not in out
+
+
+def test_tools_template_emits_stub_for_suggested_tool():
+    from team_maker.schema.request import ToolSuggestion
+
+    suggested = [ToolSuggestion(name="slack_notifier", description="Send Slack messages.", env_vars=["SLACK_WEBHOOK_URL"])]
+    out = render_template("tools.py.j2", sandbox=SandboxConfig(), suggested_tools=suggested)
+    assert "def slack_notifier_tool" in out
+    assert "SLACK_WEBHOOK_URL" in out
+    assert '"slack_notifier"' in out   # registered in TOOL_REGISTRY
+    assert "NotImplementedError" in out
+
+
+def test_tools_template_no_suggested_tools_still_valid():
+    out = render_template("tools.py.j2", sandbox=SandboxConfig(), suggested_tools=[])
+    compile(out, "<tools.py>", "exec")  # must be valid Python
