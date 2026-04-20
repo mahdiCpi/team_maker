@@ -236,3 +236,91 @@ def test_full_documentation_level_completes(tmp_path):
     )
     result = _run(request)
     assert result.output_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Ollama sidecar: compose files appear iff an agent is routed to Ollama
+# ---------------------------------------------------------------------------
+
+
+def test_no_compose_files_when_no_ollama_agent(full_request):
+    result = _run(full_request)
+    assert not (result.output_path / "docker-compose.yml").exists()
+    assert not (result.output_path / "Dockerfile").exists()
+    assert not (result.output_path / ".dockerignore").exists()
+
+
+def test_compose_files_emitted_when_agent_uses_ollama(tmp_path):
+    request = TeamCreationRequest(
+        team_name="Local Models Team",
+        purpose="A team where at least one agent runs on a local Ollama model.",
+        output_path=str(tmp_path / "local_team"),
+        desired_roles=[
+            RoleDefinition(
+                name="coder",
+                description="Writes code locally using Ollama.",
+                llm=ProviderConfig(provider="ollama", model="qwen3:8b"),
+            ),
+            RoleDefinition(
+                name="reviewer",
+                description="Reviews using a cloud model.",
+                llm=ProviderConfig(
+                    provider="openai", model="gpt-4o-mini", api_key_env="OPENAI_API_KEY"
+                ),
+            ),
+        ],
+        overwrite=True,
+    )
+    result = _run(request)
+
+    compose = result.output_path / "docker-compose.yml"
+    dockerfile = result.output_path / "Dockerfile"
+    dockerignore = result.output_path / ".dockerignore"
+    assert compose.exists()
+    assert dockerfile.exists()
+    assert dockerignore.exists()
+
+    compose_text = compose.read_text()
+    assert "ollama pull qwen3:8b" in compose_text
+    # Cloud env var for the non-ollama agent is passed through
+    assert "OPENAI_API_KEY: ${OPENAI_API_KEY:-}" in compose_text
+
+
+def test_ollama_base_url_rewritten_to_sidecar_in_compose_mode(tmp_path):
+    request = TeamCreationRequest(
+        team_name="Compose Routing Team",
+        purpose="Verifying that Ollama agents get base_url pointing at the sidecar.",
+        output_path=str(tmp_path / "out"),
+        desired_roles=[
+            RoleDefinition(
+                name="coder",
+                description="Codes locally.",
+                llm=ProviderConfig(provider="ollama", model="hermes3:8b"),
+            ),
+        ],
+        overwrite=True,
+    )
+    result = _run(request)
+    routing = yaml.safe_load((result.output_path / "routing_config.yaml").read_text())["routing"]
+    assert routing["coder"]["provider"] == "ollama"
+    assert routing["coder"]["base_url"] == "http://ollama:11434"
+
+
+def test_how_to_run_mentions_compose_when_ollama_used(tmp_path):
+    request = TeamCreationRequest(
+        team_name="Docs Compose Team",
+        purpose="Testing that how_to_run.md mentions docker compose for Ollama teams.",
+        output_path=str(tmp_path / "out"),
+        desired_roles=[
+            RoleDefinition(
+                name="coder",
+                description="Local coder.",
+                llm=ProviderConfig(provider="ollama", model="qwen3:8b"),
+            ),
+        ],
+        overwrite=True,
+    )
+    result = _run(request)
+    doc = (result.output_path / "docs" / "how_to_run.md").read_text()
+    assert "docker compose up" in doc
+    assert "qwen3:8b" in doc

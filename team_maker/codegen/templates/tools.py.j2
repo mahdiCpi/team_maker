@@ -29,8 +29,9 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Sandbox configuration
 # ---------------------------------------------------------------------------
+WORKSPACE_ROOT = os.environ.get("WORKSPACE_ROOT") or os.path.abspath("{{ sandbox.workspace_mount }}")
 SANDBOX_IMAGE = "{{ sandbox.image }}"
-SANDBOX_WORKSPACE = os.path.abspath("{{ sandbox.workspace_mount }}")
+SANDBOX_WORKSPACE = WORKSPACE_ROOT
 SANDBOX_NETWORK = "{{ sandbox.network }}"
 {% if sandbox.extra_env %}
 SANDBOX_EXTRA_ENV: dict[str, str] = {
@@ -80,9 +81,24 @@ def shell_command_tool(command: str) -> str:
 def code_writer_tool(path: str, content: str) -> str:
     """Write content to a file, creating parent dirs as needed."""
     if USE_SANDBOX:
+        target = Path(path)
+        if target.is_absolute():
+            target = Path("/workspace") / target.relative_to("/")
+        else:
+            if target.parts and target.parts[0] == "workspace":
+                target = Path("/workspace") / Path(*target.parts[1:])
+            else:
+                target = Path("/workspace") / target
         escaped = content.replace("'", "'\\''")
-        return _run_sandboxed(f"mkdir -p \"$(dirname '{path}')\" && cat > '{path}' << 'EOF'\n{escaped}\nEOF")
+        return _run_sandboxed(
+            f"mkdir -p \"$(dirname '{target}')\" && cat > '{target}' << 'EOF'\n{escaped}\nEOF"
+        )
     p = Path(path)
+    if not p.is_absolute():
+        if p.parts and p.parts[0] == "workspace":
+            p = Path(WORKSPACE_ROOT) / Path(*p.parts[1:])
+        else:
+            p = Path(WORKSPACE_ROOT) / p
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
     return f"Wrote {len(content)} bytes to {path}"
@@ -231,8 +247,11 @@ TOOL_REGISTRY: dict[str, Any] = {
 if _crewai_tools:
     TOOL_REGISTRY.update({
         "filesystem": [FileReadTool(), FileWriterTool()],
-        "code_reader": CodeDocsSearchTool(),
     })
+    if os.environ.get("OPENAI_API_KEY"):
+        TOOL_REGISTRY["code_reader"] = CodeDocsSearchTool()
+    else:
+        print("[warn] OPENAI_API_KEY not set — code_reader unavailable.")
     if os.environ.get("SERPER_API_KEY"):
         TOOL_REGISTRY["web_search"] = SerperDevTool()
     else:

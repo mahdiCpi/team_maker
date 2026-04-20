@@ -249,3 +249,95 @@ def test_autogen_runner_is_valid_python():
 def test_strict_undefined_raises_on_missing_context():
     with pytest.raises(Exception):
         render_template("tools.py.j2")  # missing `sandbox`
+
+
+# ---------------------------------------------------------------------------
+# docker-compose.yml + Dockerfile templates (Ollama sidecar)
+# ---------------------------------------------------------------------------
+
+
+def test_compose_template_renders_with_single_ollama_model():
+    out = render_template(
+        "docker-compose.yml.j2",
+        compose_project="test_team",
+        ollama_models=["qwen3:8b"],
+        cloud_env_vars=[],
+    )
+    assert "services:" in out
+    assert "ollama:" in out
+    assert "ollama-init:" in out
+    assert "runner:" in out
+    assert "ollama pull qwen3:8b" in out
+    assert "ollama_models:/root/.ollama" in out
+    assert "OLLAMA_HOST: http://ollama:11434" in out
+    assert "container_name" not in out
+
+
+def test_compose_template_includes_multiple_models():
+    out = render_template(
+        "docker-compose.yml.j2",
+        compose_project="multi",
+        ollama_models=["qwen3:8b", "hermes3:8b", "llama3.2:3b"],
+        cloud_env_vars=[],
+    )
+    assert "ollama pull qwen3:8b" in out
+    assert "ollama pull hermes3:8b" in out
+    assert "ollama pull llama3.2:3b" in out
+
+
+def test_compose_template_passes_through_cloud_env_vars():
+    out = render_template(
+        "docker-compose.yml.j2",
+        compose_project="mix",
+        ollama_models=["qwen3:8b"],
+        cloud_env_vars=["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
+    )
+    assert "OPENAI_API_KEY: ${OPENAI_API_KEY:-}" in out
+    assert "ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}" in out
+
+
+def test_compose_template_has_fallback_logic():
+    out = render_template(
+        "docker-compose.yml.j2",
+        compose_project="t",
+        ollama_models=["qwen3:99b"],
+        cloud_env_vars=[],
+    )
+    # Fallback strips the :tag suffix and retries with the bare name.
+    assert "fallback='qwen3'" in out
+    assert "falling back" in out
+
+
+def test_dockerfile_template_renders():
+    out = render_template("Dockerfile.j2")
+    assert out.startswith("# Dockerfile") or "FROM python:3.12-slim" in out
+    assert "FROM python:3.12-slim" in out
+    assert "COPY requirements.txt" in out
+    assert 'CMD ["python", "run_example.py"]' in out
+
+
+def test_dockerignore_template_renders():
+    out = render_template(".dockerignore.j2")
+    assert ".venv/" in out
+    assert "__pycache__/" in out
+    assert "state/" in out
+    assert "workspace/" in out
+
+
+def test_tools_template_uses_sandbox_workspace_mount():
+    sandbox = SandboxConfig(workspace_mount="/app/workspace")
+    out = render_template("tools.py.j2", sandbox=sandbox)
+    assert 'os.environ.get("WORKSPACE_ROOT")' in out
+    assert 'os.path.abspath("/app/workspace")' in out
+
+
+def test_compose_healthcheck_uses_http_api():
+    out = render_template(
+        "docker-compose.yml.j2",
+        compose_project="t",
+        ollama_models=["hermes3:3b"],
+        cloud_env_vars=[],
+    )
+    assert "curl" in out
+    assert "localhost:11434" in out
+    assert '["CMD", "ollama", "list"]' not in out

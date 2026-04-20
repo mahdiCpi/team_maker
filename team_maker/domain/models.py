@@ -93,4 +93,6 @@ class GeneratedTeam:
     topology_pattern: str = "sequential"
     topology_edges: List[List[str]] = field(default_factory=list)
     planner_reasoning: str = ""
+    # Runtime packaging — set by the pipeline, not the planner
+    uses_ollama_sidecar: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
