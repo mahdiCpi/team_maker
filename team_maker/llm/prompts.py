@@ -52,6 +52,10 @@ AVAILABLE_TOOLS: dict[str, str] = {
         "Write entries to the shared team state store. "
         "Use to publish decisions, artifacts, or status updates for other agents to consume."
     ),
+    "context_reader": (
+        "Read files from the project context directory supplied by the user. "
+        "Use to access background documents, specifications, or domain knowledge before starting work."
+    ),
 }
 
 
@@ -103,6 +107,28 @@ hierarchical delegation. Always start here unless a specific agent genuinely nee
 SYSTEM_PROMPT = build_system_prompt()  # zero-arg default for backward compatibility
 
 
+def _load_context_files(context_dir: str) -> str:
+    """Read all text files under context_dir and return a formatted block."""
+    from pathlib import Path
+    root = Path(context_dir)
+    if not root.is_dir():
+        return ""
+    parts: list[str] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root)
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace").strip()
+        except Exception:
+            continue
+        if content:
+            parts.append(f"### {rel}\n\n{content}")
+    if not parts:
+        return ""
+    return "## Context files provided by the user\n\n" + "\n\n---\n\n".join(parts)
+
+
 def build_user_message(request: TeamCreationRequest) -> str:
     role_hints = ""
     if request.desired_roles:
@@ -133,6 +159,12 @@ def build_user_message(request: TeamCreationRequest) -> str:
         else "Constraints: none"
     )
 
+    context_section = ""
+    if request.context_dir:
+        loaded = _load_context_files(request.context_dir)
+        if loaded:
+            context_section = f"\n\n{loaded}\n"
+
     return f"""Design a complete multi-agent team for the following project.
 
 Project name: {request.team_name}
@@ -140,7 +172,7 @@ Purpose: {request.purpose}
 {stack_info}
 {constraints_info}
 {git_info}
-
+{context_section}
 {role_hints}
 
 {tools_note}Produce a full AgentPlan with every agent, their tools, all tasks, and the communication topology.

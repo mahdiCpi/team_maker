@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -187,6 +188,15 @@ class TeamCreationRequest(BaseModel):
         None, description="Fallback LLM for agents without a specific assignment"
     )
 
+    context_dir: Optional[str] = Field(
+        None,
+        description=(
+            "Path to a directory of context files (docs, specs, domain knowledge). "
+            "Injected into the planner prompt at generation time and accessible to agents "
+            "via the context_reader tool at runtime."
+        ),
+    )
+
     documentation_level: DocumentationLevel = DocumentationLevel.STANDARD
     overwrite: bool = Field(False, description="Allow overwriting an existing output directory")
     tags: List[str] = Field(default_factory=list)
@@ -209,6 +219,16 @@ class TeamCreationRequest(BaseModel):
         if not v:
             raise ValueError("output_path must not be empty")
         return v
+
+    @field_validator("context_dir")
+    @classmethod
+    def validate_context_dir(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        p = Path(v)
+        if not p.is_dir():
+            raise ValueError(f"context_dir must be an existing directory, got: {v!r}")
+        return str(p.resolve())
 
     @model_validator(mode="after")
     def check_unique_role_names(self) -> "TeamCreationRequest":

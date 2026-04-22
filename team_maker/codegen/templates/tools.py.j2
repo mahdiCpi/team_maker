@@ -227,6 +227,29 @@ def ci_tool_tool(action: str, repo: str, workflow: str = "", ref: str = "main") 
         return "\n".join(f"#{r['id']} {r['name']} {r['status']} {r['conclusion']}" for r in runs)
     return f"[error] unknown action: {action}"
 
+{% if context_dir %}
+
+# ---------------------------------------------------------------------------
+# Context reader — reads files from the user-supplied context directory
+# ---------------------------------------------------------------------------
+
+CONTEXT_DIR = Path("{{ context_dir }}")
+
+
+@tool("context_reader")
+def context_reader_tool(filename: str = "") -> str:
+    """Read files from the project context directory. Pass empty string to list all files."""
+    if not filename:
+        if not CONTEXT_DIR.exists():
+            return f"(context directory not found: {CONTEXT_DIR})"
+        files = sorted(str(p.relative_to(CONTEXT_DIR)) for p in CONTEXT_DIR.rglob("*") if p.is_file())
+        return "\n".join(files) if files else "(no files in context directory)"
+    path = CONTEXT_DIR / filename
+    if not path.exists():
+        return f"(file not found: {filename!r} in {CONTEXT_DIR})"
+    return path.read_text(encoding="utf-8", errors="replace")
+{% endif %}
+
 {% if suggested_tools %}
 
 # ---------------------------------------------------------------------------
@@ -261,6 +284,9 @@ TOOL_REGISTRY: dict[str, Any] = {
     "state_reader": state_reader_tool,
     "state_writer": state_writer_tool,
     "ci_tool":      ci_tool_tool,
+{% if context_dir %}
+    "context_reader": context_reader_tool,
+{% endif %}
 {% for t in suggested_tools %}
     "{{ t.name }}": {{ t.name }}_tool,
 {% endfor %}

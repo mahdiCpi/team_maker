@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from team_maker.artifacts.writer import ArtifactManifest, ArtifactWriter
 from team_maker.codegen import render_template
@@ -156,8 +156,10 @@ class PipelineRunner:
         # service hostname.
         manifest["routing_config.yaml"] = self._routing_gen.render(team, in_compose=in_compose)
 
-        # Phase 2: full tool bindings module (sandbox-aware + user-suggested tools)
-        manifest["tools.py"] = self._render_tools_module(request.sandbox, request.suggested_tools)
+        # Phase 2: full tool bindings module (sandbox-aware + user-suggested tools + context)
+        manifest["tools.py"] = self._render_tools_module(
+            request.sandbox, request.suggested_tools, request.context_dir
+        )
 
         # Phase 3: state store module
         manifest["state_store.py"] = self._render_state_store(request.state_backend)
@@ -243,8 +245,17 @@ class PipelineRunner:
         return dump_yaml(data)
 
     @staticmethod
-    def _render_tools_module(sandbox: SandboxConfig, suggested_tools: list) -> str:
-        return render_template("tools.py.j2", sandbox=sandbox, suggested_tools=suggested_tools)
+    def _render_tools_module(
+        sandbox: SandboxConfig,
+        suggested_tools: list,
+        context_dir: Optional[str] = None,
+    ) -> str:
+        return render_template(
+            "tools.py.j2",
+            sandbox=sandbox,
+            suggested_tools=suggested_tools,
+            context_dir=context_dir,
+        )
 
     @staticmethod
     def _render_state_store(state_backend: StateBackend) -> str:
