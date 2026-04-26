@@ -49,4 +49,20 @@ class TeamPlanner:
         # Always stamp the team name from the request to ensure consistency
         plan.team_name = request.team_name
 
+        # If desired_tasks were explicitly provided, use them directly instead of
+        # the planner's generated tasks — the planner consistently collapses many
+        # tasks into few, ignoring the desired_tasks hint in the prompt.
+        if request.desired_tasks:
+            from team_maker.llm.schemas import TaskDesign
+            plan.tasks = [
+                TaskDesign(
+                    name=t.name,
+                    description=t.description,
+                    expected_output=f"All deliverables for '{t.name}' completed and documented.",
+                    assigned_to=t.agent_role,
+                    depends_on=t.dependencies,
+                )
+                for t in request.desired_tasks
+            ]
+
         return plan

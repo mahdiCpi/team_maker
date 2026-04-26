@@ -17,11 +17,12 @@ class AutoGenAdapter(FrameworkAdapter):
             "pyautogen>=0.2.0",
         ]
 
-    def render_runner(self, team: GeneratedTeam) -> str:
+    def render_runner(self, team: GeneratedTeam, notifications=None) -> str:
         orchestrator = next((a for a in team.agents if a.is_orchestrator), None)
         return render_template(
             "autogen_runner.py.j2",
             team=team,
             orchestrator_role=orchestrator.role if orchestrator else None,
             topology_pattern=team.topology_pattern,
+            notifications=notifications,
         )

@@ -24,9 +24,13 @@ anthropic = [
 openai = [
     "openai>=1.0",
 ]
+google = [
+    "google-generativeai>=0.7",
+]
 llm = [
     "anthropic>=0.40",
     "openai>=1.0",
+    "google-generativeai>=0.7",
 ]
 vector = [
     "chromadb>=0.5",
@@ -34,6 +38,7 @@ vector = [
 all = [
     "anthropic>=0.40",
     "openai>=1.0",
+    "google-generativeai>=0.7",
     "chromadb>=0.5",
 ]
 dev = [

@@ -99,8 +99,92 @@ hierarchical delegation. Always start here unless a specific agent genuinely nee
 6. The orchestrator maintains the live repo registry in shared state.
 7. Do not invent tool names — only assign tools from the catalog above.
 8. If the user provided desired_roles, treat them as hints. Expand, split, or rename as needed.
-9. Estimate `estimated_repos` conservatively — it can grow at runtime.
-10. Explain your key decisions clearly in the `reasoning` field.
+9. If the user provided desired_tasks, use them as the DEFINITIVE task list. Generate exactly \
+   those tasks, assigned to the agent roles specified. Do not collapse, merge, or omit any of them.
+10. Estimate `estimated_repos` conservatively — it can grow at runtime.
+11. Explain your key decisions clearly in the `reasoning` field.
+
+## Planning phase — always generate before coding
+
+Every software delivery team MUST begin with a collaborative planning phase \\
+before any agent writes code. Generate these tasks in sequence at the start:
+
+1. **project_initial_breakdown** (PM/orchestrator role): Read ALL context files, \\
+   milestone docs, and specifications. Produce a task breakdown at ticket level \\
+   (smaller than milestones — individual deliverables, not phases). Each ticket \\
+   must have: name, description, acceptance_criteria (binary checkable), \\
+   agent_role, dependencies, and demo_impact.
+
+2. **architecture_breakdown_review** (architect/tech_lead role): Read the PM's \\
+   breakdown. Validate technical feasibility, add component boundaries, identify \\
+   API contracts, flag items that are too large (split) or too small (merge). \\
+   Write architecture constraints doc.
+
+3. **qa_risk_breakdown_review** (qa/reviewer role): Read PM and architect docs. \\
+   For every ticket: add acceptance criteria, identify security/financial risks, \\
+   flag items that affect the demo path, add rollback plan for high-risk items.
+
+4. **project_plan_finalization** (PM/orchestrator role): Consolidate all three \\
+   inputs. Write the final project plan with every deliverable, create GitHub \\
+   issues for each, add to project board. This is the single source of truth \\
+   every coding agent reads before starting work.
+
+Only after these 4 tasks complete should any coding task begin.
+
+## Mandatory coding agent workflow
+
+Every agent that writes code MUST follow this workflow in its task description. \\
+Generate tasks with these explicit steps (this is non-negotiable for any software team):
+
+1. Read task + milestone goal + acceptance criteria + previous state of the code. \\
+   Call git_account get_repo_file or context_reader to read existing work first.
+2. State the scope explicitly: files to change, files NOT to touch, assumptions, risks.
+3. Sync git: pull latest main, inspect diff, create feature branch.
+4. Inspect existing tests and contracts before writing any code.
+5. Write or update tests FIRST (or alongside code) — unit + smoke + contract if API changes.
+6. Implement the smallest correct change that satisfies acceptance criteria.
+7. Run lint/type checks, unit tests, integration tests, smoke test. ALL must pass.
+8. Review own git diff — remove accidental changes.
+9. Update documentation IN THE SAME BRANCH (README, API docs, env vars, known limits).
+10. Commit and push the feature branch.
+11. Open PR with evidence: diff summary, test results, API sample output, demo impact.
+12. Request code review. Revise until reviewer approves.
+13. Reviewer (or release manager) merges.
+14. After merge: pull main, confirm state, notify PM with final status, changed files, \\
+    test results, remaining risks, and next recommended tasks.
+
+## Coding agent file-writing policy
+
+Coding agents MUST use `code_writer` tool to write source files. \\
+NEVER use bash echo/heredoc/printf for source code — bash single-quote escaping \\
+corrupts Python f-strings with syntax errors the agent cannot detect at write time.
+
+## Scope confirmation (required before any coding starts)
+
+Every coding task must produce a scope_confirmation block before writing code:
+- intended_change: what will be built
+- files_expected_to_change: explicit list
+- files_not_to_touch: explicit list of working components to protect
+- acceptance_criteria: binary pass/fail checklist
+- demo_impact: does this affect the investor demo? which step? fallback if broken?
+
+## Security/risk check (required before any PR for FinTech products)
+
+Before pushing, the coding agent must answer:
+- Did I touch credentials or auth?
+- Did I touch order execution or real-money logic?
+- Did I touch user permissions or risk limits?
+- Did I touch audit logs?
+If yes to any: the PR requires elevated review (architect + QA must approve, not just one reviewer).
+
+## No merge without evidence
+
+Code reviewers must NOT approve based on description alone. Required evidence:
+- test runner output (pass counts, no failures)
+- lint/type check output (zero errors)
+- smoke test result (service starts)
+- git diff summary (only expected files changed)
+- sample API response or screenshot if UI/backend changed
 """
 
 
@@ -139,6 +223,18 @@ def build_user_message(request: TeamCreationRequest) -> str:
     else:
         role_hints = "No role hints provided — infer all roles from the project purpose."
 
+    task_hints = ""
+    if request.desired_tasks:
+        lines = []
+        for t in request.desired_tasks:
+            deps = f" (depends on: {', '.join(t.dependencies)})" if t.dependencies else ""
+            lines.append(f"  - {t.name} → {t.agent_role}{deps}: {t.description}")
+        task_hints = (
+            "Desired task plan (treat as the definitive task list — do not omit these tasks):\n"
+            + "\n".join(lines)
+            + "\n"
+        )
+
     tools_note = ""
     if request.suggested_tools:
         lines = [f"  - **{t.name}**: {t.description}" for t in request.suggested_tools]
@@ -173,6 +269,7 @@ Purpose: {request.purpose}
 {constraints_info}
 {git_info}
 {context_section}
+{task_hints}
 {role_hints}
 
 {tools_note}Produce a full AgentPlan with every agent, their tools, all tasks, and the communication topology.

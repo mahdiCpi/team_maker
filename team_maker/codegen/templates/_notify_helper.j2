@@ -1,0 +1,106 @@
+{#-
+  _notify_helper.j2 — shared notification helper included by all runner templates.
+  Caller must have `import os` before the include.
+  Requires context variables: team, notifications (may be None).
+-#}
+import json as _json
+import smtplib as _smtplib
+import urllib.request as _urllib_request
+from datetime import datetime as _datetime, timezone as _timezone
+from email.mime.text import MIMEText as _MIMEText
+
+_TEAM_NAME = "{{ team.team_name }}"
+{% if notifications %}
+_WEBHOOK_URL = os.environ.get("{{ notifications.webhook_url_env }}", "")
+{% if notifications.email_to %}
+_ALERT_EMAIL_TO = "{{ notifications.email_to }}"
+_SMTP_HOST = "{{ notifications.smtp_host }}"
+_SMTP_PORT = {{ notifications.smtp_port }}
+_SMTP_USER_ENV = "{{ notifications.smtp_user_env }}"
+_SMTP_PASS_ENV = "{{ notifications.smtp_password_env }}"
+{% else %}
+_ALERT_EMAIL_TO = ""
+{% endif %}
+{% if notifications.telegram_enabled %}
+_TG_BOT_TOKEN = os.environ.get("{{ notifications.telegram_bot_token_env }}", "")
+_TG_CHAT_ID = os.environ.get("{{ notifications.telegram_chat_id_env }}", "")
+if not _TG_BOT_TOKEN or not _TG_CHAT_ID:
+    raise EnvironmentError(
+        "Telegram notifications are enabled but "
+        "{{ notifications.telegram_bot_token_env }} or "
+        "{{ notifications.telegram_chat_id_env }} is not set. "
+        "Export both env vars before starting the team."
+    )
+{% else %}
+_TG_BOT_TOKEN = ""
+_TG_CHAT_ID = ""
+{% endif %}
+{% else %}
+_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "")
+_ALERT_EMAIL_TO = ""
+_TG_BOT_TOKEN = ""
+_TG_CHAT_ID = ""
+{% endif %}
+
+
+def _notify(subject: str, body: str) -> None:
+    """Send alert via webhook, Telegram, and/or email. Never raises — delivery failures are printed only."""
+    ts = _datetime.now(_timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    full_subject = f"[{_TEAM_NAME}] {subject}"
+    header = f"Team: {_TEAM_NAME} | {ts}"
+    message = f"{full_subject}\n{'=' * min(len(full_subject), 80)}\n{header}\n\n{body}"
+
+    if _WEBHOOK_URL:
+        try:
+            _payload = _json.dumps({"text": message}).encode()
+            _req = _urllib_request.Request(
+                _WEBHOOK_URL,
+                data=_payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            _urllib_request.urlopen(_req, timeout=10)
+            print(f"[notify] alert sent → webhook: {subject}")
+        except Exception as _exc:
+            print(f"[notify] webhook delivery failed: {_exc}")
+
+    if _TG_BOT_TOKEN and _TG_CHAT_ID:
+        try:
+            _tg_url = f"https://api.telegram.org/bot{_TG_BOT_TOKEN}/sendMessage"
+            _tg_payload = _json.dumps({
+                "chat_id": _TG_CHAT_ID,
+                "text": message,
+                "parse_mode": "HTML",
+            }).encode()
+            _tg_req = _urllib_request.Request(
+                _tg_url,
+                data=_tg_payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            _urllib_request.urlopen(_tg_req, timeout=10)
+            print(f"[notify] alert sent → Telegram: {subject}")
+        except Exception as _exc:
+            print(f"[notify] Telegram delivery failed: {_exc}")
+
+    if not _WEBHOOK_URL and not _TG_BOT_TOKEN and not _ALERT_EMAIL_TO:
+        # No channel configured — log locally so the alert isn't lost silently
+        print(f"[alert] {message}")
+
+{% if notifications and notifications.email_to %}
+    _smtp_user = os.environ.get(_SMTP_USER_ENV, "")
+    _smtp_pass = os.environ.get(_SMTP_PASS_ENV, "")
+    if _smtp_user and _smtp_pass:
+        try:
+            _mime = _MIMEText(body)
+            _mime["Subject"] = full_subject
+            _mime["From"] = _smtp_user
+            _mime["To"] = _ALERT_EMAIL_TO
+            with _smtplib.SMTP(_SMTP_HOST, _SMTP_PORT) as _srv:
+                _srv.starttls()
+                _srv.login(_smtp_user, _smtp_pass)
+                _srv.sendmail(_smtp_user, [_ALERT_EMAIL_TO], _mime.as_string())
+            print(f"[notify] alert emailed to {_ALERT_EMAIL_TO}: {subject}")
+        except Exception as _exc:
+            print(f"[notify] email delivery failed: {_exc}")
+{% endif %}

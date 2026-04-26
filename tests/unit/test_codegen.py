@@ -131,6 +131,7 @@ def test_crewai_runner_sequential():
         team=team,
         orchestrator_role=None,
         topology_pattern="sequential",
+        notifications=None,
     )
     assert "from crewai import Agent, Task, Crew, Process" in out
     assert "Process.sequential" in out
@@ -145,6 +146,7 @@ def test_crewai_runner_hierarchical():
         team=team,
         orchestrator_role="coordinator",
         topology_pattern="hierarchical",
+        notifications=None,
     )
     assert "Process.hierarchical" in out
     assert 'manager_agent=agents["coordinator"]' in out
@@ -157,6 +159,7 @@ def test_crewai_runner_is_valid_python():
         team=team,
         orchestrator_role=None,
         topology_pattern="sequential",
+        notifications=None,
     )
     compile(out, "<run_example.py>", "exec")
 
@@ -174,6 +177,7 @@ def test_langgraph_runner_sequential():
         orchestrator_role=None,
         topology_pattern="sequential",
         topology_edges=[],
+        notifications=None,
     )
     assert "from langgraph.graph import StateGraph, END" in out
     assert "ROUTE_TO" not in out
@@ -192,6 +196,7 @@ def test_langgraph_runner_graph_with_conditional_edges():
         orchestrator_role=None,
         topology_pattern="graph",
         topology_edges=[["coordinator", "engineer"], ["engineer", "coordinator"]],
+        notifications=None,
     )
     assert "ROUTE_TO" in out
     assert "make_router" in out
@@ -207,6 +212,7 @@ def test_langgraph_runner_is_valid_python():
         orchestrator_role=None,
         topology_pattern="sequential",
         topology_edges=[],
+        notifications=None,
     )
     compile(out, "<run_example.py>", "exec")
 
@@ -223,6 +229,7 @@ def test_autogen_runner_contains_dual_compat():
         team=team,
         orchestrator_role=None,
         topology_pattern="round_robin",
+        notifications=None,
     )
     assert "def _run_v4" in out
     assert "def _run_v2" in out
@@ -237,6 +244,7 @@ def test_autogen_runner_is_valid_python():
         team=team,
         orchestrator_role="coordinator",
         topology_pattern="round_robin",
+        notifications=None,
     )
     compile(out, "<run_example.py>", "exec")
 

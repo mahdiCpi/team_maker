@@ -13,3 +13,4 @@ venv/
 generated_teams/
 conversation_history.txt
 final_state.txt
+to_run/
