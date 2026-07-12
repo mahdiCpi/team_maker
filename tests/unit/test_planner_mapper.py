@@ -107,6 +107,27 @@ def test_resolve_routing_falls_back_to_hardcoded_default():
 
 
 # ---------------------------------------------------------------------------
+# Story 0.2 — data-driven (no provider-name branching) contract
+# ---------------------------------------------------------------------------
+
+def test_infer_provider_xai_from_grok_prefix():
+    assert _infer_provider("grok-2") == "xai"
+
+
+def test_resolve_routing_grok_maps_to_xai_env():
+    routing = _resolve_routing("grok-2", None)
+    assert routing.provider == "xai"
+    assert routing.model == "grok-2"
+    assert routing.api_key_env == "XAI_API_KEY"
+
+
+def test_resolve_routing_unknown_prefix_is_ollama_without_env():
+    routing = _resolve_routing("mistral", None)
+    assert routing.provider == "ollama"
+    assert routing.api_key_env is None
+
+
+# ---------------------------------------------------------------------------
 # map_plan_to_team
 # ---------------------------------------------------------------------------
 

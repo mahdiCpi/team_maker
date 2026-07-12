@@ -11,16 +11,30 @@ _DEFAULT_ROUTING = ProviderRouting(
     api_key_env="ANTHROPIC_API_KEY",
 )
 
+# Provider facts as DATA, not control flow (AD-1/AD-8): infer the provider from a
+# model-name prefix, and map a provider to its API-key env var. These tables are
+# deliberately local — unifying them with team_maker/providers/registry.py (which
+# currently disagrees on env-var names and provider coverage) is Story 0.4.
+_MODEL_PREFIX_PROVIDERS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("gpt-", "o1-", "o3-", "o4-"), "openai"),
+    (("grok-",), "xai"),
+    (("claude-",), "anthropic"),
+)
+_FALLBACK_PROVIDER = "ollama"
+
+_PROVIDER_ENV_VARS: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "xai": "XAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+}
+
 
 def _infer_provider(model: str) -> str:
     m = model.lower()
-    if m.startswith(("gpt-", "o1-", "o3-", "o4-")):
-        return "openai"
-    if m.startswith(("grok-",)):
-        return "xai"
-    if m.startswith("claude-"):
-        return "anthropic"
-    return "ollama"
+    for prefixes, provider in _MODEL_PREFIX_PROVIDERS:
+        if m.startswith(prefixes):
+            return provider
+    return _FALLBACK_PROVIDER
 
 
 def _resolve_routing(
@@ -29,12 +43,7 @@ def _resolve_routing(
 ) -> ProviderRouting:
     if llm_override:
         provider = _infer_provider(llm_override)
-        api_key_env = (
-            "OPENAI_API_KEY" if provider == "openai"
-            else "XAI_API_KEY" if provider == "xai"
-            else "ANTHROPIC_API_KEY" if provider == "anthropic"
-            else None
-        )
+        api_key_env = _PROVIDER_ENV_VARS.get(provider)
         return ProviderRouting(provider=provider, model=llm_override, api_key_env=api_key_env)
     if default_llm:
         return ProviderRouting(
