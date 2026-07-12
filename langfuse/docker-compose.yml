@@ -1,0 +1,55 @@
+# Standalone Langfuse observability server for team_maker-generated teams.
+# Run once; every generated team can send traces here.
+#
+# Usage:
+#   docker compose up -d
+#
+# UI:      http://localhost:3000
+# Login:   admin@local.dev  /  localadmin
+#
+# Default project keys (auto-provisioned on first start via INIT vars):
+#   LANGFUSE_PUBLIC_KEY=pk-lf-smoke-team-local
+#   LANGFUSE_SECRET_KEY=sk-lf-smoke-team-local
+#
+# Uses host networking so Langfuse and Postgres communicate via localhost,
+# avoiding Docker bridge inter-container routing issues.
+# Postgres binds on port 5433 to avoid conflicts.
+
+services:
+  langfuse-postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+      PGPORT: "5433"
+    volumes:
+      - langfuse_postgres:/var/lib/postgresql/data
+
+  langfuse-server:
+    image: langfuse/langfuse:2
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - langfuse-postgres
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@localhost:5433/langfuse
+      NEXTAUTH_SECRET: "team_maker_local_secret"
+      SALT: "team_maker_local_salt"
+      NEXTAUTH_URL: "http://localhost:3000"
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+      # Auto-provision on first start (requires Langfuse 2.71+)
+      LANGFUSE_INIT_ORG_NAME: "team-maker"
+      LANGFUSE_INIT_PROJECT_NAME: "smoke-team"
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: "pk-lf-smoke-team-local"
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: "sk-lf-smoke-team-local"
+      LANGFUSE_INIT_USER_EMAIL: "admin@local.dev"
+      LANGFUSE_INIT_USER_PASSWORD: "localadmin"
+      LANGFUSE_INIT_USER_NAME: "Admin"
+
+volumes:
+  langfuse_postgres:
+    driver: local

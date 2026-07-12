@@ -36,8 +36,10 @@ class AgentSpec:
     tools: List[str]
     routing: ProviderRouting
     is_optional: bool = False
+    is_orchestrator: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
+        # LLM config is intentionally absent here — routing_config.yaml is the single source of truth.
         return {
             "role": self.role,
             "display_name": self.display_name,
@@ -46,8 +48,8 @@ class AgentSpec:
             "backstory": self.backstory,
             "capabilities": self.capabilities,
             "tools": self.tools,
-            "llm": self.routing.to_dict(),
             "is_optional": self.is_optional,
+            "is_orchestrator": self.is_orchestrator,
         }
 
 
@@ -86,4 +88,11 @@ class GeneratedTeam:
     constraints: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
     documentation_level: str = "standard"
+    # Framework selection and topology (set by planner; template path defaults to crewai/sequential)
+    primary_framework: str = "crewai"
+    topology_pattern: str = "sequential"
+    topology_edges: List[List[str]] = field(default_factory=list)
+    planner_reasoning: str = ""
+    # Runtime packaging — set by the pipeline, not the planner
+    uses_ollama_sidecar: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)

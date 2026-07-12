@@ -36,21 +36,16 @@ def test_render_includes_all_required_fields():
     agent = _make_agent()
     parsed = yaml.safe_load(gen.render(agent))
     for field in ("role", "display_name", "description", "goal", "backstory",
-                  "capabilities", "tools", "llm"):
+                  "capabilities", "tools", "is_optional", "is_orchestrator"):
         assert field in parsed, f"Missing field: {field}"
 
 
-def test_render_llm_block():
+def test_render_does_not_include_llm():
+    # LLM config lives in routing_config.yaml — agents/*.yaml must not duplicate it.
     gen = AgentGenerator()
-    agent = _make_agent(
-        routing=ProviderRouting(
-            provider="openai", model="gpt-4o", api_key_env="OPENAI_API_KEY"
-        )
-    )
+    agent = _make_agent()
     parsed = yaml.safe_load(gen.render(agent))
-    assert parsed["llm"]["provider"] == "openai"
-    assert parsed["llm"]["model"] == "gpt-4o"
-    assert parsed["llm"]["api_key_env"] == "OPENAI_API_KEY"
+    assert "llm" not in parsed
 
 
 def test_render_optional_flag():
@@ -60,14 +55,14 @@ def test_render_optional_flag():
     assert parsed["is_optional"] is True
 
 
+def test_render_orchestrator_flag():
+    gen = AgentGenerator()
+    agent = _make_agent(is_orchestrator=True)
+    parsed = yaml.safe_load(gen.render(agent))
+    assert parsed["is_orchestrator"] is True
+
+
 def test_filename_uses_role():
     gen = AgentGenerator()
     agent = _make_agent(role="backend_engineer")
     assert gen.filename(agent) == "backend_engineer.yaml"
-
-
-def test_llm_block_omits_api_key_env_when_absent():
-    gen = AgentGenerator()
-    agent = _make_agent(routing=ProviderRouting(provider="ollama", model="llama3.2"))
-    parsed = yaml.safe_load(gen.render(agent))
-    assert "api_key_env" not in parsed["llm"]

@@ -1,0 +1,45 @@
+# team_maker — LLM planner example (no desired_roles => planner infers everything)
+# Run with:  python -m team_maker create --config examples/planner_example.yaml --overwrite
+
+team_name: "Data Pipeline Team"
+purpose: >
+  Build a production-grade data ingestion and transformation pipeline that pulls
+  events from Kafka, normalises them with Python, persists them in PostgreSQL,
+  and exposes read-only analytics APIs. Include observability, CI/CD, and
+  automated tests end-to-end.
+
+output_path: "./generated_teams/data_pipeline_team"
+stack: "Python 3.12, FastAPI, Kafka, PostgreSQL, Docker, GitHub Actions, OpenTelemetry"
+
+# Planner LLM — drives the design of the team itself
+planning_llm:
+  provider: openai
+  model: gpt-4o-mini
+  api_key_env: OPENAI_API_KEY
+
+# Runtime default LLM — used by each generated agent unless planner overrides it
+default_llm:
+  provider: openai
+  model: gpt-4o-mini
+  api_key_env: OPENAI_API_KEY
+
+framework: crewai
+state_backend: file
+documentation_level: standard
+overwrite: true
+
+tags:
+  - data
+  - streaming
+  - observability
+
+constraints:
+  - All code must include type hints and pytest tests
+  - All services must emit OpenTelemetry traces
+  - No secrets in source control
+
+# desired_roles is intentionally empty — the planner will infer roles, tools, topology.
+
+metadata:
+  project: data-platform
+  owner: platform-team

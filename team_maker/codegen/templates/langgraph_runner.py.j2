@@ -1,0 +1,303 @@
+"""
+run_example.py — LangGraph runner for {{ team.team_name }}
+
+Topology: {{ topology_pattern }}
+{% if topology_edges %}
+Edges: {% for src, dst in topology_edges %}{{ src }}→{{ dst }}{% if not loop.last %}, {% endif %}{% endfor %}
+
+{% endif %}
+Edit agent configs in agents/ and routing in routing_config.yaml, then re-run.
+
+Usage:
+    pip install -r requirements.txt
+    python run_example.py
+"""
+from __future__ import annotations
+
+import os
+import re
+import time as _time
+import yaml
+from pathlib import Path
+from typing import TypedDict, Optional
+
+from langgraph.graph import StateGraph, END
+from langchain_core.messages import HumanMessage, SystemMessage
+
+{% include '_notify_helper.j2' %}
+
+# ── Langfuse observability (optional) ────────────────────────────────────────
+# Set LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY + LANGFUSE_HOST to enable.
+# Uses the Langfuse 2.x direct SDK to create one trace per graph run.
+_LANGFUSE = None
+_LANGFUSE_HOST = os.environ.get("LANGFUSE_HOST", "http://localhost:3000")
+if os.environ.get("LANGFUSE_PUBLIC_KEY"):
+    try:
+        from langfuse import Langfuse as _LangfuseClient
+        _LANGFUSE = _LangfuseClient(
+            public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
+            secret_key=os.environ.get("LANGFUSE_SECRET_KEY", ""),
+            host=_LANGFUSE_HOST,
+        )
+        print(f"[langfuse] tracing enabled → {_LANGFUSE_HOST}")
+    except Exception as _lf_err:
+        print(f"[langfuse] init skipped — {_lf_err}")
+# ─────────────────────────────────────────────────────────────────────────────
+
+TEAM_ROOT = Path(__file__).parent
+{% if orchestrator_role %}
+ORCHESTRATOR_ROLE = "{{ orchestrator_role }}"
+{% else %}
+ORCHESTRATOR_ROLE = None
+{% endif %}
+
+with (TEAM_ROOT / "routing_config.yaml").open() as _f:
+    _ROUTING: dict = yaml.safe_load(_f).get("routing", {})
+
+# Prevent token-limit blow-up as agent outputs chain through the graph.
+_MAX_CONTEXT_CHARS = 6000
+# Retry budget for transient rate-limit errors.
+_MAX_RETRIES = 3
+
+
+def _validate_env() -> None:
+    """Fail fast if any required API key is missing before spending any credits."""
+    missing = []
+    for role, cfg in _ROUTING.items():
+        env = cfg.get("api_key_env")
+        if env and not os.environ.get(env):
+            missing.append(f"  {role}: {env}")
+    if missing:
+        msg = "Missing required API keys — set these environment variables before running:\n" + "\n".join(missing)
+        _notify("STARTUP BLOCKED — missing API keys", msg)
+        raise SystemExit(f"\n[error] {msg}")
+
+
+def _invoke_with_retry(llm, messages: list, role: str):
+    """Call llm.invoke() with retry for rate limits; notify and re-raise on hard errors."""
+    last_exc: Exception = RuntimeError("unreachable")
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            return llm.invoke(messages)
+        except Exception as exc:
+            last_exc = exc
+            err = str(exc)
+            name = type(exc).__name__
+
+            is_rate = any(x in err.lower() or x in name.lower()
+                          for x in ("ratelimit", "rate_limit", "429", "529", "overloaded"))
+            is_token = any(x in err.lower()
+                           for x in ("context_window", "token", "max_tokens", "too long", "length"))
+            is_auth = any(x in err.lower() or x in name.lower()
+                          for x in ("authentication", "api_key", "unauthorized", "invalid_api"))
+
+            if is_token:
+                _notify(
+                    f"TOKEN LIMIT — {role}",
+                    f"Context window exceeded for agent '{role}'.\n\nError: {name}: {err}",
+                )
+                raise
+
+            if is_auth:
+                _notify(
+                    f"AUTH ERROR — {role}",
+                    f"API key rejected for agent '{role}'.\n\nError: {name}: {err}",
+                )
+                raise
+
+            if is_rate and attempt < _MAX_RETRIES:
+                wait = 2 ** attempt
+                msg = f"Rate limit on agent '{role}' (attempt {attempt}/{_MAX_RETRIES}), retrying in {wait}s."
+                print(f"[retry] {msg}")
+                _notify(f"Rate limit — {role}", msg)
+                _time.sleep(wait)
+                continue
+
+            # Unknown or rate-limit after exhausting retries
+            _notify(
+                f"LLM ERROR — {role}",
+                f"Attempt {attempt}/{_MAX_RETRIES} failed for agent '{role}'.\n\nError: {name}: {err}",
+            )
+            raise
+
+    raise last_exc
+
+
+class TeamState(TypedDict):
+    goal: str
+    current_output: str
+    messages: list
+    completed: list
+    next_node: Optional[str]
+
+
+def _build_llm(role: str):
+    cfg = _ROUTING.get(role, {})
+    provider = cfg.get("provider", "anthropic")
+    model = cfg.get("model", "claude-sonnet-4-6")
+    api_key_env = cfg.get("api_key_env")
+    if api_key_env and not os.environ.get(api_key_env):
+        print(f"[warn] {api_key_env} not set; agent {role} may fail.")
+    if provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+        return ChatAnthropic(model=model)
+    if provider == "openai":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(model=model)
+    from langchain_ollama import OllamaLLM
+    return OllamaLLM(model=model)
+
+
+def make_agent_node(role: str):
+    cfg_path = TEAM_ROOT / "agents" / f"{role}.yaml"
+    with cfg_path.open() as f:
+        cfg = yaml.safe_load(f)
+    llm = _build_llm(role)
+
+    def node(state: TeamState) -> TeamState:
+        # Truncate prior context to prevent token limit growth across nodes.
+        prior = state.get("current_output", "")[-_MAX_CONTEXT_CHARS:]
+        messages = [
+            SystemMessage(content=f"You are {cfg['role']}. {cfg['backstory']}"),
+            HumanMessage(
+                content=(
+                    f"Goal: {cfg['goal']}\n\n"
+                    f"Project goal: {state['goal']}\n\n"
+                    f"Previous output:\n{prior}\n\n"
+                    "Advance the project goal based on your role.\n"
+{% if topology_pattern == "graph" %}
+                    "If you want to route to a specific next agent, end your response with "
+                    "'ROUTE_TO: <role_name>' on its own line."
+{% endif %}
+                )
+            ),
+        ]
+        response = _invoke_with_retry(llm, messages, role)
+        content = response.content if hasattr(response, "content") else str(response)
+
+        next_node = None
+{% if topology_pattern == "graph" %}
+        match = re.search(r"ROUTE_TO:\s*(\w+)", content)
+        if match:
+            next_node = match.group(1)
+            content = content[:match.start()].rstrip()
+{% endif %}
+
+        return {
+            **state,
+            "current_output": content,
+            "messages": state.get("messages", []) + [{"role": role, "content": content}],
+            "completed": state.get("completed", []) + [role],
+            "next_node": next_node,
+        }
+
+    node.__name__ = role
+    return node
+
+{% if topology_pattern == "graph" and topology_edges %}
+
+_EDGE_MAP: dict[str, list[str]] = {}
+{% for src, dst in topology_edges %}
+_EDGE_MAP.setdefault("{{ src }}", []).append("{{ dst }}")
+{% endfor %}
+
+
+def make_router(role: str):
+    default_targets = _EDGE_MAP.get(role, [END])
+
+    def router(state: TeamState) -> str:
+        explicit = state.get("next_node")
+        if explicit and explicit in _EDGE_MAP.get(role, []):
+            return explicit
+        return default_targets[0] if default_targets else END
+
+    router.__name__ = f"route_{role}"
+    return router
+{% endif %}
+
+
+def build_graph():
+    workflow = StateGraph(TeamState)
+
+{% for agent in team.agents %}
+    workflow.add_node("{{ agent.role }}", make_agent_node("{{ agent.role }}"))
+{% endfor %}
+
+{% if topology_pattern == "graph" and topology_edges %}
+    workflow.set_entry_point("{{ topology_edges[0][0] }}")
+{% for src, dst in topology_edges %}
+    workflow.add_conditional_edges("{{ src }}", make_router("{{ src }}"), {"{{ dst }}": "{{ dst }}", END: END})
+{% endfor %}
+{% elif orchestrator_role %}
+    worker_roles = [{% for a in team.agents %}{% if a.role != orchestrator_role %}"{{ a.role }}"{% if not loop.last %}, {% endif %}{% endif %}{% endfor %}]
+    workflow.set_entry_point("{{ orchestrator_role }}")
+    if worker_roles:
+        workflow.add_edge("{{ orchestrator_role }}", worker_roles[0])
+        for src_r, dst_r in zip(worker_roles[:-1], worker_roles[1:]):
+            workflow.add_edge(src_r, dst_r)
+        workflow.add_edge(worker_roles[-1], END)
+    else:
+        workflow.add_edge("{{ orchestrator_role }}", END)
+{% else %}
+    _roles = [{% for a in team.agents %}"{{ a.role }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+    workflow.set_entry_point(_roles[0])
+    for _src, _dst in zip(_roles[:-1], _roles[1:]):
+        workflow.add_edge(_src, _dst)
+    workflow.add_edge(_roles[-1], END)
+{% endif %}
+
+    return workflow.compile()
+
+
+def main() -> None:
+    _validate_env()
+
+    graph = build_graph()
+    initial: TeamState = {
+        "goal": "Build a production-ready {{ team.team_name }} following best practices.",
+        "current_output": "",
+        "messages": [],
+        "completed": [],
+        "next_node": None,
+    }
+    try:
+        _lf_trace = (
+            _LANGFUSE.trace(name="{{ team.team_name }}", input=initial, tags=["langgraph", "team_maker"])
+            if _LANGFUSE else None
+        )
+        result = graph.invoke(initial)
+        completed = result.get("completed", [])
+        if _lf_trace:
+            _lf_trace.update(output=result.get("current_output", "")[:2000])
+            _LANGFUSE.flush()
+        _notify(
+            "Run completed successfully",
+            f"All {len(completed)} node(s) finished: {', '.join(completed)}\n\n"
+            f"Final output:\n{result.get('current_output', '')[:2000]}",
+        )
+        print("\n--- RESULT ---")
+        print(result["current_output"])
+    except KeyboardInterrupt:
+        _notify("Run interrupted", "The run was stopped by a keyboard interrupt (SIGINT).")
+        raise SystemExit(1)
+    except SystemExit:
+        raise
+    except Exception as exc:
+        err_type = type(exc).__name__
+        err_msg = str(exc)
+        if _lf_trace:
+            _lf_trace.update(output=f"FAILED: {err_type}: {err_msg[:500]}")
+            _LANGFUSE.flush()
+        body = (
+            f"Error type:    {err_type}\n"
+            f"Error message: {err_msg}\n\n"
+            f"Partial results (if any) are in: state/team_state.json"
+        )
+        _notify(f"Run FAILED — {err_type}", body)
+        print(f"\n[error] {err_type}: {err_msg}")
+        print("Partial results saved to: state/team_state.json")
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()

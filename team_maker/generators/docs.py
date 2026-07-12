@@ -81,6 +81,7 @@ python run_example.py
 
     def render_how_to_run(self, team: GeneratedTeam) -> str:
         agent_env_vars = self._agent_env_vars(team)
+        compose_section = self._compose_section(team)
         return f"""\
 # How to Run: {team.team_name}
 
@@ -93,8 +94,8 @@ python run_example.py
 ## Environment Variables
 
 {agent_env_vars}
-
-## Running the Example
+{compose_section}
+## Running the Example (host)
 
 ```bash
 python run_example.py
@@ -301,6 +302,39 @@ Ensure Ollama is running locally: `ollama serve`
             deps = ", ".join(f"`{d}`" for d in t.dependencies) if t.dependencies else "_none_"
             lines.append(f"- **`{t.name}`** → agent: `{t.agent_role}`, depends on: {deps}")
         return "\n".join(lines)
+
+    def _compose_section(self, team: GeneratedTeam) -> str:
+        """If this team uses an Ollama sidecar, include compose usage docs."""
+        if not getattr(team, "uses_ollama_sidecar", False):
+            return ""
+        ollama_agents = [a for a in team.agents if a.routing.provider == "ollama"]
+        models = sorted({a.routing.model for a in ollama_agents})
+        roles = ", ".join(f"`{a.role}`" for a in ollama_agents)
+        return f"""
+
+## Running with Ollama Sidecar (recommended)
+
+This team was generated with local-model agents ({roles}). A
+`docker-compose.yml` and `Dockerfile` are included that bring up an Ollama
+service, pull the required models on first boot, and run the team in an
+isolated container:
+
+```bash
+# Build + start the stack. First run downloads model weights; be patient.
+docker compose up --build
+
+# Later runs reuse cached weights via the `ollama_models` volume.
+docker compose up
+```
+
+Models pulled at startup: {", ".join(f"`{m}`" for m in models)}.
+
+If a tag isn't found in the Ollama registry, the init container falls back
+to the base tag (e.g. `qwen3:99b` → `qwen3`) so the team still boots.
+
+See `docs/local_models.md` in the team_maker repo for hardware guidance on
+which Ollama models fit your host.
+"""
 
     def _agent_env_vars(self, team: GeneratedTeam) -> str:
         seen: dict[str, str] = {}

@@ -6,10 +6,10 @@ from pydantic import ValidationError
 
 from team_maker.schema.request import (
     DocumentationLevel,
+    FrameworkChoice,
     ProviderConfig,
     RoleDefinition,
     TeamCreationRequest,
-    TeamTemplateId,
 )
 
 
@@ -28,7 +28,7 @@ def test_minimal_valid_request():
         ],
     )
     assert req.team_name == "My Team"
-    assert req.template == TeamTemplateId.SOFTWARE_DELIVERY
+    assert req.framework == FrameworkChoice.CREWAI
     assert req.documentation_level == DocumentationLevel.STANDARD
     assert req.overwrite is False
 
@@ -96,14 +96,14 @@ def test_too_short_purpose_fails():
         )
 
 
-def test_empty_desired_roles_fails():
-    with pytest.raises(ValidationError):
-        TeamCreationRequest(
-            team_name="My Team",
-            purpose="A long enough purpose statement for validation.",
-            output_path="/tmp/x",
-            desired_roles=[],
-        )
+def test_empty_desired_roles_is_valid():
+    req = TeamCreationRequest(
+        team_name="My Team",
+        purpose="A long enough purpose statement for validation.",
+        output_path="/tmp/x",
+        desired_roles=[],
+    )
+    assert req.desired_roles == []
 
 
 def test_duplicate_role_names_fails():
