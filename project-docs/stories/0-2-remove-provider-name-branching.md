@@ -4,7 +4,7 @@ baseline_commit: 7c158cf
 
 # Story 0.2: Remove provider-name branching from model mapping
 
-Status: review
+Status: done
 
 <!-- RECONCILIATION STORY (Epic 0) — see project-docs/stories/reconciliation-notes.md (divergence row 2).
      Behavior-preserving refactor of team_maker/llm/mapper.py. The existing unit tests in
@@ -154,3 +154,7 @@ claude-opus-4-8 (Claude Code, dev-story workflow)
   module-level data tables (`_MODEL_PREFIX_PROVIDERS`, `_PROVIDER_ENV_VARS`); no provider-name/prefix
   branching remains. Added 3 guard tests. Full suite **185 passed**, mapper.py ruff clean, behavior
   unchanged. Status → review.
+- 2026-07-12 — Independent code review (adversarial, Sonnet): **APPROVE**, zero findings. Verified
+  behavior-preservation for all inputs, no branching remains, scope limited to mapper.py + appended tests,
+  registry non-unification honored, 185 tests pass. Reviewer independently confirmed the test-file lint is
+  pre-existing. Status → done.
