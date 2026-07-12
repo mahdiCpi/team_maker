@@ -1,9 +1,10 @@
 """LLM-driven team planner — replaces the hardcoded template system."""
 from __future__ import annotations
 
+from team_maker.adapters.providers import create_provider
 from team_maker.llm.prompts import build_system_prompt, build_user_message
-from team_maker.llm.providers import LLMProvider, create_provider
 from team_maker.llm.schemas import AgentPlan
+from team_maker.ports.llm_provider import LLMProvider
 from team_maker.schema.request import TeamCreationRequest
 
 

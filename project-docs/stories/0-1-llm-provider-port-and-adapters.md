@@ -4,7 +4,7 @@ baseline_commit: 7fe64734f86c082b2d02894e564a0eb3bf8dc2bf
 
 # Story 0.1: Introduce the LLMProvider port and move providers behind adapters
 
-Status: ready-for-dev
+Status: review
 
 <!-- RECONCILIATION STORY (Epic 0) — see project-docs/stories/reconciliation-notes.md.
      This is a REFACTOR of existing, test-covered code merged from guru-explore, NOT greenfield.
@@ -50,63 +50,63 @@ rather than a new code branch (AD-2, AD-8).
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Define the `LLMProvider` port** (AC: 1, 5)
-  - [ ] Create `team_maker/ports/__init__.py` and `team_maker/ports/llm_provider.py`. Define
+- [x] **Task 1 — Define the `LLMProvider` port** (AC: 1, 5)
+  - [x] Create `team_maker/ports/__init__.py` and `team_maker/ports/llm_provider.py`. Define
     `LLMProvider` as a `typing.Protocol` (with `@runtime_checkable` only if a runtime isinstance check
     is actually needed). Keep the **existing** method `complete_structured(self, system: str, user:
     str, response_model: type[T]) -> T` and the module `TypeVar("T", bound=BaseModel)`.
-  - [ ] Start the module with `from __future__ import annotations`; full type hints; built-in generics.
+  - [x] Start the module with `from __future__ import annotations`; full type hints; built-in generics.
     Port name = capability name `LLMProvider` (spine convention: ports are `<Capability>`, adapters are
     `<impl>_<capability>`).
-  - [ ] **Signature decision (record in the module docstring + Change Log):** the real code uses
+  - [x] **Signature decision (record in the module docstring + Change Log):** the real code uses
     `complete_structured(...) -> T`, which **supersedes** the `complete(...) -> str` sketch in Story
     1.2 Task 1. The port standardizes on `complete_structured`. Flag that epics.md Story 1.2 and its
     story file should be updated to match (follow-up, not done here).
 
-- [ ] **Task 2 — Move concrete providers under `adapters/providers/`** (AC: 2, 5)
-  - [ ] Create `team_maker/adapters/__init__.py` and `team_maker/adapters/providers/__init__.py`.
+- [x] **Task 2 — Move concrete providers under `adapters/providers/`** (AC: 2, 5)
+  - [x] Create `team_maker/adapters/__init__.py` and `team_maker/adapters/providers/__init__.py`.
     Move the five provider classes out of `llm/providers.py` into `adapters/providers/` (either one
     module per provider — `anthropic.py`, `openai.py`, `xai.py`, `ollama.py`, `google.py` — or a single
     `providers.py`; prefer per-provider modules for clarity, but keep it a mechanical move).
-  - [ ] Move the shared helper `_closest_model(...)` alongside them (e.g.
+  - [x] Move the shared helper `_closest_model(...)` alongside them (e.g.
     `adapters/providers/_model_match.py` or keep private in the shared module). Each adapter keeps its
     lazy `import <sdk>` inside `complete_structured` and its `os.environ.get(api_key_env)` read
     **exactly as-is** (AC 6).
-  - [ ] Adapters satisfy the Protocol structurally; explicit subclassing is optional. Do NOT add an SDK
+  - [x] Adapters satisfy the Protocol structurally; explicit subclassing is optional. Do NOT add an SDK
     import at module top-level (keep the lazy-import-inside-method pattern that makes optional extras
     work).
 
-- [ ] **Task 3 — Data-driven `create_provider` factory** (AC: 3)
-  - [ ] Replace the `if provider == "anthropic" / "openai" / ...` chain with a registry, e.g.
+- [x] **Task 3 — Data-driven `create_provider` factory** (AC: 3)
+  - [x] Replace the `if provider == "anthropic" / "openai" / ...` chain with a registry, e.g.
     `_ADAPTERS: dict[str, Callable[[ProviderConfig], LLMProvider]]` (or `dict[str, type]` + a small
     builder) keyed by lowercased provider id, preserving each provider's default `model`/`api_key_env`/
     `base_url` fallbacks. Keep `create_provider(config: ProviderConfig) -> LLMProvider` and its
     `ValueError("Unknown provider '{provider}'. Supported: ...")` behavior identical.
-  - [ ] Place the factory + registry in `team_maker/adapters/providers/__init__.py` (composition edge).
+  - [x] Place the factory + registry in `team_maker/adapters/providers/__init__.py` (composition edge).
     Core (`planner.py`) may import the port from `ports/` and `create_provider` from `adapters/` as a
     composition-root convenience; it must NOT import individual concrete adapter classes.
 
-- [ ] **Task 4 — Update call sites + back-compat** (AC: 4)
-  - [ ] `team_maker/llm/planner.py`: import `LLMProvider` from `team_maker.ports.llm_provider` and
+- [x] **Task 4 — Update call sites + back-compat** (AC: 4)
+  - [x] `team_maker/llm/planner.py`: import `LLMProvider` from `team_maker.ports.llm_provider` and
     `create_provider` from `team_maker.adapters.providers`. `TeamPlanner.__init__(provider: LLMProvider)`
     already injects the port — keep that; only `TeamPlanner.from_request` uses the factory.
-  - [ ] `team_maker/llm/__init__.py`: update its re-exports. To avoid test churn, **re-export**
+  - [x] `team_maker/llm/__init__.py`: update its re-exports. To avoid test churn, **re-export**
     `LLMProvider`, `create_provider`, and the concrete providers from `team_maker.llm.providers` as
     thin back-compat aliases (import from the new locations). Keep `team_maker/llm/providers.py` as a
     shim module that re-exports from `adapters/providers/` + `ports/` (or update the tests — see Task 5;
     prefer shims to minimize diff).
-  - [ ] Run `make lint` / `make fmt` (ruff, line-length 100, rules E,F,I,N,W).
+  - [x] Run `make lint` / `make fmt` (ruff, line-length 100, rules E,F,I,N,W).
 
-- [ ] **Task 5 — Tests stay green** (AC: 4, 5)
-  - [ ] `tests/unit/test_model_registry.py` imports `create_provider`, `GoogleProvider`, `XAIProvider`
+- [x] **Task 5 — Tests stay green** (AC: 4, 5)
+  - [x] `tests/unit/test_model_registry.py` imports `create_provider`, `GoogleProvider`, `XAIProvider`
     from `team_maker.llm.providers` and calls `complete_structured`. Either (a) keep those symbols
     importable from `team_maker.llm.providers` via the shim (preferred — zero test edits), or (b) update
     the imports to the new adapter paths. Do not weaken any assertion.
-  - [ ] Add a focused test asserting the port location + shape: `team_maker.ports.llm_provider.LLMProvider`
+  - [x] Add a focused test asserting the port location + shape: `team_maker.ports.llm_provider.LLMProvider`
     exists and a fake object with a `complete_structured` method satisfies it (structural check), and
     that `create_provider` has no `if provider ==` branching by asserting all six/five known ids resolve
     via the registry and an unknown id raises `ValueError`.
-  - [ ] Run the **full** unit suite: `python -m pytest tests/unit -q` → expect **172 passed** (or 172 +
+  - [x] Run the **full** unit suite: `python -m pytest tests/unit -q` → expect **172 passed** (or 172 +
     the new test). No behavior regressions.
 
 ## Dev Notes
@@ -202,13 +202,56 @@ rather than a new code branch (AD-2, AD-8).
 
 ### Agent Model Used
 
-_(to be filled by dev-story)_
+claude-opus-4-8 (Claude Code, dev-story workflow)
 
 ### Debug Log References
 
+- `python -m pytest tests/unit -q` → **182 passed** (172 pre-existing + 10 new). No regressions.
+- `python -m ruff check` on all new/changed files → **All checks passed** (after autofix combined the
+  shim's port imports).
+- Import smoke: `from team_maker.llm.providers import GoogleProvider, XAIProvider` (shim) and
+  `from team_maker.ports.llm_provider import LLMProvider` both resolve; `python -m team_maker
+  list-templates` and `keys status` unaffected.
+
 ### Completion Notes List
 
+- **Port (Task 1):** `team_maker/ports/llm_provider.py` defines `LLMProvider` as a `@runtime_checkable`
+  `typing.Protocol` with the **existing** `complete_structured(system, user, response_model: type[T]) -> T`
+  signature (kept the `TypeVar` bound to `BaseModel`). Documented that this supersedes Story 1.2's
+  `complete() -> str` sketch — flagged for 1.2, not changed here.
+- **Adapters (Task 2):** the five providers moved verbatim (behavior-identical) to
+  `team_maker/adapters/providers/<impl>_provider.py`; they satisfy the port structurally (no subclassing).
+  Shared `_closest_model` moved to `adapters/providers/_model_match.py`. Modules named `*_provider.py`
+  to avoid shadowing the top-level `anthropic`/`openai`/`google` packages. Lazy SDK imports preserved.
+- **Factory (Task 3):** `create_provider` is now a registry lookup (`_ADAPTERS: dict[str, Callable]`) — no
+  `if provider == ...` chain. Signature, per-provider defaults, and the exact `ValueError("Unknown
+  provider '...'. Supported: ...")` message are preserved (registry insertion order reproduces the old
+  "anthropic | openai | xai | google | ollama" list).
+- **Call sites (Task 4):** `llm/planner.py` imports the port from `ports/` and `create_provider` from
+  `adapters/providers`; `llm/__init__.py` re-exports the concretes from their new home. `llm/providers.py`
+  kept as a **back-compat shim** re-exporting port + adapters, so `tests/unit/test_model_registry.py`
+  needed zero edits.
+- **Scope guards honored:** no change to key sourcing (env-var reads preserved — Story 0.4); mapper
+  de-branching untouched (Story 0.2); no `crewai` import introduced.
+- **Follow-up:** the shim can be removed once all imports migrate; track in deferred-work if kept. Story
+  1.2's port task should be updated to `complete_structured`.
+
 ### File List
+
+- `team_maker/ports/__init__.py` (new)
+- `team_maker/ports/llm_provider.py` (new — `LLMProvider` Protocol + `T`)
+- `team_maker/adapters/__init__.py` (new)
+- `team_maker/adapters/providers/__init__.py` (new — data-driven `create_provider` + re-exports)
+- `team_maker/adapters/providers/_model_match.py` (new — `_closest_model`)
+- `team_maker/adapters/providers/anthropic_provider.py` (new — moved)
+- `team_maker/adapters/providers/openai_provider.py` (new — moved)
+- `team_maker/adapters/providers/xai_provider.py` (new — moved)
+- `team_maker/adapters/providers/ollama_provider.py` (new — moved)
+- `team_maker/adapters/providers/google_provider.py` (new — moved)
+- `team_maker/llm/providers.py` (modified — now a back-compat re-export shim)
+- `team_maker/llm/__init__.py` (modified — re-export from `adapters/providers`)
+- `team_maker/llm/planner.py` (modified — import port from `ports/`, factory from `adapters/`)
+- `tests/unit/test_llm_provider_port.py` (new — port shape + data-driven factory)
 
 ## Change Log
 
@@ -216,3 +259,7 @@ _(to be filled by dev-story)_
   guru-explore code: `llm/providers.py`, `llm/planner.py`, `llm/__init__.py`, `test_model_registry.py`;
   architecture spine; project-context; prior stories 1.1/1.2). Pure-refactor scope, behavior-preserving,
   172-tests-green gate. Status → ready-for-dev.
+- 2026-07-12 — Implemented via dev-story. Migrated `LLMProvider` → `team_maker/ports/`, moved the five
+  providers → `team_maker/adapters/providers/`, made `create_provider` data-driven, kept
+  `llm/providers.py` as a back-compat shim. Added `tests/unit/test_llm_provider_port.py`. Full suite
+  **182 passed**, ruff clean. Behavior unchanged. Status → review.
