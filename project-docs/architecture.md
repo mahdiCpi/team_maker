@@ -6,6 +6,15 @@
 author's design-intent document; this file is a verified, navigation-oriented restatement
 plus notes on what the code actually does.
 
+> ⚠️ **Superseded in part (2026-07-12).** This describes the original single-pass factory. Since the
+> `guru-explore` merge the package also contains an **LLM-driven planning path** (`team_maker/llm/`),
+> a **Jinja code-generation engine** (`team_maker/codegen/`), and **framework adapters**
+> (`team_maker/frameworks/`: crewai/langgraph/autogen) — a richer design than the pipeline described
+> here. That code **diverges from the target ports-and-adapters spine** (see
+> `architecture/architecture-team_maker-2026-07-05/ARCHITECTURE-SPINE.md`), which **remains the
+> target**. Migrating the merged code onto the spine is **Epic 0**. See
+> [reconciliation-notes.md](stories/reconciliation-notes.md).
+
 ---
 
 ## 1. Executive summary

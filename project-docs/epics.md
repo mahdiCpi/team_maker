@@ -112,6 +112,15 @@ _(from Architecture spine)_
 
 ## Epic List
 
+### Epic 0: Reconcile existing code to the architecture spine
+The project already contains a substantial pre-plan implementation (merged from `guru-explore`):
+an LLM-driven planner (`team_maker/llm/`), a Jinja code-generation engine (`team_maker/codegen/`),
+framework adapters (`team_maker/frameworks/`), and a real end-to-end `pipeline/runner.py`. This
+code predates the architecture spine and **diverges from several binding invariants**. Epic 0
+migrates it onto the ports-and-adapters spine so Epics 1–4 build on a conformant base rather than
+greenfield. Retire the architectural debt before adding features.
+**ADs addressed:** AD-1, AD-2, AD-6, AD-8 · **See:** [reconciliation-notes.md](stories/reconciliation-notes.md)
+
 ### Epic 1: Describe → build → run a team, end to end (headless core)
 The walking skeleton, usable from the CLI: a user goes from plain-language intent to a running
 team's result. Composer (conversational, validate-and-repair, per-agent routing) → Factory
@@ -136,9 +145,70 @@ A stable public API (compose-and-create, run) and CLI sufficient to create, run,
 in third-party software without the UI.
 **FRs covered:** FR-16, FR-17, FR-18
 
+## Epic 0: Reconcile existing code to the architecture spine
+
+Migrate the merged pre-plan implementation (`llm/`, `codegen/`, `frameworks/`, `pipeline/`) onto
+the ports-and-adapters spine. These stories are refactors of **existing, working, test-covered
+code** — not greenfield. Each must keep the unit suite green.
+
+### Story 0.1: Introduce the LLMProvider port and move providers behind adapters
+As the codebase, I want a single `LLMProvider` port with concrete adapters,
+so that the core never depends on a provider SDK and adding a provider is config, not code.
+**Acceptance Criteria:**
+**Given** the existing `team_maker/llm/providers.py` (ABC `LLMProvider` with `complete_structured`,
+plus `create_provider`)
+**When** it is migrated
+**Then** a `team_maker/ports/llm_provider.py` Protocol defines the seam, concrete providers move to
+`team_maker/adapters/providers/`, and core modules import only the port
+**And** the existing provider tests pass unchanged or are updated in place. (AD-2, AD-8)
+
+### Story 0.2: Remove provider-name branching from model mapping
+As the codebase, I want provider selection to be data-driven,
+so that no module branches on provider name (AD-1/AD-8).
+**Acceptance Criteria:**
+**Given** `team_maker/llm/mapper.py::_infer_provider` (branches on `gpt-`/`claude-`/`grok-` prefixes)
+**When** it is refactored
+**Then** provider/model resolution is driven by config/registry data, not name prefixes
+**And** mixed-provider mapping tests still pass. (AD-1, AD-8)
+
+### Story 0.3: Put CrewAI behind the RuntimeEngine port
+As the codebase, I want CrewAI isolated behind a runtime port,
+so that the core stays framework-agnostic and the CrewAI version is gated by the conformance test.
+**Acceptance Criteria:**
+**Given** the framework adapters in `team_maker/frameworks/` and generated CrewAI runners in `codegen/`
+**When** the runtime seam is formalized
+**Then** a `team_maker/runtime/` module sits behind a `ports/RuntimeEngine`, `crewai` is not a hard
+dependency of the `team_maker` package, and the CrewAI pin follows the conformance test. (AD-6, AD-7)
+
+### Story 0.4: Fold the Key Config feature into the provider layer
+As the codebase, I want one key/provider-availability system,
+so that the Story 1.1 `keyconfig.py`/`providers/registry.py` no longer duplicates `llm/model_resolver.py`.
+**Acceptance Criteria:**
+**Given** the retained Story 1.1 modules (`team_maker/keyconfig.py`, `team_maker/providers/registry.py`,
+`keys status` CLI) and the existing `team_maker/llm/model_resolver.py`
+**When** they are reconciled
+**Then** key loading + availability reporting live in one place behind the provider layer, the
+`keys status` command still works, and the split-brain is removed. (FR-12, FR-13, FR-21, FR-22, AD-9)
+
+### Story 0.5: Reconcile the request schema with the documented data model
+As the codebase, I want the schema and its docs to agree,
+so that downstream stories have a trustworthy contract.
+**Acceptance Criteria:**
+**Given** the actual `team_maker/schema/request.py` (fields incl. `planning_llm`, `framework`,
+`state_backend`, `git_account`, `sandbox`, `desired_tasks`, `suggested_tools`, `context_dir`,
+`model_registry`, `notifications`) vs. `data-models.md`
+**When** they are reconciled
+**Then** `data-models.md` documents the real schema and the `planning_llm`↔`default_llm` glossary
+mismatch is resolved (rename or documented alias). (AD-10)
+
 ## Epic 1: Describe → build → run a team, end to end (headless core)
 
 Deliver the walking skeleton, usable from the CLI: plain-language intent → running team → result.
+
+> **Reconciliation note (spec-first):** overlapping functionality already exists in the merged
+> `guru-explore` code but under a pre-plan design. Epic 1 stories now consume/refactor that code
+> toward the spine rather than building from scratch. See Epic 0 and
+> [reconciliation-notes.md](stories/reconciliation-notes.md).
 
 ### Story 1.1: Load keys and report available models
 As a user, I want the system to read my Key Config and tell me which providers/models are usable,
@@ -160,6 +230,9 @@ so that I don't hand-write configuration.
 models/roles/tasks
 **And** on a validation failure it repairs and re-validates within a bounded retry, else returns
 a clear error rather than an invalid spec. (FR-1, FR-2, FR-4, AD-8, AD-10)
+_Refactor, not greenfield:_ fold the existing `team_maker/llm/planner.py` into `composer/` behind
+the `LLMProvider` port (Story 0.1) and reuse the existing `schema/request.py` `_pre_process`
+validation instead of re-implementing it.
 
 ### Story 1.3: Conversational tuning with a run-now escape
 As a user, I want to refine the proposed team over a short back-and-forth or just run it now,

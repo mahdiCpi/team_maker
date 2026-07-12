@@ -4,11 +4,18 @@ baseline_commit: e5021f3459fa963b731881afda13b49d2e527df5
 
 # Story 1.2: Compose a valid Team Spec from a prompt
 
-Status: ready-for-dev
+Status: needs-rescoping (spec-first refactor)
 
-<!-- Note: baseline_commit is HEAD (e5021f3). Story 1.1's work (keyconfig.py, providers/,
-     cli.py `keys status`, tests) is present in the working tree but UNCOMMITTED — treat those
-     files as existing prior art to consume, not as things to create. -->
+<!-- RECONCILIATION UPDATE 2026-07-12 — see project-docs/stories/reconciliation-notes.md.
+     The stale baseline (e5021f3) is superseded: the real code from guru-explore is now merged
+     into main/develop. This story is NO LONGER greenfield. Overlapping functionality already
+     exists as team_maker/llm/planner.py (LLM-driven design) + team_maker/schema/request.py
+     (a substantial `_pre_process` before-validator: stack flattening, aliasing, notification
+     mapping, tool promotion, model_registry reference resolution).
+     Re-scope this story as a REFACTOR: fold llm/planner.py into a composer/ module behind the
+     new ports/LLMProvider Protocol (Epic 0, Story 0.1) and REUSE schema/request.py's validation
+     rather than re-implementing it. Story 1.1's code (keyconfig.py, providers/, `keys status`)
+     is now COMMITTED to main (no longer uncommitted) — consume it as existing prior art. -->
 
 ## Story
 

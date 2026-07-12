@@ -2,6 +2,17 @@
 
 **Generated:** 2026-07-04
 
+> ⚠️ **STALE — reconciliation pending (2026-07-12).** This document describes the minimal
+> pre-merge schema. The real `team_maker/schema/request.py` (merged from `guru-explore`) has grown
+> substantially and includes: `planning_llm` (`ProviderConfig`, default anthropic/claude-sonnet-4-6),
+> `framework`, `state_backend`, `git_account`, `sandbox`, `desired_tasks`, `suggested_tools`,
+> `context_dir`, `model_registry`, `notifications`, plus a heavy `@model_validator(mode="before")`
+> `_pre_process` (stack flattening, `auxiliary_resources_dir → context_dir` aliasing, notification
+> channel mapping, tool promotion, and `model_registry` reference resolution). It also uses
+> `planning_llm` where the spine glossary says `default_llm`. Bringing this document in line with the
+> real schema (and resolving that glossary mismatch) is **Story 0.5**. See
+> [reconciliation-notes.md](stories/reconciliation-notes.md).
+
 `team_maker` has no database. Its "data models" are the **input schema** (Pydantic v2,
 validated) and the **domain model** (plain dataclasses, produced by templates and consumed by
 generators). This document is the contract reference.

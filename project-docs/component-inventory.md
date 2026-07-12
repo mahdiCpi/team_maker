@@ -2,6 +2,22 @@
 
 **Generated:** 2026-07-04
 
+> ⚠️ **INCOMPLETE — reconciliation pending (2026-07-12).** This inventory predates the
+> `guru-explore` merge and documents only the original factory. The following **existing (pre-plan)
+> components are now in the tree and NOT yet inventoried below** — they are to be refactored to the
+> spine (Epic 0):
+> - `team_maker/llm/` — `providers.py` (`LLMProvider` ABC + `create_provider`), `model_resolver.py`
+>   (live model availability/substitution), `mapper.py`, `planner.py` (`TeamPlanner`), `prompts.py`,
+>   `schemas.py`.
+> - `team_maker/frameworks/` — `base.py` (`FrameworkAdapter` ABC) + `crewai_adapter.py`,
+>   `langgraph_adapter.py`, `autogen_adapter.py`, and a `get_adapter()` registry.
+> - `team_maker/codegen/` — `engine.py` (Jinja2 `render_template`) + `templates/*.j2` (runner, tools,
+>   state store, Dockerfile/compose, notify helper).
+> - `team_maker/keyconfig.py` + `team_maker/providers/registry.py` (Story 1.1; see split-brain note).
+>
+> The `cli.py` entry below also now has a `keys` group (`keys status`). See
+> [reconciliation-notes.md](stories/reconciliation-notes.md).
+
 Every code component, its responsibility, key public surface, and collaborators. Grouped by
 layer. All paths are under `team_maker/`.
 
