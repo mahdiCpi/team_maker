@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>team_maker — Solution Design (v1)</title>
+<style>
+  :root{
+    --bg:#F8FAFA;--fg:#0F1B1A;--card:#FFFFFF;--muted:#EAF1F0;--muted-fg:#5C716F;
+    --border:#DCE6E4;--primary:#0E8C82;--accent:#2DD4BF;--radius:10px;--warn:#B45309;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{--bg:#0B1413;--fg:#E7F1EF;--card:#111D1B;--muted:#182826;--muted-fg:#8FA6A3;--border:#203330;--primary:#17B3A6;--accent:#2DD4BF;--warn:#F5C451;}
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--fg);line-height:1.55;}
+  .wrap{max-width:920px;margin:0 auto;padding:40px 24px 80px;}
+  header .tag{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--primary);font-weight:700;}
+  h1{font-size:30px;margin:.15em 0 .1em;}
+  .sub{color:var(--muted-fg);margin:0 0 8px;}
+  h2{font-size:20px;margin:34px 0 10px;border-bottom:2px solid var(--border);padding-bottom:6px;}
+  h3{font-size:15px;margin:18px 0 6px;}
+  p,li{font-size:14.5px;}
+  code{background:var(--muted);padding:1px 5px;border-radius:4px;font-size:13px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin:12px 0;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media(max-width:720px){.grid{grid-template-columns:1fr;}}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px;}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--border);vertical-align:top;}
+  th{color:var(--muted-fg);font-weight:600;}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:var(--muted);border:1px solid var(--border);color:var(--fg);}
+  .accentbar{height:4px;background:var(--primary);border-radius:2px;margin:2px 0 18px;width:70px;}
+  .layer{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:6px 0;background:var(--card);}
+  .layer .lh{font-weight:700;font-size:13px;}
+  .layer .box{display:inline-block;font-size:12px;background:var(--muted);border:1px solid var(--border);border-radius:6px;padding:3px 8px;margin:4px 4px 0 0;}
+  .arrow{text-align:center;color:var(--muted-fg);font-size:18px;line-height:1;margin:2px 0;}
+  .port{border-color:var(--primary);color:var(--primary);}
+  .warn{color:var(--warn);font-weight:600;}
+  .v2{opacity:.7;font-style:italic;}
+  .muted{color:var(--muted-fg);font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="tag">Coinpela R&D · Solution Design</div>
+    <h1>team_maker — v1 Architecture</h1>
+    <div class="accentbar"></div>
+    <p class="sub">The conversational multi-agent team builder. Companion to
+    <code>ARCHITECTURE-SPINE.md</code> (the build contract) and PRD Rev 2. Layered +
+    ports-and-adapters around the existing factory. Updated 2026-07-06.</p>
+  </header>
+
+  <h2>1. What we're building</h2>
+  <p>A user describes a team of AI "thinkers" in a short back-and-forth; an LLM writes the valid
+  configuration; the system builds the team and runs it (or the user chats with it) while the
+  agents collaborate across <strong>multiple model providers</strong>. It ships as one
+  open-source repo, installable via Docker, pip, or a desktop bundle. v1 is aimed at
+  semi-technical users who bring their own keys; heavy capabilities (memory, always-on teams,
+  local-model fleets) are deliberately v2.</p>
+
+  <h2>2. The shape — layered + ports-and-adapters</h2>
+  <p class="muted">Dependencies point inward only: UI → API → core (via ports) → adapters. The
+  v1/v2 seam <em>is</em> the adapter boundary.</p>
+
+  <div class="layer"><span class="lh">L1 · UI</span> &nbsp;<span class="muted">web (primary) + macOS/Windows desktop (deferred wrapper)</span><br>
+    <span class="box">New Team</span><span class="box">Starter Teams</span><span class="box">My Teams</span><span class="box">Team Workspace (chat + docs)</span><span class="box">Settings</span></div>
+  <div class="arrow">▼ &nbsp;<span class="muted">HTTP only</span></div>
+  <div class="layer"><span class="lh">L2 · API</span> &nbsp;<span class="muted">FastAPI — compose/create · run · teams · settings</span></div>
+  <div class="arrow">▼</div>
+  <div class="layer"><span class="lh">Core services</span><br>
+    <span class="box">Composer <span class="muted">(LLM → Team Spec)</span></span>
+    <span class="box">Factory <span class="muted">(existing, untouched)</span></span>
+    <span class="box">Runtime <span class="muted">(executes; agents collaborate)</span></span></div>
+  <div class="arrow">▼ &nbsp;<span class="muted">depend only on ports</span></div>
+  <div class="layer"><span class="lh">Ports</span> &nbsp;
+    <span class="box port">LLMProvider</span><span class="box port">RuntimeEngine</span><span class="box port">Storage</span>
+    <span class="box port v2">Memory (v2 no-op)</span><span class="box port v2">Lifecycle (v2 no-op)</span></div>
+  <div class="arrow">▼</div>
+  <div class="layer"><span class="lh">Adapters</span> &nbsp;
+    <span class="box">providers: anthropic · openai · gemini · groq · ollama · <strong>openrouter</strong></span>
+    <span class="box">runtime_crewai</span><span class="box">storage_sqlite + files</span></div>
+
+  <h2>3. The core pipeline — who owns team design</h2>
+  <div class="card">
+    <strong>Composer (LLM)</strong> authors the Team Spec &nbsp;→&nbsp;
+    <strong>Factory</strong> deterministically builds the Team Package &nbsp;→&nbsp;
+    <strong>Runtime (CrewAI)</strong> executes only.
+    <p class="muted" style="margin:8px 0 0">The runtime <strong>never</strong> decides team
+    membership or roles — no CrewAI auto-planning. Composition stays LLM-driven and
+    multi-provider, which is the product's differentiator (AD-5). Note: today's factory is
+    template-driven; the LLM composition is the new Composer.</p>
+  </div>
+
+  <h2>4. Key decisions (AD summary)</h2>
+  <table>
+    <tr><th>AD</th><th>Decision</th><th>Prevents</th></tr>
+    <tr><td>AD-1</td><td>Factory stays pure (adopted invariant)</td><td>side-effects/branching in generation</td></tr>
+    <tr><td>AD-2</td><td>Ports-and-adapters boundary</td><td>v2 forcing a core rewrite</td></tr>
+    <tr><td>AD-3</td><td>Single-repo modular monolith; Docker/pip/desktop/web</td><td>multi-repo sprawl</td></tr>
+    <tr><td>AD-4</td><td>Inward dependency direction</td><td>UI/adapters reaching into core</td></tr>
+    <tr><td>AD-5</td><td>Composer→Factory→Runtime; runtime executes only</td><td>engine owning composition</td></tr>
+    <tr><td>AD-6</td><td>CrewAI behind a RuntimeEngine port</td><td>lock-in to one engine</td></tr>
+    <tr><td>AD-7</td><td>Explicit per-agent LLM creds + conformance test</td><td>the #5139 cross-agent credential fallback</td></tr>
+    <tr><td>AD-8</td><td>One LLMProvider port; OpenRouter = default multi-provider path</td><td>divergent LLM paths; single-provider lock-in</td></tr>
+    <tr><td>AD-9</td><td>Keys only in Key Config file; pre-run fail-fast check</td><td>key leakage; mid-run failures</td></tr>
+    <tr><td>AD-10</td><td>Composer output validates vs factory schema</td><td>invalid specs reaching build</td></tr>
+    <tr><td>AD-11</td><td>Local embedded state (SQLite + files) only</td><td>infra dependence; DB/cloud coupling</td></tr>
+    <tr><td>AD-12</td><td>Memory/Lifecycle as v1 no-op ports</td><td>v2 forcing a rewrite</td></tr>
+    <tr><td>AD-13</td><td>Batch results behind a streamable interface</td><td>a v2 streaming retrofit breaking the contract</td></tr>
+  </table>
+
+  <h2>5. The multi-provider risk (verified) &amp; how we contain it</h2>
+  <div class="card">
+    <p><span class="warn">Verified:</span> CrewAI 1.12.x had a multi-provider routing bug
+    (GH&nbsp;#5139) — agents on different providers fell back to <em>global</em> env credentials,
+    so two providers couldn't be served at once. Closed "not planned". Latest is 1.14.6.</p>
+    <p style="margin:8px 0 0"><strong>Containment:</strong> (1) explicit per-agent LLM instances
+    with full credentials — never global env; (2) a required multi-provider <strong>conformance
+    test</strong> that gates any CrewAI upgrade; (3) runtime behind a port so a swap is contained;
+    (4) <strong>OpenRouter</strong> promoted to the default path — one key + one endpoint sidesteps
+    the whole bug class. Version pin of 1.14.6 is <span class="warn">held open</span> until the
+    conformance test confirms per-agent routing.</p>
+  </div>
+
+  <h2>6. The v1 → v2 seam</h2>
+  <div class="grid">
+    <div class="card"><h3>In v1</h3>
+      <ul><li>Conversational Composer + validate-and-repair</li><li>Multi-provider factory + OpenRouter</li>
+      <li>CrewAI runtime; agents collaborate; batch results</li><li>Team Workspace: chat + transient docs + save</li>
+      <li>Recent-teams list; starter education + research/content teams</li><li>Local SQLite/files; keys in a file</li></ul></div>
+    <div class="card"><h3 class="v2">In v2 (attach as adapters)</h3>
+      <ul class="v2"><li>Team memory / learning → Memory port</li><li>Always-on teams → Lifecycle port</li>
+      <li>Managed local-model fleets</li><li>Streaming results → AD-13 interface</li>
+      <li>Team versioning; hosted/no-keys tier</li><li>~20 domain team templates; desktop wrapper</li></ul></div>
+  </div>
+
+  <h2>7. Stack (verified July 2026)</h2>
+  <table>
+    <tr><th>Layer</th><th>Choice · version</th></tr>
+    <tr><td>Core (factory/composer/runtime)</td><td>Python 3.12+ · pydantic v2 · click · pyyaml · rich</td></tr>
+    <tr><td>API</td><td>FastAPI 0.139.x</td></tr>
+    <tr><td>Runtime</td><td>CrewAI 1.14.6 (behind port; pin pending conformance test)</td></tr>
+    <tr><td>Frontend</td><td>Next.js 16.2 LTS · React 19 · Tailwind v4 · shadcn/ui</td></tr>
+    <tr><td>Storage</td><td>SQLite (stdlib) + files</td></tr>
+    <tr><td>Desktop</td><td>deferred (Tauri v2 vs Electron)</td></tr>
+  </table>
+
+  <h2>8. Open items to resolve before/at build start</h2>
+  <ul>
+    <li><strong>CrewAI 1.14.6 conformance</strong> — run the multi-provider test; then pin (AD-7).</li>
+    <li><strong>Composer default model</strong> — configurable behind LLMProvider; pick the default.</li>
+    <li><strong>Document handling</strong> — in-context vs retrieval, size/type limits (PRD Open Q6).</li>
+    <li><strong>Provider-error / partial-results policy</strong> mid-run (PRD Open Q5).</li>
+  </ul>
+
+  <p class="muted" style="margin-top:28px">Full binding rules, diagrams, and the capability map
+  live in <code>ARCHITECTURE-SPINE.md</code>; rationale in <code>.memlog.md</code>. This document
+  is the readable companion, not the contract.</p>
+</div>
+</body>
+</html>

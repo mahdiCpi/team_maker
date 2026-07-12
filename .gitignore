@@ -11,3 +11,7 @@ htmlcov/
 venv/
 .env
 generated_teams/
+
+# Key Config — never commit API keys (AD-9)
+team_maker.keys
+*.keys

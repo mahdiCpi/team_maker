@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>team_maker — color directions</title>
+<!--
+Candidate themes (concrete hex; the spine stays semantic).
+THEME 1 — Coin Gold  (warm, friendly-technical; echoes the coins in the logo)
+  light: bg #FBFAF7 fg #1C1917 card #FFFFFF muted #F4F1EA muted-fg #78716C border #E7E2D6 primary #C88A18 primary-fg #FFFFFF accent #F5C451 ring #C88A18
+  dark:  bg #17150F fg #F5F1E8 card #201D15 muted #2A261C muted-fg #A8A092 border #332E22 primary #E0A93A primary-fg #17150F accent #F5C451 ring #E0A93A
+THEME 2 — Fintech Teal (trustworthy, modern)
+  light: bg #F8FAFA fg #0F1B1A card #FFFFFF muted #EAF1F0 muted-fg #5C716F border #DCE6E4 primary #0E8C82 primary-fg #FFFFFF accent #2DD4BF ring #0E8C82
+  dark:  bg #0B1413 fg #E7F1EF card #111D1B muted #182826 muted-fg #8FA6A3 border #203330 primary #17B3A6 primary-fg #04100E accent #2DD4BF ring #17B3A6
+THEME 3 — Trust Blue (confident, technical)
+  light: bg #F9FAFB fg #111827 card #FFFFFF muted #EEF2F7 muted-fg #64748B border #E2E8F0 primary #2563EB primary-fg #FFFFFF accent #60A5FA ring #2563EB
+  dark:  bg #0B1120 fg #E6EDF7 card #121A2B muted #1B2438 muted-fg #93A2BC border #24304A primary #4F86F7 primary-fg #08101F accent #60A5FA ring #4F86F7
+THEME 4 — Fresh Mint (approachable, growth)
+  light: bg #F9FBF9 fg #14201A card #FFFFFF muted #EBF3ED muted-fg #5F7268 border #DCE8DF primary #178A55 primary-fg #FFFFFF accent #4ADE80 ring #178A55
+  dark:  bg #0C140F fg #E8F2EB card #121C16 muted #18261D muted-fg #93A79A border #213328 primary #22B168 primary-fg #06120B accent #4ADE80 ring #22B168
+-->
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         background:#e9e9ec; color:#111; padding:24px; }
+  h1.page { font-size:20px; margin:0 0 4px; }
+  p.sub { margin:0 0 24px; color:#555; font-size:13px; }
+  .theme { margin-bottom:34px; }
+  .theme > h2 { font-size:15px; margin:0 0 2px; }
+  .theme > .reg { font-size:12px; color:#666; margin:0 0 10px; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:820px){ .pair{ grid-template-columns:1fr; } }
+
+  .panel { --radius:8px; background:var(--bg); color:var(--fg); border:1px solid var(--border);
+           border-radius:12px; padding:16px; }
+  .mode-tag { font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted-fg); margin-bottom:10px; }
+
+  .topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .brand { display:flex; align-items:center; gap:8px; }
+  .robot { width:22px; height:22px; border:2px solid var(--fg); border-radius:7px; position:relative; flex:0 0 auto; }
+  .robot::before, .robot::after{ content:""; position:absolute; top:6px; width:3px; height:6px; background:var(--fg); border-radius:2px; }
+  .robot::before{ left:5px; } .robot::after{ right:5px; }
+  .wordmark { font-weight:650; font-size:14px; }
+  .tag { font-size:10px; color:var(--muted-fg); border:1px solid var(--border); border-radius:999px; padding:2px 8px; }
+
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 14px; }
+  .chip { font-size:10px; padding:3px 8px; border-radius:999px; background:var(--muted); color:var(--muted-fg); border:1px solid var(--border); }
+  .swatch { display:flex; align-items:center; gap:6px; }
+  .dot { width:12px; height:12px; border-radius:3px; border:1px solid rgba(128,128,128,.35); }
+
+  .h { font-size:18px; font-weight:650; margin:0 0 8px; }
+  .box { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:12px; color:var(--muted-fg);
+         font-size:12.5px; min-height:52px; }
+  .row { display:flex; gap:8px; margin-top:12px; align-items:center; flex-wrap:wrap; }
+  .btn { font-size:12.5px; padding:8px 14px; border-radius:var(--radius); border:1px solid transparent; cursor:default; font-weight:600; }
+  .btn-primary { background:var(--primary); color:var(--primary-fg); }
+  .btn-outline { background:transparent; color:var(--fg); border-color:var(--border); }
+  .starter { margin-top:14px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:12px; }
+  .starter .name { font-size:13px; font-weight:650; }
+  .starter .roles { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .role { font-size:10.5px; padding:3px 8px; border-radius:6px; background:var(--muted); color:var(--fg); border:1px solid var(--border); }
+  .status { margin-top:12px; display:inline-flex; align-items:center; gap:7px; font-size:11.5px; color:var(--fg);
+            background:var(--muted); border:1px solid var(--border); border-radius:999px; padding:4px 10px; }
+  .pulse { width:8px; height:8px; border-radius:50%; background:var(--accent); }
+</style>
+</head>
+<body>
+  <h1 class="page">team_maker — color directions</h1>
+  <p class="sub">Four candidate themes on the "Describe your team" screen, light + dark. Colors are semantic tokens; picking one is a one-place swap later. Pick a direction (or say "none of these, more like X").</p>
+
+  <!-- THEME 1 -->
+  <div class="theme">
+    <h2>1 · Coin Gold</h2>
+    <p class="reg">Warm and friendly-technical — echoes the coins in the Coinpela logo.</p>
+    <div class="pair">
+      <!-- light -->
+      <div class="panel" style="--bg:#FBFAF7;--fg:#1C1917;--card:#FFFFFF;--muted:#F4F1EA;--muted-fg:#78716C;--border:#E7E2D6;--primary:#C88A18;--primary-fg:#FFFFFF;--accent:#F5C451;--ring:#C88A18;">
+        <div class="mode-tag">Light</div>
+        <div class="topbar"><div class="brand"><div class="robot"></div><span class="wordmark">team_maker</span></div><span class="tag">Coinpela R&D</span></div>
+        <div class="chips">
+          <span class="swatch chip"><span class="dot" style="background:#C88A18"></span>primary</span>
+          <span class="swatch chip"><span class="dot" style="background:#F5C451"></span>accent</span>
+          <span class="swatch chip"><span class="dot" style="background:#F4F1EA"></span>muted</span>
+          <span class="swatch chip"><span class="dot" style="background:#E7E2D6"></span>border</span>
+        </div>
+        <div class="h">Describe your team</div>
+        <div class="box">e.g. a team that researches a topic, drafts an article, and critiques it…</div>
+        <div class="row"><span class="btn btn-primary">Build team</span><span class="btn btn-outline">Browse starter teams</span></div>
+        <div class="starter"><span class="name">Research &amp; Content</span><div class="roles"><span class="role">researcher</span><span class="role">writer</span><span class="role">editor</span><span class="role">critic</span></div></div>
+        <div class="status"><span class="pulse"></span>Running · 2 of 4 tasks</div>
+      </div>
+      <!-- dark -->
+      <div class="panel" style="--bg:#17150F;--fg:#F5F1E8;--card:#201D15;--muted:#2A261C;--muted-fg:#A8A092;--border:#332E22;--primary:#E0A93A;--primary-fg:#17150F;--accent:#F5C451;--ring:#E0A93A;">
+        <div class="mode-tag">Dark</div>
+        <div class="topbar"><div class="brand"><div class="robot"></div><span class="wordmark">team_maker</span></div><span class="tag">Coinpela R&D</span></div>
+        <div class="chips">
+          <span class="swatch chip"><span class="dot" style="background:#E0A93A"></span>primary</span>
+          <span class="swatch chip"><span class="dot" style="background:#F5C451"></span>accent</span>
+          <span class="swatch chip"><span class="dot" style="background:#2A261C"></span>muted</span>
+          <span class="swatch chip"><span class="dot" style="background:#332E22"></span>border</span>
+        </div>
+        <div class="h">Describe your team</div>
+        <div class="box">e.g. a team that researches a topic, drafts an article, and critiques it…</div>
+        <div class="row"><span class="btn btn-primary">Build team</span><span class="btn btn-outline">Browse starter teams</span></div>
+        <div class="starter"><span class="name">Research &amp; Content</span><div class="roles"><span class="role">researcher</span><span class="role">writer</span><span class="role">editor</span><span class="role">critic</span></div></div>
+        <div class="status"><span class="pulse"></span>Running · 2 of 4 tasks</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- THEME 2 -->
+  <div class="theme">
+    <h2>2 · Fintech Teal</h2>
+    <p class="reg">Trustworthy and modern — a fresh, credible fintech register.</p>
+    <div class="pair">
+      <div class="panel" style="--bg:#F8FAFA;--fg:#0F1B1A;--card:#FFFFFF;--muted:#EAF1F0;--muted-fg:#5C716F;--border:#DCE6E4;--primary:#0E8C82;--primary-fg:#FFFFFF;--accent:#2DD4BF;--ring:#0E8C82;">
+        <div class="mode-tag">Light</div>
+        <div class="topbar"><div class="brand"><div class="robot"></div><span class="wordmark">team_maker</span></div><span class="tag">Coinpela R&D</span></div>
+        <div class="chips">
+          <span class="swatch chip"><span class="dot" style="background:#0E8C82"></span>primary</span>
+          <span class="swatch chip"><span class="dot" style="background:#2DD4BF"></span>accent</span>
+          <span class="swatch chip"><span class="dot" style="background:#EAF1F0"></span>muted</span>
+          <span class="swatch chip"><span class="dot" style="background:#DCE6E4"></span>border</span>
+        </div>
+        <div class="h">Describe your team</div>
+        <div class="box">e.g. a team that researches a topic, drafts an article, and critiques it…</div>
+        <div class="row"><span class="btn btn-primary">Build team</span><span class="btn btn-outline">Browse starter teams</span></div>
+        <div class="starter"><span class="name">Research &amp; Content</span><div class="roles"><span class="role">researcher</span><span class="role">writer</span><span class="role">editor</span><span class="role">critic</span></div></div>
+        <div class="status"><span class="pulse"></span>Running · 2 of 4 tasks</div>
+      </div>
+      <div class="panel" style="--bg:#0B1413;--fg:#E7F1EF;--card:#111D1B;--muted:#182826;--muted-fg:#8FA6A3;--border:#203330;--primary:#17B3A6;--primary-fg:#04100E;--accent:#2DD4BF;--ring:#17B3A6;">
+        <div class="mode-tag">Dark</div>
+        <div class="topbar"><div class="brand"><div class="robot"></div><span class="wordmark">team_maker</span></div><span class="tag">Coinpela R&D</span></div>
+        <div class="chips">
+          <span class="swatch chip"><span class="dot" style="background:#17B3A6"></span>primary</span>
+          <span class="swatch chip"><span class="dot" style="background:#2DD4BF"></span>accent</span>
+          <span class="swatch chip"><span class="dot" style="background:#182826"></span>muted</span>
+          <span class="swatch chip"><span class="dot" style="background:#203330"></span>border</span>
+        </div>
+        <div class="h">Describe your team</div>
+        <div class="box">e.g. a team that researches a topic, drafts an article, and critiques it…</div>
+        <div class="row"><span class="btn btn-primary">Build team</span><span class="btn btn-outline">Browse starter teams</span></div>
+        <div class="starter"><span class="name">Research &amp; Content</span><div class="roles"><span class="role">researcher</span><span class="role">writer</span><span class="role">editor</span><span class="role">critic</span></div></div>
+        <div class="status"><span class="pulse"></span>Running · 2 of 4 tasks</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- THEME 3 -->
+  <div class="theme">
+    <h2>3 · Trust Blue</h2>
+    <p class="reg">Confident and technical — the classic, dependable fintech blue.</p>
+    <div class="pair">
+      <div class="panel" style="--bg:#F9FAFB;--fg:#111827;--card:#FFFFFF;--muted:#EEF2F7;--muted-fg:#64748B;--border:#E2E8F0;--primary:#2563EB;--primary-fg:#FFFFFF;--accent:#60A5FA;--ring:#2563EB;">
+        <div class="mode-tag">Light</div>
+        <div class="topbar"><div class="brand"><div class="robot"></div><span class="wordmark">team_maker</span></div><span class="tag">Coinpela R&D</span></div>
+        <div class="chips">
+          <span class="swatch chip"><span class="dot" style="background:#2563EB"></span>primary</span>
+          <span class="swatch chip"><span class="dot" style="background:#60A5FA"></span>accent</span>
+          <span class="swatch chip"><span class="dot" style="background:#EEF2F7"></span>muted</span>
+          <span class="swatch chip"><span class="dot" style="background:#E2E8F0"></span>border</span>
+        </div>
+        <div class="h">Describe your team</div>
+        <div class="box">e.g. a team that researches a topic, drafts an article, and critiques it…</div>
+        <div class="row"><span class="btn btn-primary">Build team</span><span class="btn btn-outline">Browse starter teams</span></div>
+        <div class="starter"><span class="name">Research &amp; Content</span><div class="roles"><span class="role">researcher</span><span class="role">writer</span><span class="role">editor</span><span class="role">critic</span></div></div>
+        <div class="status"><span class="pulse"></span>Running · 2 of 4 tasks</div>
+      </div>
+      <div class="panel" style="--bg:#0B1120;--fg:#E6EDF7;--card:#121A2B;--muted:#1B2438;--muted-fg:#93A2BC;--border:#24304A;--primary:#4F86F7;--primary-fg:#08101F;--accent:#60A5FA;--ring:#4F86F7;">
+        <div class="mode-tag">Dark</div>
+        <div class="topbar"><div class="brand"><div class="robot"></div><span class="wordmark">team_maker</span></div><span class="tag">Coinpela R&D</span></div>
+        <div class="chips">
+          <span class="swatch chip"><span class="dot" style="background:#4F86F7"></span>primary</span>
+          <span class="swatch chip"><span class="dot" style="background:#60A5FA"></span>accent</span>
+          <span class="swatch chip"><span class="dot" style="background:#1B2438"></span>muted</span>
+          <span class="swatch chip"><span class="dot" style="background:#24304A"></span>border</span>
+        </div>
+        <div class="h">Describe your team</div>
+        <div class="box">e.g. a team that researches a topic, drafts an article, and critiques it…</div>
+        <div class="row"><span class="btn btn-primary">Build team</span><span class="btn btn-outline">Browse starter teams</span></div>
+        <div class="starter"><span class="name">Research &amp; Content</span><div class="roles"><span class="role">researcher</span><span class="role">writer</span><span class="role">editor</span><span class="role">critic</span></div></div>
+        <div class="status"><span class="pulse"></span>Running · 2 of 4 tasks</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- THEME 4 -->
+  <div class="theme">
+    <h2>4 · Fresh Mint</h2>
+    <p class="reg">Approachable and growth-minded — lighter, optimistic register.</p>
+    <div class="pair">
+      <div class="panel" style="--bg:#F9FBF9;--fg:#14201A;--card:#FFFFFF;--muted:#EBF3ED;--muted-fg:#5F7268;--border:#DCE8DF;--primary:#178A55;--primary-fg:#FFFFFF;--accent:#4ADE80;--ring:#178A55;">
+        <div class="mode-tag">Light</div>
+        <div class="topbar"><div class="brand"><div class="robot"></div><span class="wordmark">team_maker</span></div><span class="tag">Coinpela R&D</span></div>
+        <div class="chips">
+          <span class="swatch chip"><span class="dot" style="background:#178A55"></span>primary</span>
+          <span class="swatch chip"><span class="dot" style="background:#4ADE80"></span>accent</span>
+          <span class="swatch chip"><span class="dot" style="background:#EBF3ED"></span>muted</span>
+          <span class="swatch chip"><span class="dot" style="background:#DCE8DF"></span>border</span>
+        </div>
+        <div class="h">Describe your team</div>
+        <div class="box">e.g. a team that researches a topic, drafts an article, and critiques it…</div>
+        <div class="row"><span class="btn btn-primary">Build team</span><span class="btn btn-outline">Browse starter teams</span></div>
+        <div class="starter"><span class="name">Research &amp; Content</span><div class="roles"><span class="role">researcher</span><span class="role">writer</span><span class="role">editor</span><span class="role">critic</span></div></div>
+        <div class="status"><span class="pulse"></span>Running · 2 of 4 tasks</div>
+      </div>
+      <div class="panel" style="--bg:#0C140F;--fg:#E8F2EB;--card:#121C16;--muted:#18261D;--muted-fg:#93A79A;--border:#213328;--primary:#22B168;--primary-fg:#06120B;--accent:#4ADE80;--ring:#22B168;">
+        <div class="mode-tag">Dark</div>
+        <div class="topbar"><div class="brand"><div class="robot"></div><span class="wordmark">team_maker</span></div><span class="tag">Coinpela R&D</span></div>
+        <div class="chips">
+          <span class="swatch chip"><span class="dot" style="background:#22B168"></span>primary</span>
+          <span class="swatch chip"><span class="dot" style="background:#4ADE80"></span>accent</span>
+          <span class="swatch chip"><span class="dot" style="background:#18261D"></span>muted</span>
+          <span class="swatch chip"><span class="dot" style="background:#213328"></span>border</span>
+        </div>
+        <div class="h">Describe your team</div>
+        <div class="box">e.g. a team that researches a topic, drafts an article, and critiques it…</div>
+        <div class="row"><span class="btn btn-primary">Build team</span><span class="btn btn-outline">Browse starter teams</span></div>
+        <div class="starter"><span class="name">Research &amp; Content</span><div class="roles"><span class="role">researcher</span><span class="role">writer</span><span class="role">editor</span><span class="role">critic</span></div></div>
+        <div class="status"><span class="pulse"></span>Running · 2 of 4 tasks</div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

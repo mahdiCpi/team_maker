@@ -137,6 +137,59 @@ def list_templates() -> None:
 
 
 # ---------------------------------------------------------------------------
+# keys
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def keys() -> None:
+    """Inspect API-key / provider configuration."""
+
+
+@keys.command("status")
+@click.option(
+    "--file",
+    "-f",
+    "key_file",
+    default=None,
+    # exists/dir_okay are only enforced when the user passes --file explicitly;
+    # the default (None) path is allowed to be absent (reported as no keys).
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the Key Config file (default: $TEAM_MAKER_KEYS or ./team_maker.keys).",
+)
+def keys_status(key_file: Optional[Path]) -> None:
+    """Report which providers/models are usable. Never prints key values."""
+    from rich.markup import escape
+
+    from team_maker.keyconfig import KeyConfig
+    from team_maker.providers.registry import report_availability
+
+    config = KeyConfig.from_file(key_file)
+    report = report_availability(config)
+
+    resolved = key_file or KeyConfig.default_path()
+    table = Table(title="Provider availability", show_lines=False)
+    table.add_column("Provider", style="cyan", no_wrap=True)
+    table.add_column("Status")
+    table.add_column("Detail", style="dim")
+
+    style_by_status = {
+        "available": "green",
+        "keyless-local": "green",
+        "via-openrouter": "yellow",
+        "missing": "red",
+    }
+    for status in report:
+        colour = style_by_status.get(status.status, "white")
+        table.add_row(status.name, f"[{colour}]{status.status}[/{colour}]", status.detail)
+
+    console.print(table)
+    console.print(f"[dim]Key Config: {escape(str(resolved))}[/dim]")
+    for warning in config.load_warnings:
+        console.print(f"[yellow]warning:[/yellow] {escape(warning)}")
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
