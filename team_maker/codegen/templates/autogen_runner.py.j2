@@ -20,6 +20,26 @@ import sys
 import yaml
 from pathlib import Path
 
+{% include '_notify_helper.j2' %}
+
+# ── Langfuse observability via direct SDK (optional) ─────────────────────────
+# Set LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY + LANGFUSE_HOST to enable.
+# Uses the Langfuse 2.x direct SDK to create one trace per run.
+_LANGFUSE = None
+_LANGFUSE_HOST = os.environ.get("LANGFUSE_HOST", "http://localhost:3000")
+if os.environ.get("LANGFUSE_PUBLIC_KEY"):
+    try:
+        from langfuse import Langfuse as _LangfuseClient
+        _LANGFUSE = _LangfuseClient(
+            public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
+            secret_key=os.environ.get("LANGFUSE_SECRET_KEY", ""),
+            host=_LANGFUSE_HOST,
+        )
+        print(f"[langfuse] tracing enabled → {_LANGFUSE_HOST}")
+    except Exception as _lf_err:
+        print(f"[langfuse] init skipped — {_lf_err}")
+# ─────────────────────────────────────────────────────────────────────────────
+
 TEAM_ROOT = Path(__file__).parent
 {% if orchestrator_role %}
 ORCHESTRATOR_ROLE = "{{ orchestrator_role }}"
@@ -31,13 +51,24 @@ with (TEAM_ROOT / "routing_config.yaml").open() as _f:
     _ROUTING: dict = yaml.safe_load(_f).get("routing", {})
 
 
+def _validate_env() -> None:
+    """Fail fast if any required API key is missing before spending any credits."""
+    missing = []
+    for role, cfg in _ROUTING.items():
+        env = cfg.get("api_key_env")
+        if env and not os.environ.get(env):
+            missing.append(f"  {role}: {env}")
+    if missing:
+        msg = "Missing required API keys — set these environment variables before running:\n" + "\n".join(missing)
+        _notify("STARTUP BLOCKED — missing API keys", msg)
+        raise SystemExit(f"\n[error] {msg}")
+
+
 def _llm_config(role: str) -> dict:
     cfg = _ROUTING.get(role, {})
     model = cfg.get("model", "gpt-4o")
     api_key_env = cfg.get("api_key_env", "OPENAI_API_KEY")
     api_key = os.environ.get(api_key_env, "")
-    if not api_key:
-        print(f"[warn] {api_key_env} not set; agent {role} may fail.")
     return {"config_list": [{"model": model, "api_key": api_key}]}
 
 
@@ -57,6 +88,7 @@ def _run_v4() -> None:
     from autogen_agentchat.conditions import MaxMessageTermination
     import asyncio
 
+    _trace = _LANGFUSE.trace(name="{{ team.team_name }}", tags=["autogen", "v4"]) if _LANGFUSE else None
     agents = []
 {% for agent in team.agents %}
     _cfg_{{ agent.role }} = _load_agent_cfg("{{ agent.role }}")
@@ -81,8 +113,17 @@ def _run_v4() -> None:
         print("\n--- RESULT ---")
         for msg in result.messages:
             print(f"[{msg.source}] {msg.content}\n")
+        return result
 
-    asyncio.run(_run())
+    result = asyncio.run(_run())
+    if _trace:
+        _trace.update(output=f"messages={len(result.messages)}")
+    if _LANGFUSE and hasattr(_LANGFUSE, "flush"):
+        _LANGFUSE.flush()
+    _notify(
+        "Run completed successfully",
+        f"AutoGen 0.4 team finished.\nMessages exchanged: {len(result.messages)}",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +134,7 @@ def _run_v2() -> None:
     """Run using pyautogen 0.2.x API (GroupChat + ConversableAgent)."""
     import autogen
 
+    _trace = _LANGFUSE.trace(name="{{ team.team_name }}", tags=["autogen", "v2"]) if _LANGFUSE else None
     agents: list[autogen.ConversableAgent] = []
     agent_map: dict[str, autogen.ConversableAgent] = {}
 
@@ -122,24 +164,73 @@ def _run_v2() -> None:
         manager,
         message="Build a production-ready {{ team.team_name }} following best practices.",
     )
+    if _trace:
+        _trace.update(output="autogen v2 group chat completed")
+    if _LANGFUSE and hasattr(_LANGFUSE, "flush"):
+        _LANGFUSE.flush()
+    _notify(
+        "Run completed successfully",
+        "AutoGen 0.2 group chat finished.",
+    )
 
 
 # ---------------------------------------------------------------------------
-# Entry point — auto-detect AutoGen version
+# Entry point — validate env, then auto-detect AutoGen version
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    _validate_env()
+
     try:
-        import autogen_agentchat  # noqa: F401
-        _run_v4()
-    except ImportError:
         try:
-            import autogen  # noqa: F401
-            _run_v2()
+            import autogen_agentchat  # noqa: F401
+            _run_v4()
         except ImportError:
-            print("[error] Neither autogen-agentchat nor pyautogen is installed.")
-            print("  Install with: pip install pyautogen  OR  pip install autogen-agentchat autogen-ext")
-            sys.exit(1)
+            try:
+                import autogen  # noqa: F401
+                _run_v2()
+            except ImportError:
+                msg = (
+                    "Neither autogen-agentchat nor pyautogen is installed.\n"
+                    "Install with:  pip install pyautogen\n"
+                    "         or:  pip install autogen-agentchat autogen-ext"
+                )
+                _notify("STARTUP BLOCKED — missing autogen package", msg)
+                print(f"[error] {msg}")
+                sys.exit(1)
+    except KeyboardInterrupt:
+        _notify("Run interrupted", "The run was stopped by a keyboard interrupt (SIGINT).")
+        raise SystemExit(1)
+    except SystemExit:
+        raise
+    except Exception as exc:
+        err_type = type(exc).__name__
+        err_msg = str(exc)
+        is_auth = any(x in err_msg.lower() or x in err_type.lower()
+                      for x in ("authentication", "api_key", "unauthorized", "invalid_api"))
+        is_token = any(x in err_msg.lower()
+                       for x in ("context_window", "token", "max_tokens", "too long", "length"))
+        is_rate = any(x in err_msg.lower() or x in err_type.lower()
+                      for x in ("ratelimit", "rate_limit", "429", "529", "overloaded"))
+
+        if is_auth:
+            category = "AUTH ERROR"
+        elif is_token:
+            category = "TOKEN LIMIT"
+        elif is_rate:
+            category = "RATE LIMIT"
+        else:
+            category = "RUNTIME ERROR"
+
+        body = (
+            f"Error type:    {err_type}\n"
+            f"Error message: {err_msg}\n\n"
+            f"Partial results (if any) are in: state/team_state.json"
+        )
+        _notify(f"Run FAILED — {category}", body)
+        print(f"\n[error] {category}: {err_type}: {err_msg}")
+        print("Partial results saved to: state/team_state.json")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

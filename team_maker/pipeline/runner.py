@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from team_maker.artifacts.writer import ArtifactManifest, ArtifactWriter
 from team_maker.codegen import render_template
@@ -138,6 +138,11 @@ class PipelineRunner:
         in_compose = bool(ollama_models)
         team.uses_ollama_sidecar = in_compose
 
+        # Validate every agent's model against the live provider API and
+        # substitute with the closest available model when needed.
+        from team_maker.llm.model_resolver import normalize_team_routings
+        normalize_team_routings(team)
+
         manifest["README.md"] = self._docs_gen.render_readme(team)
         manifest["team_config.yaml"] = self._render_team_config(team)
 
@@ -156,18 +161,20 @@ class PipelineRunner:
         # service hostname.
         manifest["routing_config.yaml"] = self._routing_gen.render(team, in_compose=in_compose)
 
-        # Phase 2: full tool bindings module (sandbox-aware)
-        manifest["tools.py"] = self._render_tools_module(request.sandbox)
+        # Phase 2: full tool bindings module (sandbox-aware + user-suggested tools + context)
+        manifest["tools.py"] = self._render_tools_module(
+            request.sandbox, request.suggested_tools, request.context_dir
+        )
 
         # Phase 3: state store module
         manifest["state_store.py"] = self._render_state_store(request.state_backend)
 
         # Phase 4: framework-specific runner
-        manifest["run_example.py"] = adapter.render_runner(team)
+        manifest["run_example.py"] = adapter.render_runner(team, request.notifications)
 
         # Runtime requirements (framework + state backend aware)
         manifest["requirements.txt"] = self._render_requirements(
-            team.primary_framework, request.state_backend
+            team.primary_framework, request.state_backend, team
         )
 
         # Ollama sidecar: docker-compose.yml + Dockerfile + .dockerignore
@@ -243,8 +250,17 @@ class PipelineRunner:
         return dump_yaml(data)
 
     @staticmethod
-    def _render_tools_module(sandbox: SandboxConfig) -> str:
-        return render_template("tools.py.j2", sandbox=sandbox)
+    def _render_tools_module(
+        sandbox: SandboxConfig,
+        suggested_tools: list,
+        context_dir: Optional[str] = None,
+    ) -> str:
+        return render_template(
+            "tools.py.j2",
+            sandbox=sandbox,
+            suggested_tools=suggested_tools,
+            context_dir=context_dir,
+        )
 
     @staticmethod
     def _render_state_store(state_backend: StateBackend) -> str:
@@ -256,17 +272,35 @@ class PipelineRunner:
             use_file=use_file,
         )
 
+    # CrewAI providers that don't need LiteLLM as a fallback
+    _CREWAI_NATIVE_PROVIDERS = frozenset({
+        "openai", "anthropic", "claude", "azure", "azure_openai",
+        "google", "gemini", "bedrock", "aws", "openrouter", "deepseek",
+        "ollama", "ollama_chat", "hosted_vllm", "cerebras", "dashscope",
+    })
+
     @staticmethod
-    def _render_requirements(framework: str, state_backend: StateBackend) -> str:
+    def _render_requirements(
+        framework: str, state_backend: StateBackend, team: "GeneratedTeam | None" = None
+    ) -> str:
         base = [
+            "langfuse>=2.0,<3.0",
             "pyyaml>=6.0",
             "PyGithub>=2.1",
+            # Data stack
+            "pandas>=2.0",
+            "pandas_ta>=0.3.14b",
+            "vectorbt>=0.26.0",
+            "psycopg2-binary>=2.9",
+            "sqlalchemy>=2.0",
+            "qdrant-client>=1.7.0",
         ]
         framework_deps = {
             "crewai": [
-                "crewai>=0.80.0",
+                "crewai[google-genai]>=0.80.0",
                 "crewai-tools>=0.25.0",
                 "langchain-anthropic>=0.3.0",
+                "langchain-google-genai>=2.0",
                 "langchain-openai>=0.3.0",
                 "langchain-ollama>=0.2.0",
             ],
@@ -274,6 +308,7 @@ class PipelineRunner:
                 "langgraph>=0.2.0",
                 "langchain-core>=0.3.0",
                 "langchain-anthropic>=0.3.0",
+                "langchain-google-genai>=2.0",
                 "langchain-openai>=0.3.0",
                 "langchain-ollama>=0.2.0",
             ],
@@ -284,6 +319,10 @@ class PipelineRunner:
         deps = base + framework_deps.get(framework, framework_deps["crewai"])
         if state_backend in (StateBackend.VECTOR, StateBackend.BOTH):
             deps.append("chromadb>=0.5")
+        if framework == "crewai" and team is not None:
+            providers = {a.routing.provider for a in team.agents}
+            if providers - PipelineRunner._CREWAI_NATIVE_PROVIDERS:
+                deps.append("litellm>=1.0")
 
         lines = ["# Runtime dependencies — install with: pip install -r requirements.txt"]
         lines += sorted(deps)

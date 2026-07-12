@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Optional
 
 from team_maker.domain.models import GeneratedTeam
 
@@ -14,7 +15,7 @@ class FrameworkAdapter(ABC):
     def name(self) -> str: ...
 
     @abstractmethod
-    def render_runner(self, team: GeneratedTeam) -> str:
+    def render_runner(self, team: GeneratedTeam, notifications=None) -> str:
         """Return the full content of run_example.py for this framework."""
         ...
 

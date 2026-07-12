@@ -64,6 +64,10 @@ services:
 {% endfor %}
       # Where the runner should talk to Ollama
       OLLAMA_HOST: http://ollama:11434
+      # Langfuse observability — point at your shared Langfuse server
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://localhost:3000}
       # Sandbox mode: false inside the compose runner (the container IS the sandbox)
       SANDBOX_ENABLED: "false"
       # Override WORKSPACE_ROOT to point to the mounted volume inside the container
@@ -73,10 +77,7 @@ services:
       - ./workspace:/app/workspace
     networks:
       - team_net
-    # Keep the container up for debugging after the crew finishes.
-    # Remove `tty` / `stdin_open` if you want it to exit on completion.
-    tty: true
-    stdin_open: true
+    restart: "no"
 
 volumes:
   ollama_models:

@@ -279,6 +279,26 @@ class SoftwareDeliveryTemplate(BaseTeamTemplate):
         self, request: TeamCreationRequest, agents: List[AgentSpec]
     ) -> List[TaskSpec]:
         agent_roles = {a.role for a in agents}
+
+        # Use desired_tasks from the request when explicitly provided
+        if request.desired_tasks:
+            tasks = []
+            for t in request.desired_tasks:
+                if t.agent_role in agent_roles:
+                    tasks.append(
+                        TaskSpec(
+                            name=t.name,
+                            description=t.description,
+                            expected_output=f"All deliverables for '{t.name}' completed and documented.",
+                            agent_role=t.agent_role,
+                            dependencies=[d for d in t.dependencies if any(
+                                dt.name == d for dt in request.desired_tasks
+                            )],
+                        )
+                    )
+            if tasks:
+                return tasks
+
         tasks: List[TaskSpec] = []
         for task_def in _DEFAULT_TASKS:
             if task_def["agent_role"] in agent_roles:

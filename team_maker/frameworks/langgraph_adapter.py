@@ -20,7 +20,7 @@ class LangGraphAdapter(FrameworkAdapter):
             "langchain-ollama>=0.2.0",
         ]
 
-    def render_runner(self, team: GeneratedTeam) -> str:
+    def render_runner(self, team: GeneratedTeam, notifications=None) -> str:
         orchestrator = next((a for a in team.agents if a.is_orchestrator), None)
         return render_template(
             "langgraph_runner.py.j2",
@@ -28,4 +28,5 @@ class LangGraphAdapter(FrameworkAdapter):
             orchestrator_role=orchestrator.role if orchestrator else None,
             topology_pattern=team.topology_pattern,
             topology_edges=team.topology_edges,
+            notifications=notifications,
         )

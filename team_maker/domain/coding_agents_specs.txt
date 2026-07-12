@@ -1,0 +1,200 @@
+Simplifies workflow:
+
+Read the previous state of the work and the code —> run corresponding git operations (get diff, pull, make a branch, others) —> Write the code —> Write unit test and smoke test for the code —> Run all unit and smoke tests —> make a git push —> Ask a code reviewer to review the new code —> [code reviewer does its task and return the review results] —> revise or confirm the final code with the code reviewer  —> [The code reviewer merges the code. ] —>  update the final state of the documentations —> update the manager with final states. 
+
+## Improved coding-agent workflow
+
+```text
+1. Read task + milestone goal + acceptance criteria
+2. Read previous state of work, docs, tickets, and relevant code
+3. Confirm scope:
+   - What will be changed?
+   - What will NOT be changed?
+   - What files/services are affected?
+   - What is the expected output?
+
+4. Run git operations:
+   - git status
+   - git pull --rebase
+   - git diff
+   - git log --oneline -n 5
+   - create feature branch
+
+5. Inspect dependencies and current tests
+6. Write an implementation plan before coding
+7. Write or update tests first or alongside code:
+   - unit tests
+   - smoke tests
+   - integration/contract tests if API boundaries change
+
+8. Write the code
+9. Run formatting/lint/type checks
+10. Run targeted tests
+11. Run broader relevant test suite
+12. Run smoke test manually or through script
+13. Check git diff carefully
+14. Update documentation in the same branch:
+   - README
+   - API contract docs
+   - environment variables
+   - architecture notes
+   - known limitations
+
+15. Commit with clear message
+16. Push branch
+17. Open PR / request review
+18. Code reviewer reviews:
+   - correctness
+   - security
+   - tests
+   - architecture
+   - demo impact
+   - regression risk
+
+19. Coding agent revises based on review
+20. Reviewer approves
+21. Reviewer or release manager merges
+22. Agent pulls main again and confirms merge state
+23. Update final task state:
+   - what changed
+   - tests passed
+   - files changed
+   - risks remaining
+   - follow-up tasks
+   - demo readiness impact
+
+24. Notify manager/orchestrator
+```
+
+## Important things to add
+
+### 1. Add “scope confirmation” before coding
+
+Agents often overbuild. Force this:
+
+```yaml
+scope_confirmation:
+  must_state:
+    - intended_change
+    - files_expected_to_change
+    - files_not_to_touch
+    - acceptance_criteria
+    - rollback_plan
+```
+
+This prevents agents from modifying 20 files when the task needed 3.
+
+---
+
+### 2. Add “contract check” for backend/frontend/API work
+
+For CoinPela, this is critical.
+
+If backend changes an endpoint, the agent must update:
+
+```text
+API schema
+frontend caller
+tests
+docs
+sample request/response
+```
+
+Otherwise frontend and backend agents will drift.
+
+---
+
+### 3. Add “security/risk check” before PR
+
+Especially for FinTech.
+
+Before push, the coding agent should answer to questions such as:
+
+```text
+Did I touch credentials?
+Did I touch order execution?
+Did I touch user permissions?
+Did I touch real-money logic?
+Did I touch risk limits?
+Did I touch audit logs?
+```
+
+If yes, the PR needs a higher-level review.
+
+---
+
+### 4. Add “demo path check”
+
+Every coding task should say whether it affects the M1 investor demo.
+
+```yaml
+demo_impact:
+  affects_demo: true/false
+  demo_step: "AI Buddy creates strategy"
+  failure_if_broken: "User cannot create a strategy from chat"
+  fallback_available: true/false
+```
+
+This keeps agents focused on the milestone.
+
+---
+
+### 5. Add “no merge without evidence”
+
+The reviewer should not approve based on words. It should require evidence:
+
+```text
+test output
+lint output
+screenshots if UI
+sample API response if backend
+smoke-test result
+git diff summary
+```
+
+---
+
+## One correction to your order
+
+You wrote:
+
+> merge code → update final documentation
+
+I would usually change it to:
+
+> update documentation before PR review → reviewer checks docs → merge
+
+Because documentation is part of the code change. After merge, the agent can update the **manager/status document**, but technical docs should be updated before merge.
+
+So better:
+
+```text
+write code → test → update docs → push → review → revise → merge → update manager/final status
+```
+
+## Best final version for your agents
+
+You can give them this:
+
+```text
+Every coding agent must follow this workflow:
+
+1. Read the task, milestone, acceptance criteria, existing docs, previous state, and relevant code.
+2. State the scope, expected files to change, files not to touch, assumptions, and risks.
+3. Sync git, inspect current branch, pull latest main, check diff, and create a feature branch.
+4. Inspect existing tests and contracts before coding.
+5. Write or update tests for the expected behavior.
+6. Implement the smallest correct change.
+7. Run lint, type checks, unit tests, integration/contract tests if relevant, and smoke tests.
+8. Review its own git diff and remove accidental changes.
+9. Update documentation before review.
+10. Commit and push the branch.
+11. Request code review with evidence: diff summary, tests passed, screenshots/API outputs, risks, and demo impact.
+12. Revise until reviewer approves.
+13. Reviewer or release manager merges.
+14. After merge, update the manager with final status, changed files, test results, remaining risks, and next recommended tasks.
+```
+
+For CoinPela, I would add one hard rule:
+
+> **No coding agent can push a PR unless it includes tests, documentation updates if applicable, and a clear demo/risk impact statement.**

@@ -10,9 +10,14 @@ from team_maker.utils.fs import ensure_dir
 # Type alias for clarity
 ArtifactManifest = Dict[str, str]
 
-# Subdirectories team_maker owns — cleared on overwrite so stale agent/task
-# files from previous runs don't confuse the loader.
+# Subdirectories team_maker owns — cleared on overwrite so stale files
+# from previous runs don't confuse the loader.
 _OWNED_SUBDIRS = ("agents", "tasks", "docs")
+
+# Root-level files that team_maker owns conditionally (e.g. only when an
+# Ollama sidecar is needed). Removed on overwrite so a re-run with a
+# different config doesn't leave stale Compose/Docker files behind.
+_OWNED_ROOT_FILES = ("docker-compose.yml", "Dockerfile", ".dockerignore")
 
 
 class ArtifactWriter:
@@ -48,9 +53,10 @@ class ArtifactWriter:
 
     @staticmethod
     def _clear_owned_subdirs(output_path: Path) -> None:
-        """Wipe team_maker-owned subdirs so stale files don't persist.
+        """Wipe team_maker-owned subdirs and conditional root files so stale
+        artifacts from previous runs don't persist.
 
-        Runtime artefacts (.venv, state/, workspace/, runner.log, __pycache__)
+        Runtime artifacts (.venv, state/, workspace/, runner.log, __pycache__)
         are intentionally left alone so repeated overwrites don't blow away
         the user's venv or the team's state.
         """
@@ -58,6 +64,10 @@ class ArtifactWriter:
             sub_path = output_path / sub
             if sub_path.is_dir():
                 shutil.rmtree(sub_path)
+        for fname in _OWNED_ROOT_FILES:
+            f = output_path / fname
+            if f.exists():
+                f.unlink()
 
     @staticmethod
     def _check_output_path(path: Path, overwrite: bool) -> None:

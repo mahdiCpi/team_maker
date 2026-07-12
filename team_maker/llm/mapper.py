@@ -16,6 +16,8 @@ def _infer_provider(model: str) -> str:
     m = model.lower()
     if m.startswith(("gpt-", "o1-", "o3-", "o4-")):
         return "openai"
+    if m.startswith(("grok-",)):
+        return "xai"
     if m.startswith("claude-"):
         return "anthropic"
     return "ollama"
@@ -29,6 +31,7 @@ def _resolve_routing(
         provider = _infer_provider(llm_override)
         api_key_env = (
             "OPENAI_API_KEY" if provider == "openai"
+            else "XAI_API_KEY" if provider == "xai"
             else "ANTHROPIC_API_KEY" if provider == "anthropic"
             else None
         )

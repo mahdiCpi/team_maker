@@ -1,7 +1,7 @@
 """LLM-driven team planner — replaces the hardcoded template system."""
 from __future__ import annotations
 
-from team_maker.llm.prompts import SYSTEM_PROMPT, build_user_message
+from team_maker.llm.prompts import build_system_prompt, build_user_message
 from team_maker.llm.providers import LLMProvider, create_provider
 from team_maker.llm.schemas import AgentPlan
 from team_maker.schema.request import TeamCreationRequest
@@ -36,13 +36,33 @@ class TeamPlanner:
         """
         user_message = build_user_message(request)
 
+        # Merge suggested tools with the built-in catalog for the planner
+        extra_tools = {t.name: t.description for t in request.suggested_tools} if request.suggested_tools else None
+        system = build_system_prompt(extra_tools=extra_tools)
+
         plan = self._provider.complete_structured(
-            system=SYSTEM_PROMPT,
+            system=system,
             user=user_message,
             response_model=AgentPlan,
         )
 
         # Always stamp the team name from the request to ensure consistency
         plan.team_name = request.team_name
+
+        # If desired_tasks were explicitly provided, use them directly instead of
+        # the planner's generated tasks — the planner consistently collapses many
+        # tasks into few, ignoring the desired_tasks hint in the prompt.
+        if request.desired_tasks:
+            from team_maker.llm.schemas import TaskDesign
+            plan.tasks = [
+                TaskDesign(
+                    name=t.name,
+                    description=t.description,
+                    expected_output=f"All deliverables for '{t.name}' completed and documented.",
+                    assigned_to=t.agent_role,
+                    depends_on=t.dependencies,
+                )
+                for t in request.desired_tasks
+            ]
 
         return plan

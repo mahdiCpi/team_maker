@@ -16,6 +16,35 @@ from crewai import Agent, Task, Crew, Process, LLM
 
 from tools import get_tools_for
 
+{% include '_notify_helper.j2' %}
+
+# ── Langfuse observability (optional) ────────────────────────────────────────
+# Set LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY + LANGFUSE_HOST to enable.
+# Creates one parent trace per crew run; every per-agent LLM call is nested
+# under it as a generation via LiteLLM's Langfuse callback.
+_LANGFUSE = None
+_LANGFUSE_HOST = os.environ.get("LANGFUSE_HOST", "http://localhost:3000")
+if os.environ.get("LANGFUSE_PUBLIC_KEY"):
+    try:
+        from langfuse import Langfuse as _LangfuseClient
+        _LANGFUSE = _LangfuseClient(
+            public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
+            secret_key=os.environ.get("LANGFUSE_SECRET_KEY", ""),
+            host=_LANGFUSE_HOST,
+        )
+        # Route every LiteLLM call (i.e. every agent LLM call) to Langfuse.
+        # This gives a per-agent, per-call breakdown nested under the parent trace.
+        try:
+            import litellm as _litellm
+            _litellm.success_callback = ["langfuse"]
+            _litellm.failure_callback = ["langfuse"]
+            print(f"[langfuse] tracing enabled → {_LANGFUSE_HOST} (per-agent LLM spans active)")
+        except Exception as _ll_err:
+            print(f"[langfuse] tracing enabled → {_LANGFUSE_HOST} (litellm callback skipped: {_ll_err})")
+    except Exception as _lf_err:
+        print(f"[langfuse] init skipped — {_lf_err}")
+# ─────────────────────────────────────────────────────────────────────────────
+
 TEAM_ROOT = Path(__file__).parent
 {% if orchestrator_role %}
 ORCHESTRATOR_ROLE = "{{ orchestrator_role }}"
@@ -23,26 +52,40 @@ ORCHESTRATOR_ROLE = "{{ orchestrator_role }}"
 ORCHESTRATOR_ROLE = None
 {% endif %}
 
-# LLM routing — edit routing_config.yaml to change which model each agent uses.
 with (TEAM_ROOT / "routing_config.yaml").open() as _f:
     _ROUTING: dict = yaml.safe_load(_f).get("routing", {})
 
+# Maps agent display role (from agents/*.yaml) → routing key (snake_case filename)
+_display_to_routing: dict[str, str] = {}
+
+# Tracks which tasks are pending/completed so error messages name the failing agent
+_exec_state: dict = {"completed": [], "pending": [], "last_agent": "none"}
+
+
+def _agent_label(routing_key: str) -> str:
+    cfg = _ROUTING.get(routing_key, {})
+    return f"{cfg.get('provider', '?')}/{cfg.get('model', '?')}"
+
+
+def _validate_env() -> None:
+    """Fail fast if any required API key is missing before spending any credits."""
+    missing = []
+    for role, cfg in _ROUTING.items():
+        env = cfg.get("api_key_env")
+        if env and not os.environ.get(env):
+            missing.append(f"  {role}: {env}")
+    if missing:
+        msg = "Missing required API keys — set these environment variables before running:\n" + "\n".join(missing)
+        _notify("STARTUP BLOCKED — missing API keys", msg)
+        raise SystemExit(f"\n[error] {msg}")
+
 
 def _build_llm(role: str):
-    """Build a crewai.LLM from the role's routing entry.
-
-    CrewAI expects either a 'provider/model' string or a native crewai.LLM
-    instance (it uses litellm under the hood). A LangChain Chat* instance
-    will be rejected by Agent's pydantic validator.
-    """
     cfg = _ROUTING.get(role, {})
     if not cfg:
         return None
     provider = cfg.get("provider", "anthropic")
     model = cfg.get("model", "claude-sonnet-4-6")
-    api_key_env = cfg.get("api_key_env")
-    if api_key_env and not os.environ.get(api_key_env):
-        print(f"[warn] {api_key_env} is not set; agent {role} may fail.")
     if provider == "ollama":
         return LLM(model=f"ollama/{model}", base_url=cfg.get("base_url", "http://localhost:11434"))
     return LLM(model=f"{provider}/{model}")
@@ -52,7 +95,7 @@ def load_agent(role: str) -> Agent:
     cfg_path = TEAM_ROOT / "agents" / f"{role}.yaml"
     with cfg_path.open() as f:
         cfg = yaml.safe_load(f)
-    return Agent(
+    agent = Agent(
         role=cfg["role"],
         goal=cfg["goal"],
         backstory=cfg["backstory"],
@@ -61,6 +104,8 @@ def load_agent(role: str) -> Agent:
         verbose=True,
         allow_delegation=cfg.get("is_orchestrator", False),
     )
+    _display_to_routing[cfg["role"]] = role
+    return agent
 
 
 def load_task(name: str, agents: dict[str, Agent]) -> Task:
@@ -74,12 +119,38 @@ def load_task(name: str, agents: dict[str, Agent]) -> Task:
     )
 
 
+def _on_task_done(output) -> None:
+    """Fires after each task completes. Sends Telegram with agent name + model + output preview."""
+    display_role = getattr(output, "agent", "unknown")
+    routing_key = _display_to_routing.get(display_role, display_role.lower().replace(" ", "_"))
+    label = _agent_label(routing_key)
+    raw = str(getattr(output, "raw", output))[:600]
+
+    if _exec_state["pending"]:
+        done = _exec_state["pending"].pop(0)
+        _exec_state["completed"].append(done)
+    _exec_state["last_agent"] = f"{display_role} ({label})"
+
+    remaining = len(_exec_state["pending"])
+    _notify(
+        f"Task done — {display_role} [{label}]",
+        f"Agent:           {display_role}\n"
+        f"Model:           {label}\n"
+        f"Tasks remaining: {remaining}\n\n"
+        f"Output preview:\n{raw}",
+    )
+
+
 def main() -> None:
+    _validate_env()
+
     agent_roles = [{% for a in team.agents %}"{{ a.role }}"{% if not loop.last %}, {% endif %}{% endfor %}]
     agents = {role: load_agent(role) for role in agent_roles}
 
     task_names = [{% for t in team.tasks %}"{{ t.name }}"{% if not loop.last %}, {% endif %}{% endfor %}]
     tasks = [load_task(name, agents) for name in task_names]
+
+    _exec_state["pending"] = list(tasks)
 
 {% if orchestrator_role %}
     crew = Crew(
@@ -87,6 +158,7 @@ def main() -> None:
         tasks=tasks,
         process=Process.hierarchical,
         manager_agent=agents["{{ orchestrator_role }}"],
+        task_callback=_on_task_done,
         verbose=True,
     )
 {% else %}
@@ -94,14 +166,107 @@ def main() -> None:
         agents=list(agents.values()),
         tasks=tasks,
         process=Process.sequential,
+        task_callback=_on_task_done,
         verbose=True,
     )
 {% endif %}
 
+    roster = "\n".join(f"  {role}: {_agent_label(role)}" for role in agent_roles)
+    task_summary = "\n".join(
+        f"  {t.description[:60]}… → {_display_to_routing.get(getattr(t.agent, 'role', ''), '?')}"
+        for t in tasks
+    )
+    _notify(
+        "Run started",
+        f"Tasks ({len(tasks)}):\n{task_summary}\n\nAgent roster:\n{roster}",
+    )
+
     goal = "Build a production-ready {{ team.team_name }} following best practices."
-    result = crew.kickoff(inputs={"goal": goal})
-    print("\n--- RESULT ---")
-    print(result)
+    _lf_trace = (
+        _LANGFUSE.trace(
+            name="{{ team.team_name }}",
+            input={"goal": goal},
+            tags=["crewai", "team_maker"],
+        ) if _LANGFUSE else None
+    )
+    if _lf_trace:
+        try:
+            import litellm as _litellm
+            os.environ["LANGFUSE_TRACE_ID"] = _lf_trace.id
+        except Exception:
+            pass
+    try:
+        result = crew.kickoff(inputs={"goal": goal})
+        if _lf_trace:
+            _lf_trace.update(output=str(result)[:2000])
+            _LANGFUSE.flush()
+        _notify(
+            "Run completed successfully",
+            f"The team finished without errors.\n\nFinal output:\n{str(result)[:2000]}",
+        )
+        print("\n--- RESULT ---")
+        print(result)
+    except KeyboardInterrupt:
+        if _lf_trace:
+            _lf_trace.update(output="interrupted")
+            _LANGFUSE.flush()
+        _notify(
+            "Run interrupted",
+            f"Stopped by keyboard interrupt.\n"
+            f"Last active agent: {_exec_state['last_agent']}\n"
+            f"Completed tasks: {len(_exec_state['completed'])}/{len(tasks)}",
+        )
+        raise SystemExit(1)
+    except Exception as exc:
+        err_type = type(exc).__name__
+        err_msg = str(exc)
+        is_auth = any(x in err_msg.lower() or x in err_type.lower()
+                      for x in ("authentication", "api_key", "unauthorized", "invalid_api"))
+        is_token = any(x in err_msg.lower()
+                       for x in ("context_window", "token", "max_tokens", "too long", "length"))
+        is_rate = any(x in err_msg.lower() or x in err_type.lower()
+                      for x in ("ratelimit", "rate_limit", "429", "529", "overloaded"))
+        is_billing = any(x in err_msg.lower()
+                         for x in ("billing", "quota", "insufficient_quota", "payment", "402"))
+
+        if is_auth:
+            category = "AUTH ERROR"
+        elif is_billing:
+            category = "BILLING / QUOTA EXHAUSTED"
+        elif is_token:
+            category = "TOKEN LIMIT"
+        elif is_rate:
+            category = "RATE LIMIT (retries exhausted)"
+        else:
+            category = "RUNTIME ERROR"
+
+        failing_agent = "unknown"
+        if _exec_state["pending"]:
+            pending_task = _exec_state["pending"][0]
+            agent_obj = getattr(pending_task, "agent", None)
+            if agent_obj:
+                display = getattr(agent_obj, "role", "unknown")
+                routing_key = _display_to_routing.get(display, "")
+                failing_agent = f"{display} ({_agent_label(routing_key)})"
+
+        if _lf_trace:
+            _lf_trace.update(output=f"FAILED [{category}]: {err_type}: {err_msg[:500]}")
+            _LANGFUSE.flush()
+
+        body = (
+            f"Category:        {category}\n"
+            f"Failing agent:   {failing_agent}\n"
+            f"Last completed:  {_exec_state['last_agent']}\n"
+            f"Tasks done:      {len(_exec_state['completed'])}/{len(tasks)}\n\n"
+            f"Error type:      {err_type}\n"
+            f"Error message:   {err_msg[:500]}\n\n"
+            f"Partial results in: state/team_state.json\n"
+            f"Re-run after resolving the issue above."
+        )
+        _notify(f"Run FAILED — {category}", body)
+        print(f"\n[error] {category}: {err_type}: {err_msg}")
+        print("Partial results saved to: state/team_state.json")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

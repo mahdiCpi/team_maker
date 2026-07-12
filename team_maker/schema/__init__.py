@@ -7,6 +7,7 @@ from team_maker.schema.request import (
     StateBackend,
     GitAccountConfig,
     SandboxConfig,
+    ToolSuggestion,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "StateBackend",
     "GitAccountConfig",
     "SandboxConfig",
+    "ToolSuggestion",
 ]
