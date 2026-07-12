@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>team_maker — Team workspace (key screen)</title>
+<!--
+Key screen: Team workspace (chat + document loader + task list + results).
+Fintech Teal, light mode. Dark mode inherits shadcn + primary #17B3A6 / accent #2DD4BF.
+Semantic tokens shown as CSS vars; the spine stays semantic.
+-->
+<style>
+  :root{
+    --bg:#F8FAFA; --fg:#0F1B1A; --card:#FFFFFF; --muted:#EAF1F0; --muted-fg:#5C716F;
+    --border:#DCE6E4; --primary:#0E8C82; --primary-fg:#FFFFFF; --accent:#2DD4BF; --ring:#0E8C82;
+    --radius:8px; --destructive:#DC2626;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--fg);height:100vh;display:flex;}
+  /* sidebar */
+  .side{width:220px;flex:0 0 auto;border-right:1px solid var(--border);background:var(--card);padding:14px 12px;display:flex;flex-direction:column;gap:4px;}
+  .brand{display:flex;align-items:center;gap:8px;padding:6px 6px 14px;}
+  .robot{width:22px;height:22px;border:2px solid var(--fg);border-radius:7px;position:relative;flex:0 0 auto;}
+  .robot::before,.robot::after{content:"";position:absolute;top:6px;width:3px;height:6px;background:var(--fg);border-radius:2px;}
+  .robot::before{left:5px;} .robot::after{right:5px;}
+  .wm{font-weight:650;font-size:14px;line-height:1;}
+  .tag{font-size:9px;color:var(--muted-fg);}
+  .nav{font-size:13px;color:var(--fg);padding:8px 10px;border-radius:6px;display:flex;gap:8px;align-items:center;cursor:default;}
+  .nav.active{background:var(--muted);font-weight:600;}
+  .nav .k{margin-left:auto;font-size:10px;color:var(--muted-fg);}
+  .side .spacer{flex:1;}
+  .side .foot{font-size:11px;color:var(--muted-fg);padding:8px 10px;border-top:1px solid var(--border);}
+  /* main */
+  .main{flex:1;display:flex;flex-direction:column;min-width:0;}
+  .top{border-bottom:1px solid var(--border);padding:12px 18px;display:flex;align-items:center;gap:10px;}
+  .h{font-size:16px;font-weight:650;}
+  .badges{display:flex;gap:6px;flex-wrap:wrap;margin-left:6px;}
+  .pb{font-size:10.5px;padding:2px 8px;border-radius:999px;background:var(--muted);color:var(--fg);border:1px solid var(--border);}
+  .pb.or{border-color:var(--primary);color:var(--primary);}
+  .live{margin-left:auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;background:var(--muted);border:1px solid var(--border);border-radius:999px;padding:4px 10px;}
+  .pulse{width:8px;height:8px;border-radius:50%;background:var(--accent);}
+  .body{flex:1;display:grid;grid-template-columns:1.15fr .85fr;min-height:0;}
+  .col{min-height:0;display:flex;flex-direction:column;}
+  .col.left{border-right:1px solid var(--border);}
+  .colhead{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-fg);padding:10px 16px;border-bottom:1px solid var(--border);}
+  .scroll{flex:1;overflow:auto;padding:14px 16px;}
+  /* chat */
+  .msg{margin-bottom:12px;font-size:13px;line-height:1.45;}
+  .msg .who{font-size:10.5px;color:var(--muted-fg);margin-bottom:3px;}
+  .bubble{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:9px 11px;}
+  .bubble.me{background:var(--muted);}
+  .doc{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted-fg);border:1px dashed var(--border);border-radius:6px;padding:5px 9px;margin-top:4px;}
+  .composer{border-top:1px solid var(--border);padding:10px 16px;display:flex;gap:8px;align-items:center;}
+  .input{flex:1;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:9px 11px;color:var(--muted-fg);font-size:12.5px;}
+  .btn{font-size:12.5px;padding:8px 14px;border-radius:var(--radius);border:1px solid transparent;font-weight:600;cursor:default;}
+  .btn-primary{background:var(--primary);color:var(--primary-fg);}
+  .btn-ghost{background:transparent;color:var(--muted-fg);border-color:var(--border);}
+  /* tasks + results */
+  .task{display:flex;align-items:center;gap:10px;font-size:12.5px;padding:8px 0;border-bottom:1px solid var(--border);}
+  .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;}
+  .dot.done{background:var(--primary);} .dot.run{background:var(--accent);} .dot.wait{background:var(--border);}
+  .task .m{margin-left:auto;font-size:10px;color:var(--muted-fg);}
+  .result{margin-top:14px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-size:12.5px;line-height:1.5;}
+  .result h4{margin:0 0 6px;font-size:13px;}
+  .expand{margin-top:8px;font-size:11px;color:var(--primary);}
+  .doctray{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--muted-fg);margin-top:10px;}
+  .drop{border:1px dashed var(--border);border-radius:6px;padding:6px 10px;}
+</style>
+</head>
+<body>
+  <!-- sidebar -->
+  <aside class="side">
+    <div class="brand"><div class="robot"></div><div><div class="wm">team_maker</div><div class="tag">Coinpela R&D</div></div></div>
+    <div class="nav">＋ New Team <span class="k">g n</span></div>
+    <div class="nav">✦ Starter Teams</div>
+    <div class="nav active">▤ My Teams <span class="k">g t</span></div>
+    <div class="spacer"></div>
+    <div class="nav">⚙ Settings</div>
+    <div class="foot">Keys: anthropic ✓ · gemini ✓ · openrouter ✓</div>
+  </aside>
+
+  <!-- main: team workspace -->
+  <main class="main">
+    <div class="top">
+      <span class="h">Research &amp; Content</span>
+      <div class="badges">
+        <span class="pb">researcher · claude</span>
+        <span class="pb">writer · claude</span>
+        <span class="pb">editor · gemini</span>
+        <span class="pb or">critic · via OpenRouter</span>
+      </div>
+      <span class="live"><span class="pulse"></span>Running · 2 of 4 tasks</span>
+    </div>
+
+    <div class="body">
+      <!-- left: chat + docs -->
+      <section class="col left">
+        <div class="colhead">Chat with this team</div>
+        <div class="scroll">
+          <div class="msg"><div class="who">You</div><div class="bubble me">state of solid-state batteries, ~800 words
+            <div class="doc">📄 battery-review-2026.pdf · attached to this run</div>
+          </div></div>
+          <div class="msg"><div class="who">team_maker</div><div class="bubble">On it — researcher is gathering sources, then writer drafts, editor tightens, critic reviews. I'll post the draft here.</div></div>
+        </div>
+        <div class="doctray"><span class="drop">⤒ Drop a document</span><span>Attached to this run only · memory is a v2 option</span></div>
+        <div class="composer">
+          <div class="input">Ask a follow-up or refine the goal…</div>
+          <span class="btn btn-ghost">Attach</span>
+          <span class="btn btn-primary">Run ⌘⏎</span>
+        </div>
+      </section>
+
+      <!-- right: run + results -->
+      <section class="col">
+        <div class="colhead">Run</div>
+        <div class="scroll">
+          <div class="task"><span class="dot done"></span>researcher <span class="m">claude</span></div>
+          <div class="task"><span class="dot run"></span>writer <span class="m">claude · running</span></div>
+          <div class="task"><span class="dot wait"></span>editor <span class="m">gemini</span></div>
+          <div class="task"><span class="dot wait"></span>critic <span class="m">via OpenRouter</span></div>
+
+          <div class="result">
+            <h4>Draft (in progress)</h4>
+            Solid-state batteries replace the liquid electrolyte with a solid one, promising higher energy density and improved safety…
+            <div class="expand">▸ researcher — sources (6)</div>
+            <div class="expand">▸ critic — feedback (pending)</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
