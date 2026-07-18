@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+import team_maker.templates  # noqa: F401 – triggers template registration
 from team_maker.artifacts.writer import ArtifactManifest, ArtifactWriter
 from team_maker.codegen import render_template
 from team_maker.domain.models import GeneratedTeam
@@ -28,7 +29,6 @@ from team_maker.generators.report import ReportGenerator
 from team_maker.generators.routing import RoutingGenerator
 from team_maker.generators.task import TaskGenerator
 from team_maker.schema.request import SandboxConfig, StateBackend, TeamCreationRequest
-import team_maker.templates  # noqa: F401 – triggers template registration
 from team_maker.utils.fs import safe_output_path
 from team_maker.utils.yaml_utils import dump_yaml
 from team_maker.validation.validator import OutputValidator, ValidationResult
@@ -113,8 +113,8 @@ class PipelineRunner:
 
     @staticmethod
     def _generate_from_planner(request: TeamCreationRequest) -> GeneratedTeam:
-        from team_maker.llm.planner import TeamPlanner
         from team_maker.llm.mapper import map_plan_to_team
+        from team_maker.llm.planner import TeamPlanner
         planner = TeamPlanner.from_request(request)
         plan = planner.plan(request)
         return map_plan_to_team(plan, request)
@@ -297,7 +297,7 @@ class PipelineRunner:
         ]
         framework_deps = {
             "crewai": [
-                "crewai[google-genai]>=0.80.0",
+                "crewai[google-genai]==1.14.6",
                 "crewai-tools>=0.25.0",
                 "langchain-anthropic>=0.3.0",
                 "langchain-google-genai>=2.0",

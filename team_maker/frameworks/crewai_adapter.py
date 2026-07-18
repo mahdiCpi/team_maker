@@ -1,30 +1,13 @@
-"""CrewAI framework adapter — delegates runner generation to crewai_runner.py.j2."""
+"""Back-compat shim — ``CrewAIAdapter`` moved to ``team_maker.adapters.runtime_crewai``.
+
+Story 0.3 put CrewAI behind the ``RuntimeEngine`` port: the concrete adapter now
+lives in ``team_maker.adapters.runtime_crewai.crewai_engine`` and satisfies the
+port structurally (no ``FrameworkAdapter`` ABC). New code should import from that
+location. This module re-exports it so existing imports
+(``from team_maker.frameworks.crewai_adapter import CrewAIAdapter``) keep working.
+"""
 from __future__ import annotations
 
-from team_maker.codegen import render_template
-from team_maker.domain.models import GeneratedTeam
-from team_maker.frameworks.base import FrameworkAdapter
+from team_maker.adapters.runtime_crewai.crewai_engine import CrewAIAdapter as CrewAIAdapter
 
-
-class CrewAIAdapter(FrameworkAdapter):
-    @property
-    def name(self) -> str:
-        return "crewai"
-
-    def extra_requirements(self) -> list[str]:
-        return [
-            "crewai>=0.80.0",
-            "crewai-tools>=0.25.0",
-            "langchain-anthropic>=0.3.0",
-            "langchain-openai>=0.3.0",
-            "langchain-ollama>=0.2.0",
-        ]
-
-    def render_runner(self, team: GeneratedTeam, notifications=None) -> str:
-        orchestrator = next((a for a in team.agents if a.is_orchestrator), None)
-        return render_template(
-            "crewai_runner.py.j2",
-            team=team,
-            orchestrator_role=orchestrator.role if orchestrator else None,
-            notifications=notifications,
-        )
+__all__ = ["CrewAIAdapter"]

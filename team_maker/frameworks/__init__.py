@@ -1,7 +1,7 @@
-from team_maker.frameworks.base import FrameworkAdapter
-from team_maker.frameworks.crewai_adapter import CrewAIAdapter
-from team_maker.frameworks.langgraph_adapter import LangGraphAdapter
+from team_maker.adapters.runtime_crewai.crewai_engine import CrewAIAdapter
 from team_maker.frameworks.autogen_adapter import AutoGenAdapter
+from team_maker.frameworks.base import FrameworkAdapter
+from team_maker.frameworks.langgraph_adapter import LangGraphAdapter
 
 _ADAPTERS: dict[str, FrameworkAdapter] = {
     "crewai": CrewAIAdapter(),
