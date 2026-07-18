@@ -4,7 +4,7 @@ baseline_commit: 517ce41bbacfdc4e950ff2c4758046a50e089ad6
 
 # Story 0.3: Put CrewAI behind the RuntimeEngine port
 
-Status: ready-for-dev
+Status: review
 
 <!-- RECONCILIATION STORY (Epic 0) — see project-docs/stories/reconciliation-notes.md (divergence row 3).
      Behavior-preserving refactor + dead-code/duplication cleanup of team_maker/frameworks/ and the
@@ -63,41 +63,41 @@ conformance test (AD-7, Story 1.6).
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Define the `RuntimeEngine` port** (AC: 1)
-  - [ ] Create `team_maker/ports/runtime_engine.py`. Define `RuntimeEngine` with the same three
+- [x] **Task 1 — Define the `RuntimeEngine` port** (AC: 1)
+  - [x] Create `team_maker/ports/runtime_engine.py`. Define `RuntimeEngine` with the same three
     members as today's `FrameworkAdapter`: `name` (property, `str`), `render_runner(self, team:
     GeneratedTeam, notifications=None) -> str`, `extra_requirements(self) -> list[str]`.
-  - [ ] Keep it an `ABC` (matches current usage — the three adapters already subclass it and nothing
+  - [x] Keep it an `ABC` (matches current usage — the three adapters already subclass it and nothing
     requires structural/mock typing here, unlike Story 0.1's `LLMProvider`). Start the module with
     `from __future__ import annotations`; import `GeneratedTeam` only for the type hint.
-  - [ ] `team_maker/ports/__init__.py` already exists (from Story 0.1) — no change needed there.
+  - [x] `team_maker/ports/__init__.py` already exists (from Story 0.1) — no change needed there.
 
-- [ ] **Task 2 — Move the three engines under `adapters/runtime_engines/`** (AC: 2)
-  - [ ] Create `team_maker/adapters/runtime_engines/__init__.py`, `crewai_engine.py`,
+- [x] **Task 2 — Move the three engines under `adapters/runtime_engines/`** (AC: 2)
+  - [x] Create `team_maker/adapters/runtime_engines/__init__.py`, `crewai_engine.py`,
     `langgraph_engine.py`, `autogen_engine.py`.
-  - [ ] Move `CrewAIAdapter`, `LangGraphAdapter`, `AutoGenAdapter` verbatim (class names may stay as-is
+  - [x] Move `CrewAIAdapter`, `LangGraphAdapter`, `AutoGenAdapter` verbatim (class names may stay as-is
     to minimize diff) into the new modules. Change their base-class import to
     `from team_maker.ports.runtime_engine import RuntimeEngine` and subclass that instead of
     `FrameworkAdapter`. Do not touch `render_runner`'s body — same `render_template(...)` calls, same
     arguments, same template filenames.
 
-- [ ] **Task 3 — Relocate the data-driven lookup, delete `frameworks/`** (AC: 3)
-  - [ ] In `team_maker/adapters/runtime_engines/__init__.py`: `_ENGINES: dict[str, RuntimeEngine] =
+- [x] **Task 3 — Relocate the data-driven lookup, delete `frameworks/`** (AC: 3)
+  - [x] In `team_maker/adapters/runtime_engines/__init__.py`: `_ENGINES: dict[str, RuntimeEngine] =
     {"crewai": CrewAIAdapter(), "langgraph": LangGraphAdapter(), "autogen": AutoGenAdapter()}` and
     `def get_runtime_engine(name: str) -> RuntimeEngine: return _ENGINES.get(name,
     _ENGINES["crewai"])` — preserves the exact current fallback behavior of `get_adapter`.
-  - [ ] Update `team_maker/pipeline/runner.py`: replace `from team_maker.frameworks import
+  - [x] Update `team_maker/pipeline/runner.py`: replace `from team_maker.frameworks import
     get_adapter` with `from team_maker.adapters.runtime_engines import get_runtime_engine`, and the
     one call site `adapter = get_adapter(effective_framework)` → `adapter =
     get_runtime_engine(effective_framework)`.
-  - [ ] Run `git grep -rn "team_maker.frameworks\|frameworks import\|FrameworkAdapter"` — confirm the
+  - [x] Run `git grep -rn "team_maker.frameworks\|frameworks import\|FrameworkAdapter"` — confirm the
     only remaining hits are inside `team_maker/frameworks/` itself, then delete the whole
     `team_maker/frameworks/` directory (`base.py`, `crewai_adapter.py`, `langgraph_adapter.py`,
     `autogen_adapter.py`, `__init__.py`). No back-compat shim is needed — unlike Story 0.1's
     provider move, nothing outside `pipeline/runner.py` imports this package.
 
-- [ ] **Task 4 — Single-source the requirements pin** (AC: 4, 5)
-  - [ ] Update each engine's `extra_requirements()` to return exactly what `runner.py`'s
+- [x] **Task 4 — Single-source the requirements pin** (AC: 4, 5)
+  - [x] Update each engine's `extra_requirements()` to return exactly what `runner.py`'s
     `framework_deps` table hardcodes today:
     - `crewai_engine.py`: `["crewai[google-genai]>=0.80.0", "crewai-tools>=0.25.0",
       "langchain-anthropic>=0.3.0", "langchain-google-genai>=2.0", "langchain-openai>=0.3.0",
@@ -106,21 +106,21 @@ conformance test (AD-7, Story 1.6).
       "langchain-anthropic>=0.3.0", "langchain-google-genai>=2.0", "langchain-openai>=0.3.0",
       "langchain-ollama>=0.2.0"]`
     - `autogen_engine.py`: `["pyautogen>=0.2.0"]` (unchanged — already matched).
-  - [ ] In `team_maker/pipeline/runner.py::_render_requirements`, add a `framework_requirements:
+  - [x] In `team_maker/pipeline/runner.py::_render_requirements`, add a `framework_requirements:
     list[str]` parameter carrying the static list; remove the local `framework_deps` dict and its
     `.get(framework, framework_deps["crewai"])` lookup; use `deps = base + framework_requirements`.
     Keep the `framework: str` parameter — it is still needed for the `if framework == "crewai" and
     team is not None:` litellm-native-provider check — and keep `_CREWAI_NATIVE_PROVIDERS` and the
     `chromadb` (state-backend) branch exactly as-is.
-  - [ ] Update the single call site in `_build_manifest` (which already has `adapter` in scope as a
+  - [x] Update the single call site in `_build_manifest` (which already has `adapter` in scope as a
     parameter): `self._render_requirements(team.primary_framework, request.state_backend,
     adapter.extra_requirements(), team)`.
-  - [ ] Add a comment next to `crewai_engine.py`'s pin: version bump to CrewAI **1.14.6** (spine
+  - [x] Add a comment next to `crewai_engine.py`'s pin: version bump to CrewAI **1.14.6** (spine
     target — see ARCHITECTURE-SPINE.md Stack table) is gated by the Story 1.6 multi-provider
     conformance test (AD-7); do not bump here.
 
-- [ ] **Task 5 — Regression tests for the port + no hard `crewai` dependency** (AC: 5, 6)
-  - [ ] New `tests/unit/test_runtime_engine_port.py`:
+- [x] **Task 5 — Regression tests for the port + no hard `crewai` dependency** (AC: 5, 6)
+  - [x] New `tests/unit/test_runtime_engine_port.py`:
     - `RuntimeEngine` exists in `team_maker.ports.runtime_engine` with `name`, `render_runner`,
       `extra_requirements`.
     - `get_runtime_engine("crewai"/"langgraph"/"autogen")` returns an instance whose `.name` matches;
@@ -131,11 +131,11 @@ conformance test (AD-7, Story 1.6).
     - Scan `team_maker/**/*.py` (exclude `team_maker/codegen/templates/`, which are `.j2` files
       anyway and not Python) for a module-level `import crewai` / `from crewai import` — assert none
       found. This is the AD-6 regression guard.
-  - [ ] Run `python -m pytest tests/unit -q` → expect ≥185 passed (185 + new tests).
-  - [ ] Run `python -m pytest tests/integration -k "not live" -q` → expect the existing 20 to keep
+  - [x] Run `python -m pytest tests/unit -q` → expect ≥185 passed (185 + new tests).
+  - [x] Run `python -m pytest tests/integration -k "not live" -q` → expect the existing 20 to keep
     passing unchanged (manifest file lists, Dockerfile content, etc. are unaffected by this
     refactor).
-  - [ ] `ruff check` clean on every new/changed file (line-length 100; E,F,I,N,W; E501 ignored).
+  - [x] `ruff check` clean on every new/changed file (line-length 100; E,F,I,N,W; E501 ignored).
 
 ## Dev Notes
 
@@ -249,11 +249,62 @@ conformance test (AD-7, Story 1.6).
 
 ### Agent Model Used
 
+claude-sonnet-5 (bmad-dev-story)
+
 ### Debug Log References
+
+- Baseline: `python -m pytest tests/unit -q` → 185 passed; `python -m pytest tests/integration -k "not live" -q` → 20 passed, 7 deselected.
+- Final: `python -m pytest tests/unit -q` → 195 passed (185 baseline + 10 new in `test_runtime_engine_port.py`); `python -m pytest tests/integration -k "not live" -q` → 20 passed, 7 deselected (unchanged).
+- `ruff check` on all new/changed files → clean (2 pre-existing `I001` import-sort findings in `pipeline/runner.py`, one of them in the block touched by this story, were fixed via `ruff check --fix` rather than left — both are pure import-ordering, no behavior change).
 
 ### Completion Notes List
 
+- `RuntimeEngine` port created as an `ABC` in `team_maker/ports/runtime_engine.py` with the identical
+  three-member contract as the old `FrameworkAdapter` (`name`, `render_runner`, `extra_requirements`).
+- All three engines (`CrewAIAdapter`, `LangGraphAdapter`, `AutoGenAdapter`) moved verbatim into
+  `team_maker/adapters/runtime_engines/{crewai,langgraph,autogen}_engine.py`, now subclassing
+  `RuntimeEngine` instead of `FrameworkAdapter`. `render_runner` bodies untouched — same
+  `render_template(...)` calls/args/filenames, so rendered output is unchanged (confirmed by the
+  existing `test_codegen.py` assertions still passing).
+- `get_adapter`/`_ADAPTERS` relocated to `get_runtime_engine`/`_ENGINES` in
+  `team_maker/adapters/runtime_engines/__init__.py` — identical dict-lookup shape, identical
+  unknown-key-falls-back-to-`crewai` behavior. `pipeline/runner.py` updated to import and call it (the
+  only caller).
+- `team_maker/frameworks/` deleted in full (`base.py`, 3 adapter modules, `__init__.py` +
+  `__pycache__`) — `git grep` confirmed zero remaining code references (only doc mentions in
+  `project-docs/*.md`, expected) before deletion.
+- Dependency pin single-sourced: each engine's `extra_requirements()` now returns exactly what
+  `runner.py`'s old `framework_deps` table hardcoded (crewai gains the previously-missing
+  `langchain-google-genai>=2.0`; langgraph/autogen unchanged). `_render_requirements` gained a
+  `framework_requirements: list[str]` parameter and dropped the local `framework_deps` dict; the one
+  call site in `_build_manifest` now passes `adapter.extra_requirements()`. `_CREWAI_NATIVE_PROVIDERS`
+  and the dynamic `litellm`/`chromadb` additions stayed in `runner.py` as specified. Generated
+  `requirements.txt` content is unchanged for every scenario (confirmed by `test_pipeline.py` still
+  passing unchanged).
+- Added a code comment on `crewai_engine.py`'s pin noting the 1.14.6 bump is gated by Story 1.6's
+  conformance test — **no version bump was made in this story**, per AC5.
+- New `tests/unit/test_runtime_engine_port.py` (10 tests): port location/abstractness, `get_runtime_engine`
+  resolution for all three known names + unknown-name fallback, each engine's `extra_requirements()`
+  locked to the single-sourced list, and an AST-based scan of every `team_maker/**/*.py` module confirming
+  no module-level `import crewai` / `from crewai import` exists anywhere.
+- No back-compat shim added for `team_maker.frameworks` — confirmed via `git grep` that nothing outside
+  `pipeline/runner.py` (already updated) imported it, matching the story's explicit "no shim needed" call.
+
 ### File List
+
+- `team_maker/ports/runtime_engine.py` (CREATE)
+- `team_maker/adapters/runtime_engines/__init__.py` (CREATE)
+- `team_maker/adapters/runtime_engines/crewai_engine.py` (CREATE)
+- `team_maker/adapters/runtime_engines/langgraph_engine.py` (CREATE)
+- `team_maker/adapters/runtime_engines/autogen_engine.py` (CREATE)
+- `tests/unit/test_runtime_engine_port.py` (CREATE)
+- `team_maker/pipeline/runner.py` (UPDATE — import path, `get_runtime_engine` rename,
+  `_render_requirements` signature/body, isort cleanup)
+- `team_maker/frameworks/base.py` (DELETE)
+- `team_maker/frameworks/crewai_adapter.py` (DELETE)
+- `team_maker/frameworks/langgraph_adapter.py` (DELETE)
+- `team_maker/frameworks/autogen_adapter.py` (DELETE)
+- `team_maker/frameworks/__init__.py` (DELETE)
 
 ## Change Log
 
@@ -263,3 +314,12 @@ conformance test (AD-7, Story 1.6).
   patterns, and the existing test suite's actual behavioral contract). Behavior-preserving relocation +
   dependency-pin de-duplication scope, no execution logic added, CrewAI pin bump explicitly deferred to
   Story 1.6. Status → ready-for-dev.
+- 2026-07-18 — Implemented via bmad-dev-story on branch `story_0_3` (off `epic_0`). All 5 tasks
+  complete: `RuntimeEngine` ABC port created; all three engines relocated to
+  `adapters/runtime_engines/`; `get_runtime_engine` lookup relocated and `team_maker/frameworks/`
+  deleted; dependency pins single-sourced onto the engines (no version bump); regression tests added.
+  Full suite green (195 unit, 20 non-live integration), `ruff check` clean. Status → review.
+  (Note: an earlier `archon-plan-to-pr` run against this story produced PR #1 with a materially
+  different, self-invented scope — unauthorized crewai==1.14.6 bump, wrong `adapters/runtime_crewai/`
+  directory name, incomplete adapter migration, `frameworks/` not deleted. That PR was closed without
+  merging; this implementation replaces it and follows the acceptance criteria above exactly.)

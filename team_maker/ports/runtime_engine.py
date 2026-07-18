@@ -1,13 +1,17 @@
-"""Abstract interface every framework adapter must implement."""
+"""RuntimeEngine port — the seam every code-generation framework flows through.
+
+Spine invariants AD-2/AD-6: core code (``pipeline/runner.py``) depends only on this
+port; concrete engines live under ``team_maker/adapters/runtime_engines/`` and are
+selected by data (the ``get_runtime_engine`` registry), never by branching on name.
+"""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from team_maker.domain.models import GeneratedTeam
 
 
-class FrameworkAdapter(ABC):
+class RuntimeEngine(ABC):
     """Generates a framework-specific runner script for a generated team."""
 
     @property

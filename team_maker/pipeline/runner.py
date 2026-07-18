@@ -18,17 +18,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+import team_maker.templates  # noqa: F401 – triggers template registration
+from team_maker.adapters.runtime_engines import get_runtime_engine
 from team_maker.artifacts.writer import ArtifactManifest, ArtifactWriter
 from team_maker.codegen import render_template
 from team_maker.domain.models import GeneratedTeam
-from team_maker.frameworks import get_adapter
 from team_maker.generators.agent import AgentGenerator
 from team_maker.generators.docs import DocsGenerator
 from team_maker.generators.report import ReportGenerator
 from team_maker.generators.routing import RoutingGenerator
 from team_maker.generators.task import TaskGenerator
 from team_maker.schema.request import SandboxConfig, StateBackend, TeamCreationRequest
-import team_maker.templates  # noqa: F401 – triggers template registration
 from team_maker.utils.fs import safe_output_path
 from team_maker.utils.yaml_utils import dump_yaml
 from team_maker.validation.validator import OutputValidator, ValidationResult
@@ -76,7 +76,7 @@ class PipelineRunner:
         else:
             effective_framework = team.primary_framework or default_framework
         team.primary_framework = effective_framework
-        adapter = get_adapter(effective_framework)
+        adapter = get_runtime_engine(effective_framework)
 
         manifest = self._build_manifest(team, request, adapter)
         written = self._writer.write(output_path, manifest, overwrite=request.overwrite)
@@ -113,8 +113,8 @@ class PipelineRunner:
 
     @staticmethod
     def _generate_from_planner(request: TeamCreationRequest) -> GeneratedTeam:
-        from team_maker.llm.planner import TeamPlanner
         from team_maker.llm.mapper import map_plan_to_team
+        from team_maker.llm.planner import TeamPlanner
         planner = TeamPlanner.from_request(request)
         plan = planner.plan(request)
         return map_plan_to_team(plan, request)
@@ -174,7 +174,7 @@ class PipelineRunner:
 
         # Runtime requirements (framework + state backend aware)
         manifest["requirements.txt"] = self._render_requirements(
-            team.primary_framework, request.state_backend, team
+            team.primary_framework, request.state_backend, adapter.extra_requirements(), team
         )
 
         # Ollama sidecar: docker-compose.yml + Dockerfile + .dockerignore
@@ -281,7 +281,10 @@ class PipelineRunner:
 
     @staticmethod
     def _render_requirements(
-        framework: str, state_backend: StateBackend, team: "GeneratedTeam | None" = None
+        framework: str,
+        state_backend: StateBackend,
+        framework_requirements: list[str],
+        team: "GeneratedTeam | None" = None,
     ) -> str:
         base = [
             "langfuse>=2.0,<3.0",
@@ -295,28 +298,7 @@ class PipelineRunner:
             "sqlalchemy>=2.0",
             "qdrant-client>=1.7.0",
         ]
-        framework_deps = {
-            "crewai": [
-                "crewai[google-genai]>=0.80.0",
-                "crewai-tools>=0.25.0",
-                "langchain-anthropic>=0.3.0",
-                "langchain-google-genai>=2.0",
-                "langchain-openai>=0.3.0",
-                "langchain-ollama>=0.2.0",
-            ],
-            "langgraph": [
-                "langgraph>=0.2.0",
-                "langchain-core>=0.3.0",
-                "langchain-anthropic>=0.3.0",
-                "langchain-google-genai>=2.0",
-                "langchain-openai>=0.3.0",
-                "langchain-ollama>=0.2.0",
-            ],
-            "autogen": [
-                "pyautogen>=0.2.0",
-            ],
-        }
-        deps = base + framework_deps.get(framework, framework_deps["crewai"])
+        deps = base + framework_requirements
         if state_backend in (StateBackend.VECTOR, StateBackend.BOTH):
             deps.append("chromadb>=0.5")
         if framework == "crewai" and team is not None:
