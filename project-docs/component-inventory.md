@@ -2,15 +2,20 @@
 
 **Generated:** 2026-07-04
 
-> ⚠️ **INCOMPLETE — reconciliation pending (2026-07-12).** This inventory predates the
-> `guru-explore` merge and documents only the original factory. The following **existing (pre-plan)
-> components are now in the tree and NOT yet inventoried below** — they are to be refactored to the
-> spine (Epic 0):
+> ⚠️ **INCOMPLETE — reconciliation pending (2026-07-12, updated 2026-07-18).** This inventory
+> predates the `guru-explore` merge and documents only the original factory. The following
+> **existing (pre-plan) components are now in the tree and NOT yet inventoried below** — they are
+> to be refactored to the spine (Epic 0):
+> - `team_maker/ports/` — `llm_provider.py` (LLMProvider Protocol, Story 0.1), `runtime_engine.py`
+>   (RuntimeEngine Protocol, Story 0.3). Inventoried components — see spine docs.
+> - `team_maker/adapters/` — `llm_anthropic/`, `llm_openai/`, `llm_google/` (Story 0.1/0.2),
+>   `runtime_crewai/` (CrewAIAdapter satisfying RuntimeEngine, Story 0.3).
+> - `team_maker/frameworks/` — `base.py` (`FrameworkAdapter` ABC) + `crewai_adapter.py`
+>   (**back-compat shim only** — real class moved to `adapters/runtime_crewai/`, Story 0.3),
+>   `langgraph_adapter.py`, `autogen_adapter.py`, and a `get_adapter()` registry.
 > - `team_maker/llm/` — `providers.py` (`LLMProvider` ABC + `create_provider`), `model_resolver.py`
 >   (live model availability/substitution), `mapper.py`, `planner.py` (`TeamPlanner`), `prompts.py`,
 >   `schemas.py`.
-> - `team_maker/frameworks/` — `base.py` (`FrameworkAdapter` ABC) + `crewai_adapter.py`,
->   `langgraph_adapter.py`, `autogen_adapter.py`, and a `get_adapter()` registry.
 > - `team_maker/codegen/` — `engine.py` (Jinja2 `render_template`) + `templates/*.j2` (runner, tools,
 >   state store, Dockerfile/compose, notify helper).
 > - `team_maker/keyconfig.py` + `team_maker/providers/registry.py` (Story 1.1; see split-brain note).

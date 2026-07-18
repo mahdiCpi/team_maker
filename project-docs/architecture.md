@@ -14,6 +14,12 @@ plus notes on what the code actually does.
 > `architecture/architecture-team_maker-2026-07-05/ARCHITECTURE-SPINE.md`), which **remains the
 > target**. Migrating the merged code onto the spine is **Epic 0**. See
 > [reconciliation-notes.md](stories/reconciliation-notes.md).
+>
+> ⚠️ **Update (2026-07-18 — Story 0.3 complete):** The `crewai` adapter has been reconciled
+> to the spine: `CrewAIAdapter` now lives in `team_maker/adapters/runtime_crewai/` and satisfies
+> the new `team_maker/ports/runtime_engine.RuntimeEngine` Protocol; `frameworks/crewai_adapter.py`
+> is a back-compat shim. The `langgraph` and `autogen` adapters remain in `frameworks/` and are
+> still pending reconciliation (Stories TBD).
 
 ---
 

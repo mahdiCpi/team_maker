@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from team_maker.adapters.runtime_crewai import CrewAIAdapter
 from team_maker.frameworks import get_adapter
+from team_maker.pipeline.runner import PipelineRunner
 from team_maker.ports.runtime_engine import RuntimeEngine
+from team_maker.schema.request import StateBackend
 
 
 def test_port_lives_in_ports_package():
@@ -56,3 +58,8 @@ def test_get_adapter_crewai_still_satisfies_port():
     adapter = get_adapter("crewai")
     assert isinstance(adapter, RuntimeEngine)
     assert adapter.name == "crewai"
+
+
+def test_runner_render_requirements_uses_exact_crewai_pin():
+    reqs = PipelineRunner._render_requirements("crewai", StateBackend.FILE)
+    assert "crewai[google-genai]==1.14.6" in reqs
