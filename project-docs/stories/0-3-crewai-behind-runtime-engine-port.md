@@ -4,7 +4,7 @@ baseline_commit: 517ce41bbacfdc4e950ff2c4758046a50e089ad6
 
 # Story 0.3: Put CrewAI behind the RuntimeEngine port
 
-Status: review
+Status: done
 
 <!-- RECONCILIATION STORY (Epic 0) — see project-docs/stories/reconciliation-notes.md (divergence row 3).
      Behavior-preserving refactor + dead-code/duplication cleanup of team_maker/frameworks/ and the
@@ -137,6 +137,18 @@ conformance test (AD-7, Story 1.6).
     refactor).
   - [x] `ruff check` clean on every new/changed file (line-length 100; E,F,I,N,W; E501 ignored).
 
+## Review Findings
+
+_Code review run 2026-07-18 (branch `story_0_3` vs `epic_0`, commit `d47b499`) — Blind Hunter,
+Edge Case Hunter, Acceptance Auditor layers, all completed. 22 raw findings → 3 patch, 1 defer,
+14 dismissed (spec-directed, pre-existing-and-unchanged, or false positive from lack of spec
+access), 0 decision-needed._
+
+- [x] [Review][Patch] `pipeline/runner.py` never imports or type-annotates the `RuntimeEngine` port — `adapter` stays untyped end-to-end, so AC1's "core code imports the port from `team_maker/ports/`" isn't literally satisfied even though no concrete adapter class is imported directly [team_maker/pipeline/runner.py:79,131] — **Fixed:** imported `RuntimeEngine` from `team_maker.ports.runtime_engine` and annotated both the `adapter` local (`run()`) and the `_build_manifest` parameter.
+- [x] [Review][Patch] New `team_maker/adapters/runtime_engines/__init__.py` is missing the project-standard `from __future__ import annotations` (every other new/touched file in this diff has it) [team_maker/adapters/runtime_engines/__init__.py:1] — **Fixed:** added the import.
+- [x] [Review][Patch] No test exercises `_render_requirements` with `adapter.extra_requirements()` end-to-end — only each engine's `extra_requirements()` is tested in isolation, not that the value actually lands in the rendered output, which is the exact drift this story exists to prevent [tests/unit/test_runtime_engine_port.py] — **Fixed:** added `test_render_requirements_plumbs_adapter_extra_requirements_through` (parametrized over all three engines).
+- [x] [Review][Defer] `get_runtime_engine`'s silent fallback-to-crewai combined with `_render_requirements`'s raw `framework == "crewai"` string check can diverge for an unrecognized framework value (requirements.txt would omit `litellm` even though the CrewAI engine is what actually renders) — deferred, pre-existing: byte-identical to the old `get_adapter`/`framework_deps.get(...)` behavior, and this story's own Dev Notes explicitly direct keeping this branch "exactly as-is" [team_maker/adapters/runtime_engines/__init__.py:13-14, team_maker/pipeline/runner.py:304-307]
+
 ## Dev Notes
 
 ### What this story is (and is not)
@@ -254,8 +266,9 @@ claude-sonnet-5 (bmad-dev-story)
 ### Debug Log References
 
 - Baseline: `python -m pytest tests/unit -q` → 185 passed; `python -m pytest tests/integration -k "not live" -q` → 20 passed, 7 deselected.
-- Final: `python -m pytest tests/unit -q` → 195 passed (185 baseline + 10 new in `test_runtime_engine_port.py`); `python -m pytest tests/integration -k "not live" -q` → 20 passed, 7 deselected (unchanged).
+- Final (pre-review): `python -m pytest tests/unit -q` → 195 passed (185 baseline + 10 new in `test_runtime_engine_port.py`); `python -m pytest tests/integration -k "not live" -q` → 20 passed, 7 deselected (unchanged).
 - `ruff check` on all new/changed files → clean (2 pre-existing `I001` import-sort findings in `pipeline/runner.py`, one of them in the block touched by this story, were fixed via `ruff check --fix` rather than left — both are pure import-ordering, no behavior change).
+- Post-review (after applying the 3 patch findings): `python -m pytest tests/unit -q` → 198 passed (195 + 3 new parametrized cases in `test_render_requirements_plumbs_adapter_extra_requirements_through`); `python -m pytest tests/integration -k "not live" -q` → 20 passed, 7 deselected (unchanged); `ruff check` → clean.
 
 ### Completion Notes List
 
@@ -323,3 +336,11 @@ claude-sonnet-5 (bmad-dev-story)
   different, self-invented scope — unauthorized crewai==1.14.6 bump, wrong `adapters/runtime_crewai/`
   directory name, incomplete adapter migration, `frameworks/` not deleted. That PR was closed without
   merging; this implementation replaces it and follows the acceptance criteria above exactly.)
+- 2026-07-18 — Code review (bmad-code-review, Blind Hunter + Edge Case Hunter + Acceptance Auditor):
+  22 raw findings → 3 patch (all applied: typed the `RuntimeEngine` port through `runner.py`, added
+  the missing `from __future__ import annotations`, added an end-to-end
+  `adapter.extra_requirements()` → rendered-`requirements.txt` plumbing test), 1 defer (pre-existing
+  `get_runtime_engine`/`_render_requirements` fallback-vs-raw-string-check divergence, logged in
+  `project-docs/deferred-work.md`), 14 dismissed (spec-directed, pre-existing-and-unchanged, or
+  false positives from the Blind Hunter's lack of spec access). Full suite re-verified green (198
+  unit, 20 non-live integration), `ruff check` clean. Status → done.

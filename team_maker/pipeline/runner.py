@@ -28,6 +28,7 @@ from team_maker.generators.docs import DocsGenerator
 from team_maker.generators.report import ReportGenerator
 from team_maker.generators.routing import RoutingGenerator
 from team_maker.generators.task import TaskGenerator
+from team_maker.ports.runtime_engine import RuntimeEngine
 from team_maker.schema.request import SandboxConfig, StateBackend, TeamCreationRequest
 from team_maker.utils.fs import safe_output_path
 from team_maker.utils.yaml_utils import dump_yaml
@@ -76,7 +77,7 @@ class PipelineRunner:
         else:
             effective_framework = team.primary_framework or default_framework
         team.primary_framework = effective_framework
-        adapter = get_runtime_engine(effective_framework)
+        adapter: RuntimeEngine = get_runtime_engine(effective_framework)
 
         manifest = self._build_manifest(team, request, adapter)
         written = self._writer.write(output_path, manifest, overwrite=request.overwrite)
@@ -127,7 +128,7 @@ class PipelineRunner:
         self,
         team: GeneratedTeam,
         request: TeamCreationRequest,
-        adapter,
+        adapter: RuntimeEngine,
     ) -> ArtifactManifest:
         manifest: ArtifactManifest = {}
 

@@ -19,7 +19,9 @@ from team_maker.adapters.runtime_engines import (
     LangGraphAdapter,
     get_runtime_engine,
 )
+from team_maker.pipeline.runner import PipelineRunner
 from team_maker.ports.runtime_engine import RuntimeEngine
+from team_maker.schema.request import StateBackend
 
 
 def test_port_lives_in_ports_package():
@@ -74,6 +76,26 @@ def test_langgraph_extra_requirements_matches_single_sourced_list():
 
 def test_autogen_extra_requirements_matches_single_sourced_list():
     assert AutoGenAdapter().extra_requirements() == ["pyautogen>=0.2.0"]
+
+
+@pytest.mark.parametrize(
+    "framework,expected_type",
+    [
+        ("crewai", CrewAIAdapter),
+        ("langgraph", LangGraphAdapter),
+        ("autogen", AutoGenAdapter),
+    ],
+)
+def test_render_requirements_plumbs_adapter_extra_requirements_through(framework, expected_type):
+    """Locks the exact plumbing this story exists to protect: adapter.extra_requirements()
+    must land verbatim in the generated requirements.txt, not a re-hardcoded copy."""
+    engine = get_runtime_engine(framework)
+    assert isinstance(engine, expected_type)
+    rendered = PipelineRunner._render_requirements(
+        framework, StateBackend.FILE, engine.extra_requirements()
+    )
+    for requirement in engine.extra_requirements():
+        assert requirement in rendered
 
 
 def test_no_module_level_crewai_import_in_team_maker():
