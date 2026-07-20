@@ -122,7 +122,7 @@ def create(
     except ValidationError as exc:
         err_console.print("[bold]Invalid request config:[/bold]")
         for error in exc.errors():
-            loc = " → ".join(str(l) for l in error["loc"])
+            loc = " → ".join(str(part) for part in error["loc"])
             err_console.print(f"  • {loc}: {error['msg']}")
         sys.exit(1)
 
@@ -200,8 +200,8 @@ def keys_status(key_file: Optional[Path]) -> None:
     """Report which providers/models are usable. Never prints key values."""
     from rich.markup import escape
 
+    from team_maker.adapters.providers.registry import report_availability
     from team_maker.keyconfig import KeyConfig
-    from team_maker.providers.registry import report_availability
 
     config = KeyConfig.from_file(key_file)
     report = report_availability(config)

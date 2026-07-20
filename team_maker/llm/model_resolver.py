@@ -12,7 +12,7 @@ import sys
 from functools import lru_cache
 
 from team_maker.domain.models import GeneratedTeam, ProviderRouting
-
+from team_maker.keyconfig import KeyConfig
 
 # ---------------------------------------------------------------------------
 # Closest-match helper
@@ -37,60 +37,57 @@ def _closest(requested: str, available: list[str], fallback: str) -> tuple[str, 
 # ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=None)
-def _anthropic_models(api_key_env: str) -> tuple[str, ...]:
+def _anthropic_models(api_key: str) -> tuple[str, ...]:
     try:
         import anthropic
-        key = os.environ.get(api_key_env, "")
-        if not key:
+        if not api_key:
             return ()
-        return tuple(m.id for m in anthropic.Anthropic(api_key=key).models.list())
+        return tuple(m.id for m in anthropic.Anthropic(api_key=api_key).models.list())
     except Exception:
         return ()
 
 
 @lru_cache(maxsize=None)
-def _openai_models(api_key_env: str) -> tuple[str, ...]:
+def _openai_models(api_key: str) -> tuple[str, ...]:
     try:
         from openai import OpenAI
-        key = os.environ.get(api_key_env, "")
-        if not key:
+        if not api_key:
             return ()
-        return tuple(m.id for m in OpenAI(api_key=key).models.list())
+        return tuple(m.id for m in OpenAI(api_key=api_key).models.list())
     except Exception:
         return ()
 
 
 @lru_cache(maxsize=None)
-def _xai_models(api_key_env: str) -> tuple[str, ...]:
+def _xai_models(api_key: str) -> tuple[str, ...]:
     try:
         from openai import OpenAI
-        key = os.environ.get(api_key_env, "")
-        if not key:
+        if not api_key:
             return ()
-        client = OpenAI(base_url="https://api.x.ai/v1", api_key=key)
+        client = OpenAI(base_url="https://api.x.ai/v1", api_key=api_key)
         return tuple(m.id for m in client.models.list())
     except Exception:
         return ()
 
 
 @lru_cache(maxsize=None)
-def _google_models(api_key_env: str) -> tuple[str, ...]:
-    key = os.environ.get(api_key_env, "")
-    if not key:
+def _google_models(api_key: str) -> tuple[str, ...]:
+    if not api_key:
         return ()
     # Try new google.genai SDK first, fall back to deprecated google.generativeai.
     try:
         import google.genai as genai_new
-        client = genai_new.Client(api_key=key)
+        client = genai_new.Client(api_key=api_key)
         return tuple(m.name.removeprefix("models/") for m in client.models.list())
     except Exception:
         pass
     try:
         import warnings
+
         import google.generativeai as genai
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            genai.configure(api_key=key)
+            genai.configure(api_key=api_key)
             return tuple(
                 m.name.removeprefix("models/")
                 for m in genai.list_models()
@@ -112,7 +109,21 @@ _FETCHER_MAP: dict[str, tuple] = {
 # Public API
 # ---------------------------------------------------------------------------
 
-def resolve_routing(routing: ProviderRouting) -> tuple[ProviderRouting, str | None]:
+def _resolve_key(provider: str, api_key_env: str, config: KeyConfig) -> str:
+    """Resolve a provider's key: Key Config file first, `os.environ` fallback.
+
+    Strictly additive — the fallback path is unchanged from before this story;
+    the only new behavior is that a key living solely in the Key Config file
+    now also gets used.
+    """
+    if config.has(provider):
+        return config.keys[provider].get_secret_value()
+    return os.environ.get(api_key_env, "")
+
+
+def resolve_routing(
+    routing: ProviderRouting, config: KeyConfig
+) -> tuple[ProviderRouting, str | None]:
     """Validate routing.model against the live provider API.
 
     Returns (updated_routing, substitution_message).
@@ -125,8 +136,8 @@ def resolve_routing(routing: ProviderRouting) -> tuple[ProviderRouting, str | No
         return routing, None  # ollama or unknown — skip
 
     fetcher, fallback = fetcher_info
-    api_key_env = routing.api_key_env or ""
-    available = list(fetcher(api_key_env))
+    api_key = _resolve_key(provider, routing.api_key_env or "", config)
+    available = list(fetcher(api_key))
 
     if not available:
         return routing, None  # API unreachable — trust the YAML
@@ -143,11 +154,12 @@ def resolve_routing(routing: ProviderRouting) -> tuple[ProviderRouting, str | No
     return updated, f"{routing.provider}/{routing.model} → {chosen}"
 
 
-def normalize_team_routings(team: GeneratedTeam) -> None:
+def normalize_team_routings(team: GeneratedTeam, config: KeyConfig | None = None) -> None:
     """Resolve every agent's model in-place; print a substitution report."""
+    config = config or KeyConfig.from_file()
     substitutions: list[str] = []
     for agent in team.agents:
-        updated, msg = resolve_routing(agent.routing)
+        updated, msg = resolve_routing(agent.routing, config)
         if msg:
             agent.routing = updated
             substitutions.append(f"  {agent.role}: {msg}")

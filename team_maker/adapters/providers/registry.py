@@ -37,11 +37,16 @@ class Provider:
 
 
 # The catalog. Add a row to support a new provider.
+# NOTE: `groq` is catalogued per PRD FR-6 but has no concrete adapter in
+# `adapters/providers/`, `llm/mapper.py`, or `llm/model_resolver.py` yet — it will
+# always report `missing` unless reached `via-openrouter`. Wiring a real Groq
+# adapter is tracked as separate future work, not Story 0.4.
 PROVIDERS: list[Provider] = [
     Provider("anthropic", "ANTHROPIC_API_KEY", openrouter_reachable=True),
     Provider("openai", "OPENAI_API_KEY", openrouter_reachable=True),
-    Provider("google", "GOOGLE_API_KEY", openrouter_reachable=True),
+    Provider("google", "GOOGLE_AI_API_KEY", openrouter_reachable=True),
     Provider("groq", "GROQ_API_KEY", openrouter_reachable=True),
+    Provider("xai", "XAI_API_KEY"),
     Provider("ollama", None, keyless_local=True),
     Provider(OPENROUTER, "OPENROUTER_API_KEY"),
 ]

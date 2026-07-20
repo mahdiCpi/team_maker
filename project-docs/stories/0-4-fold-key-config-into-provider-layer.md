@@ -4,7 +4,7 @@ baseline_commit: 517ce41bbacfdc4e950ff2c4758046a50e089ad6
 
 # Story 0.4: Fold the Key Config feature into the provider layer
 
-Status: ready-for-dev
+Status: review
 
 <!-- RECONCILIATION STORY (Epic 0) — see project-docs/stories/reconciliation-notes.md (divergence row 4)
      and project-docs/stories/deferred-work.md ("Deferred from: reconciliation"). Unifies the
@@ -64,72 +64,72 @@ CLI keeps working.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Relocate the catalog behind the provider layer** (AC: 1)
-  - [ ] Create `team_maker/adapters/providers/registry.py`; move `Provider`, `ProviderStatus`,
+- [x] **Task 1 — Relocate the catalog behind the provider layer** (AC: 1)
+  - [x] Create `team_maker/adapters/providers/registry.py`; move `Provider`, `ProviderStatus`,
     `PROVIDERS`, `STATUS_*` constants, `USABLE_STATUSES`, `OPENROUTER`, `is_usable`,
     `env_to_provider`, `report_availability` into it verbatim (the `TYPE_CHECKING`-guarded
     `from team_maker.keyconfig import KeyConfig` import stays — it's only for the type hint on
     `report_availability`, and the import-cycle concern is identical to today).
-  - [ ] Update `team_maker/keyconfig.py`'s `from team_maker.providers.registry import PROVIDERS,
+  - [x] Update `team_maker/keyconfig.py`'s `from team_maker.providers.registry import PROVIDERS,
     env_to_provider` → `from team_maker.adapters.providers.registry import PROVIDERS,
     env_to_provider`.
-  - [ ] Update `team_maker/cli.py`'s `keys status` command import site to the new path.
-  - [ ] Run `git grep -rn "team_maker.providers\b\|from team_maker\.providers"` — confirm the only
+  - [x] Update `team_maker/cli.py`'s `keys status` command import site to the new path.
+  - [x] Run `git grep -rn "team_maker.providers\b\|from team_maker\.providers"` — confirm the only
     remaining hits are the two files just updated plus this story's own tests (Task 4), then delete
     `team_maker/providers/` (`__init__.py`, `registry.py`). No shim needed.
 
-- [ ] **Task 2 — Fix the catalog's data disagreements** (AC: 2)
-  - [ ] In the relocated `PROVIDERS` list: change `Provider("google", "GOOGLE_API_KEY", ...)` →
+- [x] **Task 2 — Fix the catalog's data disagreements** (AC: 2)
+  - [x] In the relocated `PROVIDERS` list: change `Provider("google", "GOOGLE_API_KEY", ...)` →
     `Provider("google", "GOOGLE_AI_API_KEY", ...)` (matches
     `adapters/providers/google_provider.py`'s real default — do not touch that adapter).
-  - [ ] Add `Provider("xai", "XAI_API_KEY")` (no `openrouter_reachable=True` — no existing source
+  - [x] Add `Provider("xai", "XAI_API_KEY")` (no `openrouter_reachable=True` — no existing source
     claims xai is OpenRouter-reachable; leave the default `False` rather than guessing).
-  - [ ] Add a comment above `PROVIDERS` (or on the `groq` row) noting: `groq` is catalogued per PRD
+  - [x] Add a comment above `PROVIDERS` (or on the `groq` row) noting: `groq` is catalogued per PRD
     FR-6 but has no concrete adapter in `adapters/providers/`, `llm/mapper.py`, or
     `llm/model_resolver.py` yet — it will always report `missing` unless reached `via-openrouter`;
     wiring a real Groq adapter is tracked as separate future work, not this story.
 
-- [ ] **Task 3 — Thread `KeyConfig` into `model_resolver.py`, additively** (AC: 3)
-  - [ ] Change each fetcher's parameter from the env-var **name** to the resolved key **value**:
+- [x] **Task 3 — Thread `KeyConfig` into `model_resolver.py`, additively** (AC: 3)
+  - [x] Change each fetcher's parameter from the env-var **name** to the resolved key **value**:
     `_anthropic_models(api_key: str)`, `_openai_models(api_key: str)`, `_xai_models(api_key: str)`,
     `_google_models(api_key: str)` — replace each fetcher's internal `key =
     os.environ.get(api_key_env, "")` line with using the `api_key` parameter directly (the
     `@lru_cache` still works: it now caches per key-value instead of per-env-var-name, which is
     equivalent or better since the same value should resolve identically regardless of which name it
     came from).
-  - [ ] Add a module-level `_resolve_key(provider: str, api_key_env: str, config: KeyConfig) -> str`:
+  - [x] Add a module-level `_resolve_key(provider: str, api_key_env: str, config: KeyConfig) -> str`:
     `return config.keys[provider].get_secret_value() if config.has(provider) else
     os.environ.get(api_key_env, "")`.
-  - [ ] In `resolve_routing(routing, config)` — add a `config: KeyConfig` parameter — replace
+  - [x] In `resolve_routing(routing, config)` — add a `config: KeyConfig` parameter — replace
     `api_key_env = routing.api_key_env or ""` + the direct `fetcher(api_key_env)` call with:
     resolve `api_key = _resolve_key(provider, routing.api_key_env or "", config)`, then call
     `fetcher(api_key)`.
-  - [ ] `normalize_team_routings(team: GeneratedTeam, config: KeyConfig | None = None)` — load
+  - [x] `normalize_team_routings(team: GeneratedTeam, config: KeyConfig | None = None)` — load
     `config = config or KeyConfig.from_file()` once at the top (do NOT reload per-agent), pass it to
     every `resolve_routing(agent.routing, config)` call. Keep the default-`None`-loads-from-disk
     behavior so `pipeline/runner.py`'s existing call site (`normalize_team_routings(team)`) needs
     **zero changes**.
-  - [ ] Import `KeyConfig` from `team_maker.keyconfig` at module level in `model_resolver.py` (no
+  - [x] Import `KeyConfig` from `team_maker.keyconfig` at module level in `model_resolver.py` (no
     cycle: `keyconfig.py` only imports from `adapters/providers/registry.py`, not from
     `llm/model_resolver.py`).
 
-- [ ] **Task 4 — Tests** (AC: 4)
-  - [ ] Move `tests/unit/test_provider_availability.py`'s import
+- [x] **Task 4 — Tests** (AC: 4)
+  - [x] Move `tests/unit/test_provider_availability.py`'s import
     `from team_maker.providers.registry import (...)` → `from team_maker.adapters.providers.registry
     import (...)` (mechanical, no assertion changes).
-  - [ ] `tests/unit/test_cli_keys_status.py`: add `"GOOGLE_AI_API_KEY"` and `"XAI_API_KEY"` to
+  - [x] `tests/unit/test_cli_keys_status.py`: add `"GOOGLE_AI_API_KEY"` and `"XAI_API_KEY"` to
     `PROVIDER_ENVS`.
-  - [ ] New `tests/unit/test_model_resolver_keyconfig.py`: monkeypatch one fetcher (e.g.
+  - [x] New `tests/unit/test_model_resolver_keyconfig.py`: monkeypatch one fetcher (e.g.
     `team_maker.llm.model_resolver._anthropic_models`) to assert it is called with the key **value**
     from a `KeyConfig` built in-memory (`KeyConfig(keys={"anthropic": SecretStr("sk-from-file")})`)
     when no matching env var is set, proving the Key-Config-first resolution works; and a second case
     confirming the `os.environ` fallback still fires when `config.has(provider)` is `False` (empty
     `KeyConfig()`), matching today's exact behavior.
-  - [ ] Run `python -m pytest tests/unit -q` → expect ≥185 passed (185 + new tests, unchanged
+  - [x] Run `python -m pytest tests/unit -q` → expect ≥185 passed (185 + new tests, unchanged
     assertions in the three files touched for import-path/hygiene only).
-  - [ ] Run `python -m pytest tests/integration -k "not live" -q` → expect the existing 20 to keep
+  - [x] Run `python -m pytest tests/integration -k "not live" -q` → expect the existing 20 to keep
     passing (no network/keys in CI means `normalize_team_routings` stays a no-op there, unchanged).
-  - [ ] `ruff check` clean on every new/changed file (line-length 100; E,F,I,N,W; E501 ignored).
+  - [x] `ruff check` clean on every new/changed file (line-length 100; E,F,I,N,W; E501 ignored).
 
 ## Dev Notes
 
@@ -232,11 +232,70 @@ CLI keeps working.
 
 ### Agent Model Used
 
+claude-sonnet-5 (bmad-dev-story)
+
 ### Debug Log References
+
+- Baseline (post Story 0.3 + its review patches): `python -m pytest tests/unit -q` → 198 passed;
+  `python -m pytest tests/integration -k "not live" -q` → 20 passed, 7 deselected.
+- Final: `python -m pytest tests/unit -q` → 201 passed (198 baseline + 3 new in
+  `test_model_resolver_keyconfig.py`); `python -m pytest tests/integration -k "not live" -q` → 20
+  passed, 7 deselected (unchanged); `ruff check` clean on every new/changed file (fixed one
+  pre-existing, unrelated `E741` ambiguous-name lint finding and mechanical `I001` import-order
+  findings introduced by the new imports — all cosmetic, no behavior change).
+- Manual smoke test: `keys status` CLI (via `CliRunner`) runs with exit code 0 and now lists `xai`
+  (previously absent from the catalog entirely).
 
 ### Completion Notes List
 
+- `team_maker/adapters/providers/registry.py` created — `Provider`/`ProviderStatus`, `PROVIDERS`,
+  `STATUS_*`, `USABLE_STATUSES`, `OPENROUTER`, `is_usable`, `env_to_provider`, `report_availability`
+  moved verbatim (the `TYPE_CHECKING`-guarded `KeyConfig` import preserved). `keyconfig.py` and
+  `cli.py`'s `keys status` import site updated; `team_maker/providers/` deleted in full — `git grep`
+  confirmed the only remaining hits were those two files plus this story's own tests before deletion.
+- Catalog data fixed: `google`'s entry now uses `GOOGLE_AI_API_KEY` (was the wrong `GOOGLE_API_KEY`);
+  added `Provider("xai", "XAI_API_KEY")` (no `openrouter_reachable`, per AC2 — no source claims xai
+  is OpenRouter-reachable); added a comment on the `groq` row noting it has no concrete adapter yet.
+  Neither adapters, `mapper.py`, nor `model_resolver.py` were touched — only the catalog was wrong.
+- `model_resolver.py`: all four fetchers (`_anthropic_models`, `_openai_models`, `_xai_models`,
+  `_google_models`) now take the resolved key **value** instead of the env-var name; the `@lru_cache`
+  now caches per key-value (equivalent/better). Added module-level `_resolve_key(provider,
+  api_key_env, config)` — Key Config first, `os.environ` fallback. `resolve_routing` gained a
+  required `config: KeyConfig` parameter. `normalize_team_routings` gained an optional `config:
+  KeyConfig | None = None` parameter that loads from disk once at the top when omitted —
+  `pipeline/runner.py`'s existing call site (`normalize_team_routings(team)`) needed zero changes.
+- **Deviation (unambiguous, required by AC2's own data fix):** AC4 says `test_keyconfig.py` passes
+  "unchanged," but one of its fixtures (`test_loads_keys_by_provider_name_and_ignores_comments_blanks`)
+  used the literal string `GOOGLE_API_KEY=g` to also exercise env-var-style loading in the same file —
+  the exact wrong env-var name AC2 corrects. Fixing the catalog broke that fixture's assumption
+  (the old wrong name is no longer recognized). Updated the fixture to `GOOGLE_AI_API_KEY=g` (same
+  intent: verify env-var-style loading + comment/blank-line handling); no assertions changed. This is
+  the same category of fix AC4 already explicitly sanctions for `test_cli_keys_status.py`'s
+  `PROVIDER_ENVS`, just an instance the story didn't enumerate.
+- New `tests/unit/test_model_resolver_keyconfig.py` (3 tests): Key-Config-first resolution (monkeypatches
+  the `_FETCHER_MAP["anthropic"]` entry directly, since `_FETCHER_MAP` captures fetcher functions by
+  reference at import time — patching the module attribute name would not intercept calls made through
+  the map), the `os.environ` fallback still firing when the Key Config has no entry, and
+  `normalize_team_routings` not reloading `KeyConfig.from_file()` when an explicit config is passed.
+- `tests/unit/test_provider_availability.py`: import path updated (mechanical). `test_cli_keys_status.py`:
+  `PROVIDER_ENVS` gained `GOOGLE_AI_API_KEY` and `XAI_API_KEY`.
+- Fixed one pre-existing, unrelated `ruff` `E741` finding in `cli.py` (ambiguous loop variable `l` in
+  the `create` command's validation-error formatting, nothing to do with this story) while the file
+  was already open for its one-line import-path change, to keep `ruff check` clean per the DoD.
+
 ### File List
+
+- `team_maker/adapters/providers/registry.py` (CREATE)
+- `tests/unit/test_model_resolver_keyconfig.py` (CREATE)
+- `team_maker/keyconfig.py` (UPDATE — import path only)
+- `team_maker/cli.py` (UPDATE — import path; unrelated pre-existing `E741` fix)
+- `team_maker/llm/model_resolver.py` (UPDATE — fetcher signatures, `_resolve_key`,
+  `resolve_routing`/`normalize_team_routings` KeyConfig threading)
+- `tests/unit/test_provider_availability.py` (UPDATE — import path only)
+- `tests/unit/test_cli_keys_status.py` (UPDATE — `PROVIDER_ENVS` hygiene list)
+- `tests/unit/test_keyconfig.py` (UPDATE — one fixture's env-var name corrected to match AC2's fix)
+- `team_maker/providers/__init__.py` (DELETE)
+- `team_maker/providers/registry.py` (DELETE)
 
 ## Change Log
 
@@ -247,3 +306,8 @@ CLI keeps working.
   no test exercises model_resolver.py's internals directly, giving room to change fetcher signatures
   safely). Additive-only scope for the KeyConfig↔model_resolver unification; planner/adapter key-
   reading and a real Groq adapter explicitly deferred. Status → ready-for-dev.
+- 2026-07-18 — Implemented via bmad-dev-story on branch `story_0_4` (off `epic_0`). All 4 tasks
+  complete: catalog relocated to `adapters/providers/registry.py` and `team_maker/providers/` deleted;
+  google/xai catalog data fixed; `model_resolver.py` unified with `KeyConfig` (additive, file-first,
+  env fallback unchanged); tests updated/added. One unenumerated-but-required test-fixture fix noted
+  above. Full suite green (201 unit, 20 non-live integration), `ruff check` clean. Status → review.

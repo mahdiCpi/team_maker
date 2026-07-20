@@ -43,7 +43,7 @@ def test_loads_keys_by_env_var_name(tmp_path):
 
 
 def test_loads_keys_by_provider_name_and_ignores_comments_blanks(tmp_path):
-    path = _write(tmp_path, f"# comment\n\nanthropic={SECRET}\n  \nGOOGLE_API_KEY=g\n")
+    path = _write(tmp_path, f"# comment\n\nanthropic={SECRET}\n  \nGOOGLE_AI_API_KEY=g\n")
     cfg = KeyConfig.from_file(path, include_env=False)
     assert cfg.has("anthropic") is True
     assert cfg.has("google") is True

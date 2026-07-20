@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from pydantic import SecretStr
 
-from team_maker.keyconfig import KeyConfig
-from team_maker.providers.registry import (
+from team_maker.adapters.providers.registry import (
     STATUS_AVAILABLE,
     STATUS_KEYLESS_LOCAL,
     STATUS_MISSING,
@@ -12,6 +11,7 @@ from team_maker.providers.registry import (
     is_usable,
     report_availability,
 )
+from team_maker.keyconfig import KeyConfig
 
 
 def _status_map(config):

@@ -23,7 +23,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, SecretStr
 
-from team_maker.providers.registry import PROVIDERS, env_to_provider
+from team_maker.adapters.providers.registry import PROVIDERS, env_to_provider
 
 KEY_CONFIG_ENV = "TEAM_MAKER_KEYS"
 DEFAULT_FILENAME = "team_maker.keys"
