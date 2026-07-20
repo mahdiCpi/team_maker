@@ -341,6 +341,6 @@ claude-sonnet-5 (bmad-dev-story)
   the missing `from __future__ import annotations`, added an end-to-end
   `adapter.extra_requirements()` → rendered-`requirements.txt` plumbing test), 1 defer (pre-existing
   `get_runtime_engine`/`_render_requirements` fallback-vs-raw-string-check divergence, logged in
-  `project-docs/deferred-work.md`), 14 dismissed (spec-directed, pre-existing-and-unchanged, or
+  `project-docs/stories/deferred-work.md`), 14 dismissed (spec-directed, pre-existing-and-unchanged, or
   false positives from the Blind Hunter's lack of spec access). Full suite re-verified green (198
   unit, 20 non-live integration), `ruff check` clean. Status → done.
