@@ -5,3 +5,4 @@ we should have this rule:
 3- After a story is confirmed to be accepted, then it will be merged to its corresponding epic branch. 
 4- After an epic is confirmed working properly, it will be merged to the develop branch. 
 5- After Review each branch, It should be coomited and pushed to Remote Repo  
+6-Each branch should be made in Remote GIT Repo, not just Locally. We need to  see  clean and clear nework Graph on our GIT Account  when we go to repo URL
