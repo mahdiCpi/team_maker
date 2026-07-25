@@ -108,6 +108,18 @@ so that downstream stories (Epic 1+) have a trustworthy schema contract instead 
   - [x] Task 3's optional `request.py` comment tweak was not made (confirmed no-op), so the `ruff
     check` sub-step does not apply — no `.py` file was touched.
 
+### Review Findings
+
+- [x] [Review][Patch] Dev Agent Record File List omits the story file itself, though this diff modifies it [project-docs/stories/0-5-reconcile-request-schema-with-data-models.md:File List]
+- [x] [Review][Patch] Add a clarifying note distinguishing the top-level `suggested_tools` (`ToolSuggestion` list) from the role-level input-only `suggested_tools` key — same name, different shape, no cross-reference today [project-docs/data-models.md:§1 TeamCreationRequest / RoleDefinition]
+- [x] [Review][Patch] Reconcile the new "21 fields" header with the unedited 2026-07-12 Change Log line that still claims "23 fields" [project-docs/stories/0-5-reconcile-request-schema-with-data-models.md:Change Log]
+- [x] [Review][Patch] Call out the `desired_roles` required→optional correction (dropped `min_length 1`) in Completion Notes, matching the itemization style used for the other discovered discrepancies [project-docs/data-models.md:§1 TeamCreationRequest]
+- [x] [Review][Patch] Add a one-line note explaining the `team_name` regex character-class reordering (now byte-exact with source) [project-docs/data-models.md:§1 TeamCreationRequest]
+- [x] [Review][Patch] `ProviderConfig.base_url` is documented as functional ("required for Ollama") but is dropped by both routing-resolution paths and never reaches generated `routing_config.yaml` — verified against `team_maker/domain/models.py` (`ProviderRouting` has no `base_url` field) and `team_maker/generators/routing.py` (hardcodes the Ollama URL independent of user input) [project-docs/data-models.md:§1 ProviderConfig]
+- [x] [Review][Patch] The new `planning_llm`/`default_llm` note cites §3's fallback chain (`role.llm → default_llm → _DEFAULT_PROVIDER`) as unconditional, but it only holds for the template-based strategy — the default planner-based strategy (`desired_roles` empty) never reads `RoleDefinition.llm` at all [project-docs/data-models.md:§1a "planning_llm vs default_llm"]
+- [x] [Review][Patch] `_pre_process` step 5 (`model_registry` resolution) doesn't document the failure mode for a non-matching string reference (raises a generic Pydantic `ValidationError`, not a registry-specific error) [project-docs/data-models.md:§1a step 5]
+- [x] [Review][Patch] `_pre_process` step 1 (`stack` flattening) can produce `""` rather than the field's documented default of `None` when every dict value is filtered out; also tighten step 2's wording from "already set" to "key not already present" (it's a presence check, not a value check) [project-docs/data-models.md:§1a steps 1-2]
+
 ## Dev Notes
 
 ### What this story is (and is not)
@@ -251,11 +263,24 @@ Claude Sonnet 5 (claude-sonnet-5)
   already correctly distinguish the two LLM fields. Zero `.py` files touched; zero behavior change.
 - Full unit (203 passed) and non-live integration (20 passed) suites confirmed green before and
   after the change.
+- **Post-review additions:** `desired_roles` was also corrected from required (`min_length 1`) to
+  optional (`default_factory=list`), matching the live source — called out explicitly in
+  `data-models.md` alongside the other itemized corrections. Added a note on why `team_name`'s
+  regex character-class ordering changed (byte-exact match to source, no behavior change).
+  Documented that `ProviderConfig.base_url` is accepted by validation but not yet wired into either
+  routing-resolution path or generated output. Qualified the `planning_llm`/`default_llm` note's
+  citation of §3's fallback chain as template-strategy-specific (the default planner strategy never
+  reads `RoleDefinition.llm`). Documented `_pre_process`'s two unhandled-edge behaviors (`stack`
+  flattening to `""` instead of `None`; `model_registry`'s generic `ValidationError` on a
+  non-matching key) and tightened the `auxiliary_resources_dir` aliasing wording to reflect it's a
+  key-presence check. Disambiguated the two same-named `suggested_tools` concepts (top-level
+  `ToolSuggestion` list vs. role-level input-only tool-name list).
 
 ### File List
 
 - Modified: `project-docs/data-models.md`
 - Modified: `project-docs/stories/reconciliation-notes.md`
+- Modified: `project-docs/stories/0-5-reconcile-request-schema-with-data-models.md` (this file)
 
 ## Change Log
 
@@ -266,9 +291,21 @@ Claude Sonnet 5 (claude-sonnet-5)
   finding, and updated `reconciliation-notes.md` row 5. No `.py` files changed. Full unit (203) and
   non-live integration (20) suites verified green before and after. Status → review.
 
+- 2026-07-25 — Applied 9 patch findings from adversarial code review (Blind Hunter + Edge Case
+  Hunter, 0 Acceptance Auditor violations): added the story file to its own File List; disambiguated
+  the two same-named `suggested_tools` concepts; reconciled the "21 vs 23 fields" contradiction;
+  itemized the `desired_roles` required→optional and `team_name` regex corrections; documented that
+  `ProviderConfig.base_url` isn't currently wired into routing generation; qualified the
+  `planning_llm`/`default_llm` note's §3 chain citation as template-strategy-specific; documented
+  `_pre_process`'s `stack`-flattening-to-`""` and `model_registry`-mismatch failure-mode gaps. All
+  docs-only. Status → review (unchanged).
+
 - 2026-07-12 — Story drafted via create-story context engine (line-by-line comparison of
   `data-models.md` against the live `team_maker/schema/request.py`, full transcription of all 23
-  `TeamCreationRequest` fields and the five `_pre_process` normalizations, and a direct investigation
-  of the PRD glossary that found the "planning_llm/default_llm mismatch" is documentation imprecision
-  — they are two intentionally distinct, independently-resolved LLM slots, not a naming collision —
-  so scoped this story as docs-only with no schema rename). Status → ready-for-dev.
+  `TeamCreationRequest` fields [**correction, 2026-07-25 review**: a direct count against the live
+  source during implementation found 21 fields, not 23 — the transcribed field table itself was
+  accurate and used as-is; this line's count was simply off] and the five `_pre_process`
+  normalizations, and a direct investigation of the PRD glossary that found the
+  "planning_llm/default_llm mismatch" is documentation imprecision — they are two intentionally
+  distinct, independently-resolved LLM slots, not a naming collision — so scoped this story as
+  docs-only with no schema rename). Status → ready-for-dev.

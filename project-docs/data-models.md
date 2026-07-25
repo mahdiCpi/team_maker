@@ -44,6 +44,14 @@ Validated with Pydantic v2. Validation errors are surfaced field-by-field by the
 > A `template: TeamTemplateId` field and a top-level `tools: list[str]` field appeared in an
 > earlier version of this document but do not exist on the current `TeamCreationRequest` —
 > dropped as pre-merge drift, not carried forward.
+>
+> Two other corrections from the earlier version of this table, called out explicitly since they
+> change documented behavior rather than just adding new fields: `desired_roles` was previously
+> documented as **required** with `min_length 1`; the live source makes it optional
+> (`default_factory=list`), with role-uniqueness still enforced but emptiness now allowed (the
+> planner infers roles when it's empty). `team_name`'s regex character-class ordering was
+> corrected to `^[a-zA-Z]...` to match the source byte-for-byte (previously `^[A-Za-z]...` —
+> functionally identical, no behavior change).
 
 ### `RoleDefinition`
 
@@ -63,6 +71,12 @@ Validated with Pydantic v2. Validation errors are surfaced field-by-field by the
 > not a declared `RoleDefinition` field — `_pre_process` step 4 (§1a) consumes it and promotes
 > recognized names into `tools` before validation. It does not survive into the validated model or
 > `AgentSpec`.
+>
+> This is a **different, same-named concept** from the top-level `TeamCreationRequest.suggested_tools`
+> field (list of `ToolSuggestion` objects, below) — the role-level key is a plain list of tool-name
+> strings filtered through the fixed `_REGISTRY_TOOLS` allow-list, while the top-level field is
+> user-defined custom tools with their own `name`/`description`/`env_vars`. They share a name but
+> not a shape; don't confuse one for the other.
 
 ### `ProviderConfig`
 
@@ -71,7 +85,7 @@ Validated with Pydantic v2. Validation errors are surfaced field-by-field by the
 | `provider` | str | ✅ | — | normalized to lowercase + stripped (e.g. `anthropic`, `openai`, `xai`, `google`, `ollama`) |
 | `model` | str | ✅ | — | stripped (e.g. `claude-sonnet-4-6`, `gpt-4o`) |
 | `api_key_env` | str? | — | None | env var name holding the key (omit for local models like Ollama) |
-| `base_url` | str? | — | None | custom base URL — required for Ollama (e.g. `http://localhost:11434`) |
+| `base_url` | str? | — | None | custom base URL — required for Ollama (e.g. `http://localhost:11434`). **Not currently wired through**: neither routing-resolution path (`template.py`/`mapper.py` `_resolve_routing`) copies it into `ProviderRouting` (which has no `base_url` field), and generated `routing_config.yaml` only gets an Ollama URL via a hardcoded default in `generators/routing.py` — a value set here is accepted by validation but silently has no effect on the generated team. |
 
 ### `GitAccountConfig`
 
@@ -138,10 +152,14 @@ independent normalizations, in this order:
 
 1. **`stack` dict-flattening.** If `stack` arrives as a dict, its string values are joined with
    `", "` into a single readable string — except values that look like a placeholder (start with
-   `"deferred"`) or a bare snake_case token (`^[a-z][a-z0-9_]*$`), which are dropped.
-2. **`auxiliary_resources_dir` → `context_dir` aliasing.** If the input has
-   `auxiliary_resources_dir` and no `context_dir` already, its value is copied to `context_dir`.
-   Existing `context_dir` values are never overwritten.
+   `"deferred"`) or a bare snake_case token (`^[a-z][a-z0-9_]*$`), which are dropped. If every
+   value is filtered out (or the dict is empty), the result is `""` (empty string), not the field's
+   documented default of `None`.
+2. **`auxiliary_resources_dir` → `context_dir` aliasing.** If the input has the
+   `auxiliary_resources_dir` key and does not already have a `context_dir` key present, its value
+   is copied to `context_dir`. This is a **key-presence** check, not a value check — an explicit
+   `context_dir: null` alongside `auxiliary_resources_dir` counts as "already present" and blocks
+   the alias, silently dropping the aux-dir value.
 3. **`notification_channels.telegram` → `notifications.telegram_*` mapping.** Only fires when
    `notification_channels.telegram.enabled` is true. Credentials
    (`telegram.credentials.bot_token_env` / `chat_id_env`) are copied into
@@ -157,7 +175,10 @@ independent normalizations, in this order:
 5. **`model_registry` string-reference resolution.** If `model_registry` is a dict, any string
    value for `default_llm`, `planning_llm`, or a role's `llm` that matches a key in the registry is
    replaced inline with that entry's `provider` / `model` / `api_key_env` / `base_url` fields,
-   before normal Pydantic field validation runs.
+   before normal Pydantic field validation runs. A string that does **not** match any registry key
+   is passed through unchanged, which then fails normal field validation (a bare string can't
+   construct a `ProviderConfig`) — the resulting error is a generic Pydantic `ValidationError`, not
+   one that names the bad registry reference.
 
 ### `planning_llm` vs `default_llm` — two distinct fields
 
@@ -168,7 +189,12 @@ configured LLM slots:
   `TeamPlanner`), which infers agents/tools/topology from `purpose`. It never appears in the
   agent-facing LLM routing chain (§3).
 - **`default_llm`** is the fallback LLM for generated agent roles that don't specify their own
-  `llm` (see §3's resolution order: `role.llm → request.default_llm → _DEFAULT_PROVIDER`).
+  `llm` — see §3's resolution order: `role.llm → request.default_llm → _DEFAULT_PROVIDER`. **That
+  chain applies only to the template-based generation strategy** (used when `desired_roles` is
+  non-empty). The default strategy — the LLM planner, used when `desired_roles` is empty — never
+  reads `RoleDefinition.llm` at all; it resolves each agent's routing from its own generated plan
+  via a different code path (`llm/mapper.py`), with its own fallback constant. §3 does not
+  currently distinguish the two strategies; treat its chain as template-strategy-specific.
 
 `_pre_process` step 5 above resolves `model_registry` references for both fields independently,
 which would be redundant if they were meant to be the same field. No rename is planned — renaming
