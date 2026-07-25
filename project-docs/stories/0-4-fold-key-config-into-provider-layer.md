@@ -4,7 +4,7 @@ baseline_commit: 517ce41bbacfdc4e950ff2c4758046a50e089ad6
 
 # Story 0.4: Fold the Key Config feature into the provider layer
 
-Status: review
+Status: done
 
 <!-- RECONCILIATION STORY (Epic 0) — see project-docs/stories/reconciliation-notes.md (divergence row 4)
      and project-docs/stories/deferred-work.md ("Deferred from: reconciliation"). Unifies the
@@ -131,6 +131,18 @@ CLI keeps working.
     passing (no network/keys in CI means `normalize_team_routings` stays a no-op there, unchanged).
   - [x] `ruff check` clean on every new/changed file (line-length 100; E,F,I,N,W; E501 ignored).
 
+## Review Findings
+
+_Code review run 2026-07-25 (branch `story_0_4` vs `epic_0`, commit `6d570cd`) — Blind Hunter,
+Edge Case Hunter, Acceptance Auditor layers, all completed. 21 raw findings → 3 patch, 1 defer,
+15 dismissed (spec-directed, false positives from lack of spec access, or already-correctly-guarded
+cases), 0 decision-needed._
+
+- [x] [Review][Patch] `_resolve_key` doesn't account for a per-agent custom `api_key_env` override — once `KeyConfig` has *any* entry for the provider (even one it auto-filled from the *standard* env var via `KeyConfig.from_file()`'s existing env-fallback), the override is silently bypassed, even though the old code always read the override's exact env var name directly. This breaks AC3's "strictly additive... every case that resolved a key via os.environ before still does" for the specific case where a routing sets a non-default `api_key_env` AND the provider's standard env var also happens to be set. [team_maker/llm/model_resolver.py:112-121] — **Fixed:** added a data-driven `_DEFAULT_ENV_BY_PROVIDER` lookup (from `PROVIDERS`); `_resolve_key` now only consults `KeyConfig` when `api_key_env` is empty or matches the provider's own default, otherwise reads the custom override's env var directly. Regression test added.
+- [x] [Review][Patch] `team_maker/llm/mapper.py`'s comment still references the now-deleted `team_maker/providers/registry.py` path and claims a data disagreement ("currently disagrees on env-var names and provider coverage") that this story just fixed [team_maker/llm/mapper.py:16-17] — **Fixed:** updated the comment to reference the new location and drop the resolved-disagreement claim.
+- [x] [Review][Patch] No test locks in that the `GOOGLE_API_KEY` → `GOOGLE_AI_API_KEY` catalog rename is intentional — nothing asserts that a bare `GOOGLE_API_KEY` alone (without `GOOGLE_AI_API_KEY`) now correctly reports `google` as `missing` [tests/unit/test_provider_availability.py] — **Fixed:** added `test_google_api_key_alone_no_longer_recognized`.
+- [x] [Review][Defer] The four fetchers' `lru_cache`s (`_anthropic_models`, `_openai_models`, `_xai_models`, `_google_models`) now key on the raw secret value instead of the env-var name, retaining plaintext keys in process memory indefinitely — deferred, spec-mandated: Task 3 explicitly directs this exact design ("equivalent or better"). Worth a future hardening pass (e.g., cache by a hash of the key). [team_maker/llm/model_resolver.py:39-97]
+
 ## Dev Notes
 
 ### What this story is (and is not)
@@ -245,6 +257,10 @@ claude-sonnet-5 (bmad-dev-story)
   findings introduced by the new imports — all cosmetic, no behavior change).
 - Manual smoke test: `keys status` CLI (via `CliRunner`) runs with exit code 0 and now lists `xai`
   (previously absent from the catalog entirely).
+- Post-review (after applying the 3 patch findings): `python -m pytest tests/unit -q` → 203 passed
+  (201 + 2 new: the custom-`api_key_env`-override regression test and the google-rename lock-in
+  test); `python -m pytest tests/integration -k "not live" -q` → 20 passed, 7 deselected (unchanged);
+  `ruff check` → clean.
 
 ### Completion Notes List
 
@@ -290,8 +306,12 @@ claude-sonnet-5 (bmad-dev-story)
 - `team_maker/keyconfig.py` (UPDATE — import path only)
 - `team_maker/cli.py` (UPDATE — import path; unrelated pre-existing `E741` fix)
 - `team_maker/llm/model_resolver.py` (UPDATE — fetcher signatures, `_resolve_key`,
-  `resolve_routing`/`normalize_team_routings` KeyConfig threading)
-- `tests/unit/test_provider_availability.py` (UPDATE — import path only)
+  `resolve_routing`/`normalize_team_routings` KeyConfig threading, `_DEFAULT_ENV_BY_PROVIDER`
+  custom-override guard from code review)
+- `team_maker/llm/mapper.py` (UPDATE — code review: fixed a stale comment referencing the
+  deleted `team_maker/providers/registry.py` path)
+- `tests/unit/test_provider_availability.py` (UPDATE — import path; code review: added
+  `test_google_api_key_alone_no_longer_recognized`)
 - `tests/unit/test_cli_keys_status.py` (UPDATE — `PROVIDER_ENVS` hygiene list)
 - `tests/unit/test_keyconfig.py` (UPDATE — one fixture's env-var name corrected to match AC2's fix)
 - `team_maker/providers/__init__.py` (DELETE)
@@ -311,3 +331,12 @@ claude-sonnet-5 (bmad-dev-story)
   google/xai catalog data fixed; `model_resolver.py` unified with `KeyConfig` (additive, file-first,
   env fallback unchanged); tests updated/added. One unenumerated-but-required test-fixture fix noted
   above. Full suite green (201 unit, 20 non-live integration), `ruff check` clean. Status → review.
+- 2026-07-25 — Code review (bmad-code-review, Blind Hunter + Edge Case Hunter + Acceptance Auditor):
+  21 raw findings → 3 patch (all applied: a genuine AC3 gap where a per-agent custom `api_key_env`
+  override could be silently shadowed by a KeyConfig entry auto-filled from the standard env var —
+  fixed with a data-driven default-env lookup; a stale `mapper.py` comment referencing the deleted
+  `team_maker/providers/` path; a missing regression test locking the google env-var rename), 1 defer
+  (spec-mandated `lru_cache`-on-secret-value design, logged in `project-docs/stories/deferred-work.md`),
+  15 dismissed (spec-directed, false positives from the Blind Hunter's lack of spec access, or
+  already-correctly-guarded cases). Full suite re-verified green (203 unit, 20 non-live integration),
+  `ruff check` clean. Status → done.

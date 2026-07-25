@@ -67,3 +67,17 @@ def test_is_usable_only_missing_blocks():
     assert is_usable(STATUS_KEYLESS_LOCAL) is True
     assert is_usable(STATUS_VIA_OPENROUTER) is True
     assert is_usable(STATUS_MISSING) is False
+
+
+def test_google_api_key_alone_no_longer_recognized(tmp_path):
+    """Story 0.4: the catalog's google entry was fixed from GOOGLE_API_KEY (wrong) to
+    GOOGLE_AI_API_KEY (matches the real adapter default) — locks in that the old name
+    no longer marks google as available, and the new name does."""
+    path = tmp_path / "team_maker.keys"
+    path.write_text("GOOGLE_API_KEY=old-wrong-name\n", encoding="utf-8")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    assert _status_map(cfg)["google"] == STATUS_MISSING
+
+    path.write_text("GOOGLE_AI_API_KEY=correct-name\n", encoding="utf-8")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    assert _status_map(cfg)["google"] == STATUS_AVAILABLE

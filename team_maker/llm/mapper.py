@@ -13,8 +13,10 @@ _DEFAULT_ROUTING = ProviderRouting(
 
 # Provider facts as DATA, not control flow (AD-1/AD-8): infer the provider from a
 # model-name prefix, and map a provider to its API-key env var. These tables are
-# deliberately local — unifying them with team_maker/providers/registry.py (which
-# currently disagrees on env-var names and provider coverage) is Story 0.4.
+# deliberately local to the planner's inference step, distinct from the
+# availability catalog in team_maker/adapters/providers/registry.py (Story 0.4
+# relocated and reconciled that catalog; unifying it with these planner-local
+# tables is not planned).
 _MODEL_PREFIX_PROVIDERS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("gpt-", "o1-", "o3-", "o4-"), "openai"),
     (("grok-",), "xai"),

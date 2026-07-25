@@ -11,8 +11,14 @@ import os
 import sys
 from functools import lru_cache
 
+from team_maker.adapters.providers.registry import PROVIDERS
 from team_maker.domain.models import GeneratedTeam, ProviderRouting
 from team_maker.keyconfig import KeyConfig
+
+# Each provider's catalogued default env var (data, not branching — AD-1). Used to
+# detect a per-agent *custom* api_key_env override so it is never shadowed by a
+# KeyConfig entry that KeyConfig.from_file() auto-filled from the standard env var.
+_DEFAULT_ENV_BY_PROVIDER: dict[str, str] = {p.name: p.env_var for p in PROVIDERS if p.env_var}
 
 # ---------------------------------------------------------------------------
 # Closest-match helper
@@ -114,9 +120,14 @@ def _resolve_key(provider: str, api_key_env: str, config: KeyConfig) -> str:
 
     Strictly additive — the fallback path is unchanged from before this story;
     the only new behavior is that a key living solely in the Key Config file
-    now also gets used.
+    now also gets used. A per-agent *custom* `api_key_env` (naming a non-default
+    env var) always reads that env var directly — it must never be shadowed by a
+    KeyConfig entry that was only auto-filled from the provider's standard env var.
     """
-    if config.has(provider):
+    is_custom_override = bool(api_key_env) and api_key_env != _DEFAULT_ENV_BY_PROVIDER.get(
+        provider
+    )
+    if not is_custom_override and config.has(provider):
         return config.keys[provider].get_secret_value()
     return os.environ.get(api_key_env, "")
 

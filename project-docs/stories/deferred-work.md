@@ -26,3 +26,15 @@ the next architectural work item, ahead of new Epic 1 features.
   behavior. Not fixed in Story 0.3 because its Dev Notes explicitly direct keeping this branch
   "exactly as-is" (behavior-preserving refactor scope). Candidate fix: branch on `adapter.name`
   instead of the raw `framework` string, and/or log a warning on fallback in `get_runtime_engine`.
+
+## Deferred from: code review of story-0.4 (2026-07-25)
+
+- The four model-list fetchers' `lru_cache`s (`_anthropic_models`, `_openai_models`, `_xai_models`,
+  `_google_models` in `team_maker/llm/model_resolver.py:39-97`) now key on the raw resolved secret
+  value instead of the env-var name, so plaintext API keys are retained indefinitely in process
+  memory for the lifetime of the process (no eviction, no rotation-awareness). This is a deliberate,
+  spec-mandated design from Story 0.4's Task 3 ("the `@lru_cache` still works: it now caches per
+  key-value instead of per-env-var-name, which is equivalent or better") — not fixed in the story's
+  code review because overriding an explicit story decision mid-review would exceed the review's
+  scope. Candidate fix: cache by a hash (e.g. `hashlib.sha256`) of the key instead of the raw value,
+  or swap `lru_cache` for a cache the caller can explicitly evict on key rotation.
