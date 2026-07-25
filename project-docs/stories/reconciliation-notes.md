@@ -41,7 +41,7 @@ smoke tests, and the CoinPela v4.3 recipe. `guru-explore` descends from `develop
 | 2 | `llm/mapper.py::_infer_provider` branches on model-name prefixes (`gpt-`→openai, `claude-`→anthropic, `grok-`→xai) | AD-1 / AD-8 (never branch on provider name) | 0.2 |
 | 3 | CrewAI wired directly; `frameworks/crewai_adapter.py` pins `crewai>=0.80.0` inside the package | AD-6 (CrewAI behind `RuntimeEngine`), stack pin CrewAI 1.14.6 | 0.3 |
 | 4 | Two parallel provider/key systems: `keyconfig.py`+`providers/registry.py` (Story 1.1) vs `llm/model_resolver.py` (availability/substitution) | duplication; AD-9 key handling should be single-sourced | 0.4 |
-| 5 | `schema/request.py` has grown fields (`planning_llm`, `framework`, `state_backend`, `git_account`, `sandbox`, `desired_tasks`, `suggested_tools`, `context_dir`, `model_registry`, `notifications`) not in `data-models.md`; `planning_llm` vs spine glossary `default_llm` | AD-10 (schema is the contract) | 0.5 |
+| 5 | `schema/request.py` has grown fields (`planning_llm`, `framework`, `state_backend`, `git_account`, `sandbox`, `desired_tasks`, `suggested_tools`, `context_dir`, `model_registry`, `notifications`) not in `data-models.md`; `planning_llm` vs spine glossary `default_llm` | AD-10 (schema is the contract) | 0.5 — **resolved 2026-07-25**: `data-models.md` §1 rewritten against the live schema; `planning_llm`/`default_llm` investigated and confirmed to be two intentionally distinct, independently-resolved LLM slots (not a naming collision) — documented, not renamed. |
 
 ## Status of the pre-plan Stories
 

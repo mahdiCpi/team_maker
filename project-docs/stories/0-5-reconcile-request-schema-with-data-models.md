@@ -4,7 +4,7 @@ baseline_commit: 517ce41bbacfdc4e950ff2c4758046a50e089ad6
 
 # Story 0.5: Reconcile the request schema with the documented data model
 
-Status: ready-for-dev
+Status: review
 
 <!-- RECONCILIATION STORY (Epic 0) — see project-docs/stories/reconciliation-notes.md (divergence row 5).
      Primarily a DOCUMENTATION story: project-docs/data-models.md describes the pre-merge schema and
@@ -58,22 +58,22 @@ so that downstream stories (Epic 1+) have a trustworthy schema contract instead 
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Rewrite §1 Input Schema to match the real schema** (AC: 1)
-  - [ ] Replace `data-models.md`'s `TeamCreationRequest` table with the full current field list
-    (23 fields — see Dev Notes "Current state" for the authoritative list with types/defaults/
-    validation, transcribed directly from `team_maker/schema/request.py` lines 174-269).
-  - [ ] Add new tables for `GitAccountConfig`, `NotificationConfig`, `ToolSuggestion`,
+- [x] **Task 1 — Rewrite §1 Input Schema to match the real schema** (AC: 1)
+  - [x] Replace `data-models.md`'s `TeamCreationRequest` table with the full current field list
+    (21 fields, verified by direct count against `team_maker/schema/request.py` lines 174-269 —
+    the story's "23 fields" estimate was off; the transcribed table itself was accurate).
+  - [x] Add new tables for `GitAccountConfig`, `NotificationConfig`, `ToolSuggestion`,
     `SandboxConfig`, `TaskHint` (same table format as the existing `RoleDefinition`/`ProviderConfig`
     tables) — field, type, required, default, notes.
-  - [ ] Note in `RoleDefinition`'s section (or a footnote) that a role dict may also carry an
+  - [x] Note in `RoleDefinition`'s section (or a footnote) that a role dict may also carry an
     **input-only** `suggested_tools` key (list of tool names) consumed by `_pre_process` step 4 and
     promoted into `tools` — it is not a declared `RoleDefinition` field and does not survive into the
     validated model or `AgentSpec`.
-  - [ ] Remove the `> ⚠️ STALE` banner at the top of the file once the rewrite is verified against
+  - [x] Remove the `> ⚠️ STALE` banner at the top of the file once the rewrite is verified against
     the live source.
 
-- [ ] **Task 2 — Document `_pre_process`'s five normalizations** (AC: 2)
-  - [ ] Add a new "§1a. Input normalization (`_pre_process`)" section (or fold into §1) covering, in
+- [x] **Task 2 — Document `_pre_process`'s five normalizations** (AC: 2)
+  - [x] Add a new "§1a. Input normalization (`_pre_process`)" section (or fold into §1) covering, in
     order: (1) `stack` dict → flattened string (drops values that look like a placeholder — start
     with `"deferred"` — or a bare snake_case token); (2) `auxiliary_resources_dir` → `context_dir`
     alias (only applied if `context_dir` wasn't already set); (3)
@@ -88,24 +88,25 @@ so that downstream stories (Epic 1+) have a trustworthy schema contract instead 
     replaced with that entry's `provider`/`model`/`api_key_env`/`base_url` fields inline, before
     normal field validation runs.
 
-- [ ] **Task 3 — Resolve the `planning_llm`/`default_llm` note** (AC: 3)
-  - [ ] Add the finding (two distinct fields, not a collision) to `data-models.md` per AC 3 — a short
+- [x] **Task 3 — Resolve the `planning_llm`/`default_llm` note** (AC: 3)
+  - [x] Add the finding (two distinct fields, not a collision) to `data-models.md` per AC 3 — a short
     callout box or table footnote, not a rename.
-  - [ ] Optional, low-risk clarifying touch to `team_maker/schema/request.py`: strengthen the
+  - [x] Optional, low-risk clarifying touch to `team_maker/schema/request.py`: strengthen the
     existing one-line comments above `planning_llm` (`# LLM used by team_maker to infer agents,
     tools, and topology`) and `default_llm` (`# Per-agent LLM fallback`) if they need it — they
     already correctly distinguish the two, so this is likely a no-op; do not rename either field or
     add a `model_config` alias, since no consumer actually confuses them (verified: no test or code
-    path treats them interchangeably).
-  - [ ] Update `reconciliation-notes.md`'s divergence-table row 5 status (or add a one-line note)
+    path treats them interchangeably). **Confirmed no-op** — existing comments already correctly
+    distinguish the two fields; left `request.py` untouched.
+  - [x] Update `reconciliation-notes.md`'s divergence-table row 5 status (or add a one-line note)
     recording that the "glossary mismatch" was investigated and resolved as documentation, not code.
 
-- [ ] **Task 4 — Verify nothing broke** (AC: 4)
-  - [ ] Run `python -m pytest tests/unit -q` → expect the same ≥185 passed (docs-only change, but
-    confirm no accidental edit crept into `request.py`).
-  - [ ] Run `python -m pytest tests/integration -k "not live" -q` → expect the existing 20 passed.
-  - [ ] If Task 3's optional `request.py` comment tweak is made, run `ruff check
-    team_maker/schema/request.py` → clean.
+- [x] **Task 4 — Verify nothing broke** (AC: 4)
+  - [x] Run `python -m pytest tests/unit -q` → 203 passed (baseline before and after the docs edit;
+    exceeds the ≥185 expectation, confirms no accidental edit crept into `request.py`).
+  - [x] Run `python -m pytest tests/integration -k "not live" -q` → 20 passed (matches baseline).
+  - [x] Task 3's optional `request.py` comment tweak was not made (confirmed no-op), so the `ruff
+    check` sub-step does not apply — no `.py` file was touched.
 
 ## Dev Notes
 
@@ -212,13 +213,58 @@ would make no sense if they were meant to be the same field. **Resolution: docum
 
 ### Agent Model Used
 
+Claude Sonnet 5 (claude-sonnet-5)
+
 ### Debug Log References
+
+- Verified field count directly against `team_maker/schema/request.py` lines 174-269: 21 fields
+  (the story's "23 fields" phrasing in Task 1 was an overcount — the transcribed field table itself
+  was accurate and used as-is).
+- Confirmed `TeamTemplateId`/top-level `tools: list[str]` are not fields on the current
+  `TeamCreationRequest` (pre-merge drift) — dropped from the rewritten table with an explanatory note
+  rather than silently disappearing.
+- Confirmed `ProviderConfig` gained a `base_url` field (for Ollama) not present in the stale
+  `data-models.md` — added it to the table.
+- Baseline test run before any edit: `pytest tests/unit -q` → 203 passed; `pytest tests/integration -k
+  "not live" -q` → 20 passed. Re-ran identically after the docs edit — same counts, confirming the
+  change is purely additive to documentation.
 
 ### Completion Notes List
 
+- Rewrote `project-docs/data-models.md` §1 (`TeamCreationRequest` input schema) against the live
+  `team_maker/schema/request.py`: full 21-field table with accurate required/default/notes, five new
+  model tables (`GitAccountConfig`, `NotificationConfig`, `ToolSuggestion`, `SandboxConfig`,
+  `TaskHint`), a footnote on the input-only `suggested_tools` role key, an updated `ProviderConfig`
+  table (added `base_url`), and updated Enums (added `DocumentationLevel.detailed`, replaced the
+  removed `TeamTemplateId` with the current `FrameworkChoice`/`StateBackend` enums). Removed the
+  `⚠️ STALE` banner.
+- Added new §1a documenting all five `_pre_process` normalizations (stack flattening,
+  `auxiliary_resources_dir` aliasing, Telegram notification mapping, `suggested_tools` promotion via
+  the `_REGISTRY_TOOLS` allow-list, and `model_registry` reference resolution) plus a dedicated
+  `planning_llm` vs `default_llm` note recording that they are two intentionally distinct,
+  independently-resolved LLM slots — not a naming collision — per AC 3's investigation.
+  §2-§5 (domain model, LLM routing order, output contract, task dependency graph) were verified
+  accurate and left unchanged.
+- Updated `reconciliation-notes.md` divergence-table row 5 with a resolution note (documentation,
+  not code).
+- Skipped the optional `request.py` comment tweak (Task 3) — confirmed a no-op, existing comments
+  already correctly distinguish the two LLM fields. Zero `.py` files touched; zero behavior change.
+- Full unit (203 passed) and non-live integration (20 passed) suites confirmed green before and
+  after the change.
+
 ### File List
 
+- Modified: `project-docs/data-models.md`
+- Modified: `project-docs/stories/reconciliation-notes.md`
+
 ## Change Log
+
+- 2026-07-25 — Implemented Story 0.5: rewrote `data-models.md` §1 against the live
+  `team_maker/schema/request.py` (21-field `TeamCreationRequest` table, five new model tables,
+  input-only `suggested_tools` footnote, updated `ProviderConfig`/Enums, removed the stale banner),
+  added §1a documenting `_pre_process`'s five normalizations and the `planning_llm`/`default_llm`
+  finding, and updated `reconciliation-notes.md` row 5. No `.py` files changed. Full unit (203) and
+  non-live integration (20) suites verified green before and after. Status → review.
 
 - 2026-07-12 — Story drafted via create-story context engine (line-by-line comparison of
   `data-models.md` against the live `team_maker/schema/request.py`, full transcription of all 23
