@@ -4,7 +4,7 @@ baseline_commit: e5021f3459fa963b731881afda13b49d2e527df5
 
 # Story 1.2: Compose a valid Team Spec from a prompt
 
-Status: needs-rescoping (spec-first refactor)
+Status: ready-for-dev
 
 <!-- RECONCILIATION UPDATE 2026-07-12 — see project-docs/stories/reconciliation-notes.md.
      The stale baseline (e5021f3) is superseded: the real code from guru-explore is now merged
@@ -16,6 +16,35 @@ Status: needs-rescoping (spec-first refactor)
      new ports/LLMProvider Protocol (Epic 0, Story 0.1) and REUSE schema/request.py's validation
      rather than re-implementing it. Story 1.1's code (keyconfig.py, providers/, `keys status`)
      is now COMMITTED to main (no longer uncommitted) — consume it as existing prior art. -->
+
+<!-- RECONCILIATION UPDATE 2026-07-25 (bmad-correct-course, Epic 1 course correction) —
+     Epic 0 has since merged into develop (commit 87642dc) and epic_1/story_1_2 have been
+     fast-forwarded to that tip. Two of this story's Tasks are now STALE because Epic 0 already
+     built the things they described:
+       - Task 1 ("define the LLMProvider port") is DONE — `team_maker/ports/llm_provider.py`
+         exists (Story 0.1). Its real signature is `complete_structured(self, system: str,
+         user: str, response_model: type[T]) -> T`, NOT the `complete(*, system, prompt,
+         model=None) -> str` sketch originally written here — the port module's own docstring
+         says as much ("supersedes the complete() -> str sketch in Story 1.2 Task 1").
+       - Task 2 ("LLM adapter + credential resolution") is PARTIALLY done — five concrete
+         adapters (`AnthropicProvider`, `OpenAIProvider`, `XAIProvider`, `GoogleProvider`,
+         `OllamaProvider`) already exist under `team_maker/adapters/providers/`, all satisfying
+         the port, wired through a data-driven `create_provider(config: ProviderConfig)` factory
+         (Story 0.1). **No OpenRouter adapter exists yet** — the original "recommended default:
+         OpenRouter" plan is still valid as an option but is no longer required to get a first
+         working Composer, since five ready-made providers already exist. Recommend defaulting
+         the Composer's authoring model to one of the five existing adapters (e.g. anthropic,
+         matching `templates/software_delivery/template.py`'s `_DEFAULT_PROVIDER`) and treating
+         an OpenRouter adapter as a follow-on enhancement, not a blocking dependency.
+       - Story 0.4 also relocated the key-availability catalog to
+         `team_maker/adapters/providers/registry.py` (was `team_maker/providers/registry.py`) —
+         every reference to the old path below is updated accordingly. The "naming decision"
+         flagged in the original Project Structure Notes is resolved: `adapters/providers/` now
+         hosts both the LLM-call adapters (Story 0.1) and the availability catalog (Story 0.4) —
+         two concerns, one package, exactly as Story 0.4 designed it.
+     Tasks 1 and 2 below are struck through and replaced with corrected guidance. Tasks 3-5 and
+     all Acceptance Criteria are unchanged — no gap was found in the story's intent, only in two
+     tasks' now-outdated "how". Status moves from `needs-rescoping` to `ready-for-dev`. -->
 
 ## Story
 
@@ -35,16 +64,16 @@ so that I don't hand-write configuration.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Define the `LLMProvider` port** (AC: 6)
-  - [ ] Create `team_maker/ports/__init__.py` and `team_maker/ports/llm_provider.py`. Define `LLMProvider` as a `typing.Protocol` (structural, mock-friendly) with a single minimal text-completion method, e.g. `def complete(self, *, system: str, prompt: str, model: str | None = None) -> str`. Keep it sync and dependency-free (core code, no SDK import).
-  - [ ] Port name = capability name `LLMProvider` (spine convention: ports are `<Capability>`, adapters are `<impl>_<capability>`). Start module with `from __future__ import annotations`; full type hints.
-  - [ ] This is the ONE path all LLM access flows through (Composer now; Runtime agents later — AD-8). Do not add provider-specific parameters to the port.
+- [x] ~~**Task 1 — Define the `LLMProvider` port** (AC: 6)~~ **DONE by Story 0.1 — consume, do not recreate.**
+  - [x] `team_maker/ports/llm_provider.py` already defines `LLMProvider` as a `typing.Protocol` with `complete_structured(self, system: str, user: str, response_model: type[T]) -> T` (structured-output, not the free-text `complete()` sketch originally planned here). Import it from `team_maker.ports.llm_provider`; do not redefine it.
+  - [ ] Update this story's downstream tasks/tests to call `complete_structured(system=..., user=..., response_model=TeamCreationRequest)` (or an intermediate draft model) instead of a free-text `complete()` call.
 
-- [ ] **Task 2 — LLM adapter + credential resolution behind the port** (AC: 6)
-  - [ ] Create `team_maker/adapters/__init__.py`, `team_maker/adapters/providers/__init__.py`, and one concrete adapter implementing `LLMProvider` for the Composer's authoring model. **Recommended default: OpenRouter** (AD-8 names it the default multi-provider path — one key, many models; OpenAI-API-compatible). See Latest-tech notes.
-  - [ ] Resolve the authoring key from `KeyConfig.from_file(...)` (Story 1.1). Call `.get_secret_value()` **only** at the point of the network call. Never read a raw global env var for routing, never log or echo the key (AD-7, AD-9). Reuse `providers/registry.py` (`PROVIDERS`, `report_availability`, `is_usable`) — do not re-implement key logic.
+- [ ] **Task 2 — Pick/extend an LLM adapter for the Composer's authoring model** (AC: 6)
+  - [ ] Five concrete adapters already exist and satisfy the port: `team_maker/adapters/providers/{anthropic,openai,xai,google,ollama}_provider.py`, wired through the data-driven `create_provider(config: ProviderConfig) -> LLMProvider` factory in `team_maker/adapters/providers/__init__.py` (Story 0.1). **Default the Composer's authoring model to one of these** (recommend `anthropic`, matching `templates/software_delivery/template.py`'s `_DEFAULT_PROVIDER`) rather than building a new adapter first.
+  - [ ] **No OpenRouter adapter exists yet.** Adding one (via the `openai` SDK pointed at OpenRouter's `base_url`, per the original Latest-tech notes below) remains a valid option for "one key → many models," but is now an *enhancement*, not a blocking dependency — a working Composer no longer requires a new SDK dependency to ship.
+  - [ ] Resolve the authoring key from `KeyConfig.from_file(...)` (Story 1.1). Call `.get_secret_value()` **only** at the point of the network call. Never read a raw global env var for routing, never log or echo the key (AD-7, AD-9). Reuse `team_maker/adapters/providers/registry.py` (`PROVIDERS`, `report_availability`, `is_usable`) — moved here from `team_maker/providers/registry.py` by Story 0.4; do not re-implement key logic.
   - [ ] Keep it data-driven: never branch on provider name in logic (AD-1/AD-8). Map user model words → provider IDs via a small alias table or registry extension (claude→anthropic, gemini→google, chatgpt→openai).
-  - [ ] Add the LLM SDK dependency to `pyproject.toml`/`requirements.txt` (this is the FIRST LLM SDK in the repo). If OpenRouter: add `openai>=1.x` and point `base_url` at OpenRouter. Note the choice in the module docstring. **Decision flag** — see Project Structure Notes.
+  - [ ] If (and only if) an OpenRouter adapter is added: add the LLM SDK dependency to `pyproject.toml`/`requirements.txt`, add `openai>=1.x`, point `base_url` at OpenRouter, and note the choice in the module docstring.
 
 - [ ] **Task 3 — Composer core: `compose(intent, preferences) -> TeamCreationRequest`** (AC: 1, 2, 3, 4, 5)
   - [ ] Create `team_maker/composer/__init__.py` and `team_maker/composer/composer.py` with a `Composer` class that takes an `LLMProvider` by constructor injection (so tests inject a fake). Expose a single stateless `compose(intent: str, *, preferences: ... = None) -> TeamCreationRequest`.
@@ -88,7 +117,7 @@ so that I don't hand-write configuration.
 - `team_maker/schema/request.py` — the validation target. `TeamCreationRequest{team_name(min2, `^[A-Za-z][A-Za-z0-9_ \-]*$`), purpose(min10), output_path, desired_roles(min1, unique names via model_validator), default_llm?, documentation_level=STANDARD, template=SOFTWARE_DELIVERY, overwrite, tags, metadata}`; `RoleDefinition{name(`^[a-z][a-z0-9_]*$`), display_name?, description(min5), goal?, backstory?, capabilities[], tools[], llm?, is_optional}`; `ProviderConfig{provider(lowercased), model(stripped), api_key_env?}`. [Source: team_maker/schema/request.py]
 - `templates/software_delivery/template.py` — holds `_DEFAULT_PROVIDER = ProviderConfig(provider="anthropic", model="claude-sonnet-4-6")` and the resolution chain `role.llm or default_llm or _DEFAULT_PROVIDER`. **Leave `llm` null when no preference** so this fills in — do not duplicate it in the Composer. [Source: team_maker/templates/software_delivery/template.py:198,245]
 - `team_maker/keyconfig.py` — `KeyConfig.from_file(path=None, *, include_env=True)` (never raises; `.env`-style; file is source of truth, env is fallback), `has(provider)`, `default_path()`. Consume this for the authoring key. [Source: team_maker/keyconfig.py]
-- `team_maker/providers/registry.py` — `PROVIDERS` catalog (anthropic/openai/google/groq/ollama/openrouter with `env_var`, `keyless_local`, `openrouter_reachable`), `report_availability(config) -> list[ProviderStatus]`, `is_usable(status)`, `USABLE_STATUSES`, `OPENROUTER`. Use for provider/model preference biasing. [Source: team_maker/providers/registry.py]
+- `team_maker/adapters/providers/registry.py` (moved here from `team_maker/providers/registry.py` by Story 0.4) — `PROVIDERS` catalog (anthropic/openai/google/xai/ollama/openrouter/groq with `env_var`, `keyless_local`, `openrouter_reachable`), `report_availability(config) -> list[ProviderStatus]`, `is_usable(status)`, `USABLE_STATUSES`, `OPENROUTER`. Use for provider/model preference biasing. [Source: team_maker/adapters/providers/registry.py]
 - `team_maker/cli.py` — `create` command is the template for `compose`: `load_yaml` guarded by try/except → `sys.exit(1)`; `TeamCreationRequest.model_validate(raw)` in try/except `ValidationError` printing `"  • {loc joined by →}: {msg}"` → `sys.exit(1)`; `PipelineRunner().run(request)`; `if not result.validation.passed: sys.exit(2)`. `keys status` shows the `--file` + `KeyConfig` + `rich.Table` + `escape()` pattern. Module `console`/`err_console`. [Source: team_maker/cli.py]
 - `team_maker/pipeline/runner.py` — `PipelineRunner().run(request)` is the ONLY build path; `--build` should call it, not re-implement generation. [Source: team_maker/pipeline/runner.py]
 
@@ -109,10 +138,10 @@ so that I don't hand-write configuration.
 - **Composer's own model / key source is a PRD Open Question (Q2/Q7)** — "which model authors the spec, and where its key comes from." Recommended resolution: default to OpenRouter with a configurable model, key from Key Config, overridable via `--model`; make the whole thing swappable behind the port. Confirm the default model choice with the user if unsure. [Source: prd.md#8 Open Questions]
 
 ### Project Structure Notes
-- **New packages:** `team_maker/ports/` (`llm_provider.py`), `team_maker/adapters/providers/` (concrete LLM adapter), `team_maker/composer/` (`composer.py`, `ComposerError`). New CLI command in existing `cli.py`. Tests under `tests/unit/`. This matches the architecture spine's structural seed (`composer/`, `ports/`, `adapters/providers/` inside the `team_maker/` package). [Source: ARCHITECTURE-SPINE.md#Structural Seed]
-- **⚠ Naming decision (call out, then proceed):** an existing `team_maker/providers/` package already holds the **key-availability catalog/registry** (Story 1.1), while the spine puts **LLM adapters** under `team_maker/adapters/providers/`. These are different concerns. Recommendation: **leave `providers/` as the catalog** (it is data, not an adapter) and put the new LLM adapter under `adapters/providers/`. Do not move or rename 1.1's `providers/` (would churn imports/tests). Note the slight name overlap in the adapter module docstring.
-- **Dependency decision (flag for confirmation):** which LLM SDK to add (recommend `openai` targeting OpenRouter) and the default authoring model. This is the first LLM SDK dependency in the repo — add it to both `pyproject.toml` and `requirements.txt`.
-- Keep `composer/` import-clean: it may import `schema/`, `ports/`, `providers/` (catalog), `keyconfig.py` — but NOT `adapters/` concretely, NOT `cli.py`, NOT any LLM SDK.
+- **Already exist (Story 0.1/0.4 — do not recreate):** `team_maker/ports/llm_provider.py`, `team_maker/adapters/providers/` (five concrete LLM adapters + `create_provider` factory + the relocated availability catalog `registry.py`). Only `team_maker/composer/` (`composer.py`, `ComposerError`) and the new CLI command in `cli.py` are net-new for this story. Tests under `tests/unit/`.
+- **~~Naming decision~~ — RESOLVED by Story 0.4:** the key-availability catalog (Story 1.1) was relocated from `team_maker/providers/` into `team_maker/adapters/providers/registry.py`, alongside the LLM-call adapters (Story 0.1). One package, two concerns, exactly as the spine's structural seed intended — no further action needed here.
+- **Dependency decision (only if adding OpenRouter):** which LLM SDK to add (recommend `openai` targeting OpenRouter) and the default authoring model — no longer a hard blocker since five adapters already exist; default to `anthropic` via the existing `create_provider` factory unless OpenRouter is explicitly chosen.
+- Keep `composer/` import-clean: it may import `schema/`, `ports/`, `adapters/providers/` (factory + catalog), `keyconfig.py` — but NOT concrete adapter classes directly, NOT `cli.py`, NOT any LLM SDK.
 
 ### References
 - [Source: project-docs/epics.md#Story-1.2] — story + ACs (FR-1, FR-2, FR-4, AD-8, AD-10)
@@ -140,3 +169,4 @@ _(to be filled by dev-story)_
 ## Change Log
 
 - 2026-07-12 — Story drafted via create-story context engine (exhaustive artifact analysis: PRD/addendum, architecture spine, UX, epics, existing code). Status → ready-for-dev.
+- 2026-07-25 — `bmad-correct-course` (Epic 1 course correction): `epic_0` merged into `develop` (87642dc); `epic_1`/`story_1_2` fast-forwarded from the stale pre-Epic-0 baseline to the new `develop` tip. Found Tasks 1-2 stale (Story 0.1 already built `ports/llm_provider.py` with `complete_structured`, not the planned `complete()`; Story 0.1 already built 5 concrete adapters + `create_provider`; Story 0.4 already relocated the catalog to `adapters/providers/registry.py`). Rewrote Tasks 1-2 and the affected Dev Notes to consume the existing port/adapters/catalog rather than rebuild them; no OpenRouter adapter exists yet, now scoped as optional. Acceptance Criteria and Tasks 3-5 unchanged — no gap in intent, only in two tasks' implementation guidance. Status: `needs-rescoping` → `ready-for-dev`.
