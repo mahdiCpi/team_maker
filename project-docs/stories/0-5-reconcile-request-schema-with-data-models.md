@@ -4,7 +4,7 @@ baseline_commit: 517ce41bbacfdc4e950ff2c4758046a50e089ad6
 
 # Story 0.5: Reconcile the request schema with the documented data model
 
-Status: review
+Status: done
 
 <!-- RECONCILIATION STORY (Epic 0) — see project-docs/stories/reconciliation-notes.md (divergence row 5).
      Primarily a DOCUMENTATION story: project-docs/data-models.md describes the pre-merge schema and
@@ -290,6 +290,10 @@ Claude Sonnet 5 (claude-sonnet-5)
   added §1a documenting `_pre_process`'s five normalizations and the `planning_llm`/`default_llm`
   finding, and updated `reconciliation-notes.md` row 5. No `.py` files changed. Full unit (203) and
   non-live integration (20) suites verified green before and after. Status → review.
+
+- 2026-07-25 — Accepted during Epic 0 retrospective: code review complete (9/9 patch findings
+  applied, 0 outstanding), full unit (203) and non-live integration (20) suites green. Merged
+  `story_0_5` → `epic_0`. Status → done.
 
 - 2026-07-25 — Applied 9 patch findings from adversarial code review (Blind Hunter + Edge Case
   Hunter, 0 Acceptance Auditor violations): added the story file to its own File List; disambiguated
