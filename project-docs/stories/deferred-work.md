@@ -38,3 +38,12 @@ the next architectural work item, ahead of new Epic 1 features.
   code review because overriding an explicit story decision mid-review would exceed the review's
   scope. Candidate fix: cache by a hash (e.g. `hashlib.sha256`) of the key instead of the raw value,
   or swap `lru_cache` for a cache the caller can explicitly evict on key rotation.
+
+## Deferred from: code review of story-1.2 (2026-07-26)
+
+- **`compose --build` doesn't bridge per-role provider keys** — only the authoring provider's key is bridged into `os.environ` before `composer.compose()` runs; if the composed spec routes roles to `openai`/`google`/`xai` (per the Composer's own word→provider alias table), nothing bridges those keys before `PipelineRunner().run()` executes. Harmless today — `model_resolver`'s live-model-substitution already degrades gracefully with "API unreachable — trust the YAML" when a key is absent — and run-time key gating for non-authoring providers is explicitly Story 1.6/FR-10 scope.
+- **Generic exception printing in `compose` could echo SDK-embedded secrets** — `except Exception as exc: ... escape(str(exc))` around `composer.compose(intent)` prints the raw exception string, which could in theory contain credential fragments from an underlying SDK error. Matches the existing `create` command's identical pattern elsewhere in `team_maker/cli.py`; not a new regression, and there's no established scrubbing convention in the codebase to extend.
+- **`_PROVIDER_ALIASES` is prompt-only, not code-enforced** — a malformed provider word from the authoring LLM costs one extra validate-and-repair round-trip rather than being silently corrected in code. Already covered by the existing AC3 repair loop; an efficiency nit, not a correctness gap.
+- **No retry on non-`ValidationError` failures in `Composer.compose`'s repair loop** — transient/network/parsing failures propagate immediately with zero retry. AC3 explicitly scopes the retry budget to schema-validation failures, not general resilience; revisit if flaky LLM calls become a real-world problem.
+- **No repair-attempt progress feedback in `compose`'s non-quiet output** — a UX nicety (e.g. "repair attempt 2/3"), not required by any AC.
+- **`compose --model` cannot override the authoring provider, only the model string** — matches Task 4's literal spec (only `--model` was requested); revisit if a `--provider` override becomes a real user need.

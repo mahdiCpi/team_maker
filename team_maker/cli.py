@@ -6,6 +6,8 @@ Usage:
 """
 from __future__ import annotations
 
+import contextlib
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -16,12 +18,19 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from team_maker.adapters.providers import create_provider
+from team_maker.adapters.providers.registry import PROVIDERS
+from team_maker.composer.composer import Composer, ComposerError
+from team_maker.keyconfig import KeyConfig
 from team_maker.pipeline.runner import PipelineRunner
-from team_maker.schema.request import TeamCreationRequest
-from team_maker.utils.yaml_utils import load_yaml
+from team_maker.schema.request import ProviderConfig, TeamCreationRequest
+from team_maker.utils.yaml_utils import dump_yaml, load_yaml
 
 console = Console()
 err_console = Console(stderr=True, style="red")
+
+_DEFAULT_AUTHORING_PROVIDER = "anthropic"
+_DEFAULT_AUTHORING_MODEL = "claude-sonnet-4-6"
 
 
 @click.group()
@@ -153,6 +162,146 @@ def create(
 
     if not result.validation.passed:
         sys.exit(2)
+
+
+# ---------------------------------------------------------------------------
+# compose
+# ---------------------------------------------------------------------------
+
+
+def _resolve_authoring_provider(key_config: KeyConfig, model_override: Optional[str]) -> ProviderConfig:
+    """Build the ProviderConfig for the Composer's own authoring model.
+
+    Pure — no env mutation here. Credential resolution happens separately in
+    `_bridged_credential`, scoped to the single call that needs it.
+    """
+    env_var = next(
+        (p.env_var for p in PROVIDERS if p.name == _DEFAULT_AUTHORING_PROVIDER), None
+    )
+    return ProviderConfig(
+        provider=_DEFAULT_AUTHORING_PROVIDER,
+        model=model_override or _DEFAULT_AUTHORING_MODEL,
+        api_key_env=env_var,
+    )
+
+
+@contextlib.contextmanager
+def _bridged_credential(key_config: KeyConfig, provider: str, env_var: Optional[str]):
+    """Temporarily bridge the Key Config's credential for `provider` into `env_var`.
+
+    The existing adapters (Story 0.1) read credentials via `os.environ.get(...)`
+    internally, so this is the point where `.get_secret_value()` is called (AD-9),
+    only for the duration of the wrapped block — whatever was in `env_var` before
+    is restored on exit, so the secret never persists past this single CLI call.
+    """
+    if not env_var or not key_config.has(provider):
+        yield
+        return
+    previous = os.environ.get(env_var)
+    os.environ[env_var] = key_config.keys[provider].get_secret_value()
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(env_var, None)
+        else:
+            os.environ[env_var] = previous
+
+
+@main.command()
+@click.argument("intent")
+@click.option(
+    "--out",
+    "-o",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="Write the composed spec as YAML to this path (default: print to stdout).",
+)
+@click.option(
+    "--key-file",
+    "-f",
+    "key_file",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the Key Config file (default: $TEAM_MAKER_KEYS or ./team_maker.keys).",
+)
+@click.option("--model", default=None, help="Override the authoring model (default: claude-sonnet-4-6).")
+@click.option(
+    "--build",
+    "build_now",
+    is_flag=True,
+    default=False,
+    help="Immediately build the composed spec via the pipeline runner.",
+)
+@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress progress output.")
+def compose(
+    intent: str,
+    out: Optional[Path],
+    key_file: Optional[Path],
+    model: Optional[str],
+    build_now: bool,
+    quiet: bool,
+) -> None:
+    """Describe a team in plain language and get a valid Team Spec."""
+    from rich.markup import escape
+
+    key_config = KeyConfig.from_file(key_file)
+    authoring_config = _resolve_authoring_provider(key_config, model)
+
+    try:
+        with _bridged_credential(key_config, _DEFAULT_AUTHORING_PROVIDER, authoring_config.api_key_env):
+            llm_provider = create_provider(authoring_config)
+            composer = Composer(llm_provider, key_config=key_config)
+            request = composer.compose(intent)
+    except ComposerError as exc:
+        err_console.print(f"[bold]Could not compose a valid team specification:[/bold] {escape(str(exc))}")
+        for error in exc.errors:
+            err_console.print(f"  • {escape(error)}")
+        sys.exit(2)
+    except Exception as exc:
+        err_console.print(f"[bold]Compose failed:[/bold] {escape(str(exc))}")
+        sys.exit(1)
+
+    # The spec is the command's actual deliverable — always emit it somewhere,
+    # even under --quiet (which only suppresses the decorative summary below).
+    spec_yaml = dump_yaml(request.model_dump(mode="json", exclude_none=True))
+    if out is not None:
+        try:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(spec_yaml, encoding="utf-8")
+        except OSError as exc:
+            err_console.print(f"[bold]Could not write spec to {escape(str(out))}:[/bold] {escape(str(exc))}")
+            sys.exit(1)
+        if not quiet:
+            console.print(f"[dim]Spec written to {escape(str(out))}[/dim]")
+    else:
+        console.print(spec_yaml)
+
+    if not quiet:
+        console.print(
+            Panel(
+                f"[bold cyan]{escape(request.team_name)}[/bold cyan]\n"
+                f"Roles: {len(request.desired_roles)} · Tasks: {len(request.desired_tasks)}",
+                title="[bold]team_maker[/bold] · Composed team spec",
+                expand=False,
+            )
+        )
+
+    if build_now:
+        runner = PipelineRunner()
+        try:
+            result = runner.run(request)
+        except FileExistsError as exc:
+            err_console.print(f"[bold]Output conflict:[/bold] {exc}")
+            sys.exit(1)
+        except Exception as exc:
+            err_console.print(f"[bold]Pipeline error:[/bold] {exc}")
+            raise  # re-raise for full traceback in debug scenarios
+
+        if not quiet:
+            _print_result(result)
+        if not result.validation.passed:
+            sys.exit(2)
 
 
 # ---------------------------------------------------------------------------
