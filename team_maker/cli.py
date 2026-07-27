@@ -21,6 +21,7 @@ from rich.table import Table
 from team_maker.adapters.providers import create_provider
 from team_maker.adapters.providers.registry import PROVIDERS
 from team_maker.composer.composer import Composer, ComposerError
+from team_maker.composer.session import ComposerSession
 from team_maker.keyconfig import KeyConfig
 from team_maker.pipeline.runner import PipelineRunner
 from team_maker.schema.request import ProviderConfig, TeamCreationRequest
@@ -233,6 +234,13 @@ def _bridged_credential(key_config: KeyConfig, provider: str, env_var: Optional[
     default=False,
     help="Immediately build the composed spec via the pipeline runner.",
 )
+@click.option(
+    "--interactive",
+    "-i",
+    is_flag=True,
+    default=False,
+    help="Refine the spec over a back-and-forth; type 'run now' at any turn to build immediately.",
+)
 @click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress progress output.")
 def compose(
     intent: str,
@@ -240,6 +248,7 @@ def compose(
     key_file: Optional[Path],
     model: Optional[str],
     build_now: bool,
+    interactive: bool,
     quiet: bool,
 ) -> None:
     """Describe a team in plain language and get a valid Team Spec."""
@@ -248,60 +257,93 @@ def compose(
     key_config = KeyConfig.from_file(key_file)
     authoring_config = _resolve_authoring_provider(key_config, model)
 
-    try:
-        with _bridged_credential(key_config, _DEFAULT_AUTHORING_PROVIDER, authoring_config.api_key_env):
+    # Widened to cover the whole flow — interactive turns AND an optional
+    # "run now"/--build — since the bridged credential is restored the
+    # instant this `with` block exits, and the build's own model-resolution
+    # step may also want the authoring provider's key present.
+    with _bridged_credential(key_config, _DEFAULT_AUTHORING_PROVIDER, authoring_config.api_key_env):
+        try:
             llm_provider = create_provider(authoring_config)
             composer = Composer(llm_provider, key_config=key_config)
-            request = composer.compose(intent)
-    except ComposerError as exc:
-        err_console.print(f"[bold]Could not compose a valid team specification:[/bold] {escape(str(exc))}")
-        for error in exc.errors:
-            err_console.print(f"  • {escape(error)}")
-        sys.exit(2)
-    except Exception as exc:
-        err_console.print(f"[bold]Compose failed:[/bold] {escape(str(exc))}")
-        sys.exit(1)
 
-    # The spec is the command's actual deliverable — always emit it somewhere,
-    # even under --quiet (which only suppresses the decorative summary below).
-    spec_yaml = dump_yaml(request.model_dump(mode="json", exclude_none=True))
-    if out is not None:
-        try:
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_text(spec_yaml, encoding="utf-8")
-        except OSError as exc:
-            err_console.print(f"[bold]Could not write spec to {escape(str(out))}:[/bold] {escape(str(exc))}")
-            sys.exit(1)
-        if not quiet:
-            console.print(f"[dim]Spec written to {escape(str(out))}[/dim]")
-    else:
-        console.print(spec_yaml)
+            if interactive:
+                session = ComposerSession(composer)
+                request = session.start(intent)
+                if not quiet:
+                    _print_spec_summary(request, title="Composed team spec")
 
-    if not quiet:
-        console.print(
-            Panel(
-                f"[bold cyan]{escape(request.team_name)}[/bold cyan]\n"
-                f"Roles: {len(request.desired_roles)} · Tasks: {len(request.desired_tasks)}",
-                title="[bold]team_maker[/bold] · Composed team spec",
-                expand=False,
-            )
-        )
-
-    if build_now:
-        runner = PipelineRunner()
-        try:
-            result = runner.run(request)
-        except FileExistsError as exc:
-            err_console.print(f"[bold]Output conflict:[/bold] {exc}")
-            sys.exit(1)
-        except Exception as exc:
-            err_console.print(f"[bold]Pipeline error:[/bold] {exc}")
-            raise  # re-raise for full traceback in debug scenarios
-
-        if not quiet:
-            _print_result(result)
-        if not result.validation.passed:
+                while True:
+                    if not quiet:
+                        console.print(
+                            "[dim]Refine further, type 'run now' to build, or 'done' to finish:[/dim]"
+                        )
+                    try:
+                        line = input().strip()
+                    except EOFError:
+                        line = ""
+                    lowered = line.lower()
+                    if lowered in ("", "done", "exit"):
+                        break
+                    if lowered in ("run now", "run", "build"):
+                        build_now = True
+                        break
+                    try:
+                        request = session.refine(line)
+                    except ComposerError as exc:
+                        err_console.print(
+                            f"[bold]Could not apply that change:[/bold] {escape(str(exc))}"
+                        )
+                        for error in exc.errors:
+                            err_console.print(f"  • {escape(error)}")
+                        continue
+                    if not quiet:
+                        _print_spec_summary(request, title="Updated team spec")
+            else:
+                request = composer.compose(intent)
+        except ComposerError as exc:
+            err_console.print(f"[bold]Could not compose a valid team specification:[/bold] {escape(str(exc))}")
+            for error in exc.errors:
+                err_console.print(f"  • {escape(error)}")
             sys.exit(2)
+        except Exception as exc:
+            err_console.print(f"[bold]Compose failed:[/bold] {escape(str(exc))}")
+            sys.exit(1)
+
+        # The spec is the command's actual deliverable — always emit it somewhere,
+        # even under --quiet (which only suppresses the decorative summary below).
+        spec_yaml = dump_yaml(request.model_dump(mode="json", exclude_none=True))
+        if out is not None:
+            try:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(spec_yaml, encoding="utf-8")
+            except OSError as exc:
+                err_console.print(f"[bold]Could not write spec to {escape(str(out))}:[/bold] {escape(str(exc))}")
+                sys.exit(1)
+            if not quiet:
+                console.print(f"[dim]Spec written to {escape(str(out))}[/dim]")
+        else:
+            console.print(spec_yaml)
+
+        # Interactive mode already showed the up-to-date panel before every
+        # prompt (start + each successful refine) — don't reprint it here.
+        if not quiet and not interactive:
+            _print_spec_summary(request, title="Composed team spec")
+
+        if build_now:
+            runner = PipelineRunner()
+            try:
+                result = runner.run(request)
+            except FileExistsError as exc:
+                err_console.print(f"[bold]Output conflict:[/bold] {exc}")
+                sys.exit(1)
+            except Exception as exc:
+                err_console.print(f"[bold]Pipeline error:[/bold] {exc}")
+                raise  # re-raise for full traceback in debug scenarios
+
+            if not quiet:
+                _print_result(result)
+            if not result.validation.passed:
+                sys.exit(2)
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +422,19 @@ def keys_status(key_file: Optional[Path]) -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _print_spec_summary(request: TeamCreationRequest, *, title: str) -> None:
+    from rich.markup import escape
+
+    console.print(
+        Panel(
+            f"[bold cyan]{escape(request.team_name)}[/bold cyan]\n"
+            f"Roles: {len(request.desired_roles)} · Tasks: {len(request.desired_tasks)}",
+            title=f"[bold]team_maker[/bold] · {title}",
+            expand=False,
+        )
+    )
 
 
 def _print_result(result) -> None:  # type: ignore[no-untyped-def]

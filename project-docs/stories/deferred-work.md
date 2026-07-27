@@ -47,3 +47,12 @@ the next architectural work item, ahead of new Epic 1 features.
 - **No retry on non-`ValidationError` failures in `Composer.compose`'s repair loop** — transient/network/parsing failures propagate immediately with zero retry. AC3 explicitly scopes the retry budget to schema-validation failures, not general resilience; revisit if flaky LLM calls become a real-world problem.
 - **No repair-attempt progress feedback in `compose`'s non-quiet output** — a UX nicety (e.g. "repair attempt 2/3"), not required by any AC.
 - **`compose --model` cannot override the authoring provider, only the model string** — matches Task 4's literal spec (only `--model` was requested); revisit if a `--provider` override becomes a real user need.
+
+## Deferred from: code review of story-1.3 (2026-07-27)
+
+- **Only `ComposerError` is caught around `session.refine()` in the interactive loop** — any other exception (network/transient/parse failure) is uncaught there and crashes the whole conversation (exit 1) instead of letting the user retry that turn. Consistent with Story 1.2's own established precedent that retries are scoped to schema-validation failures only, not general resilience.
+- **No cap on conversation turns or consecutive failed-refinement attempts** in `compose --interactive` — a confused user or scripted stdin can drive unbounded LLM spend with zero guardrail.
+- **No `KeyboardInterrupt` handling in the interactive loop** — Ctrl+C while blocked on `input()` produces a raw traceback; no existing convention for this elsewhere in the CLI either.
+- **`ComposerSession` has no undo/rollback** beyond asking the LLM to revert a change in a further turn. AD-11 only requires in-memory current state for v1; no history/versioning requirement in Story 1.3's ACs.
+- **Prompt/token cost grows with spec size on every refinement turn** — the full current spec is re-embedded on each `refine()` call with no truncation, diffing, or summarization strategy. A real scalability concern for larger specs or longer conversations, not required by this story.
+- **"Apply only this change" is prompt-only guidance, never code-verified** — nothing diffs the LLM's output against the prior spec to catch silent drift in fields the user didn't ask to change. Matches Story 1.2's precedent that prompt-level LLM guidance is acceptable and only schema-level issues are code-enforced via the repair loop.
