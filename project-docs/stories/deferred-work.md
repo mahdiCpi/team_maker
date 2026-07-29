@@ -56,3 +56,11 @@ the next architectural work item, ahead of new Epic 1 features.
 - **`ComposerSession` has no undo/rollback** beyond asking the LLM to revert a change in a further turn. AD-11 only requires in-memory current state for v1; no history/versioning requirement in Story 1.3's ACs.
 - **Prompt/token cost grows with spec size on every refinement turn** — the full current spec is re-embedded on each `refine()` call with no truncation, diffing, or summarization strategy. A real scalability concern for larger specs or longer conversations, not required by this story.
 - **"Apply only this change" is prompt-only guidance, never code-verified** — nothing diffs the LLM's output against the prior spec to catch silent drift in fields the user didn't ask to change. Matches Story 1.2's precedent that prompt-level LLM guidance is acceptable and only schema-level issues are code-enforced via the repair loop.
+
+## Deferred from: code review of story-1.4 (2026-07-27)
+
+- **No `--quiet` coverage in `tests/unit/test_cli_create.py`** (alone or combined with a failing validation result) — valid coverage gap, but not one of Story 1.4 Task 2's explicitly enumerated scenarios.
+- **No coverage of the `create` command's override flags** (`--output`/`-o`, `--framework`, `--state-backend`, `--planner-model`, `--no-planner`) in the new CLI tests — real gap, out of Task 2's explicit scope.
+- **No negative test for a config file that fails to *parse* as YAML** (distinct from a schema-invalid-but-parseable file) — a different code path (`load_yaml`'s exception handler, `team_maker/cli.py:105-109`) than the schema-invalid test Task 2 asked for.
+- **All four `test_cli_create.py` tests share a payload with non-empty `desired_roles`**, so the LLM-planner code path is never exercised by that file; a future edit to the shared `_valid_payload` helper that drops `desired_roles` could accidentally route a test through a real LLM call. Speculative future-hardening, not a current defect.
+- **No test for a clean build (exit 0) with warnings but zero issues** (e.g. the "No tasks were generated" warning on its own) in `test_cli_create.py` — valid coverage idea, not one of Task 2's explicitly enumerated scenarios.
