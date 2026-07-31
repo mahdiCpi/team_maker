@@ -15,11 +15,14 @@ class ProviderRouting:
     provider: str
     model: str
     api_key_env: Optional[str] = None
+    base_url: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {"provider": self.provider, "model": self.model}
         if self.api_key_env:
             d["api_key_env"] = self.api_key_env
+        if self.base_url:
+            d["base_url"] = self.base_url
         return d
 
 

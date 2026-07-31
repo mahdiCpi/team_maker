@@ -2,6 +2,7 @@
 
 Usage:
     python -m team_maker create --config path/to/request.yaml
+    python -m team_maker run --package path/to/team "the goal"
     python -m team_maker list-templates
 """
 from __future__ import annotations
@@ -24,6 +25,8 @@ from team_maker.composer.composer import Composer, ComposerError
 from team_maker.composer.session import ComposerSession
 from team_maker.keyconfig import KeyConfig
 from team_maker.pipeline.runner import PipelineRunner
+from team_maker.runtime.executor import UnsupportedFrameworkError, run_team_package
+from team_maker.runtime.loader import TeamPackageError
 from team_maker.schema.request import ProviderConfig, TeamCreationRequest
 from team_maker.utils.yaml_utils import dump_yaml, load_yaml
 
@@ -347,6 +350,68 @@ def compose(
 
 
 # ---------------------------------------------------------------------------
+# run
+# ---------------------------------------------------------------------------
+
+
+@main.command()
+@click.option(
+    "--package",
+    "-p",
+    "package",
+    required=True,
+    # No exists=True: a missing/malformed package is handled uniformly by our
+    # own TeamPackageError below (exit 1), not Click's usage-error path
+    # (which would exit 2 before our error handling ever ran).
+    type=click.Path(path_type=Path),
+    help="Path to an already-built Team Package directory.",
+)
+@click.argument("goal")
+@click.option(
+    "--key-file",
+    "-f",
+    "key_file",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the Key Config file (default: $TEAM_MAKER_KEYS or ./team_maker.keys).",
+)
+@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress progress output.")
+def run(package: Path, goal: str, key_file: Optional[Path], quiet: bool) -> None:
+    """Run a built Team Package against a goal and print the results."""
+    from rich.markup import escape
+
+    key_config = KeyConfig.from_file(key_file)
+
+    if not quiet:
+        console.print(
+            Panel(
+                f"[bold cyan]{escape(str(package))}[/bold cyan]\n{escape(goal[:120])}",
+                title="[bold]team_maker[/bold] · Running team",
+                expand=False,
+            )
+        )
+
+    try:
+        result = run_team_package(package, goal, key_config)
+    except (TeamPackageError, UnsupportedFrameworkError) as exc:
+        err_console.print(f"[bold]Cannot run this package:[/bold] {escape(str(exc))}")
+        sys.exit(1)
+    except ImportError as exc:
+        err_console.print(
+            "[bold]CrewAI is required to run a team.[/bold] Install it with: "
+            + escape("pip install 'team_maker[runtime]'")
+            + f" ({escape(str(exc))})"
+        )
+        sys.exit(1)
+    except Exception as exc:
+        err_console.print(f"[bold]Run failed:[/bold] {escape(str(exc))}")
+        sys.exit(1)
+
+    if not quiet:
+        _print_run_result(result)
+
+
+# ---------------------------------------------------------------------------
 # list-templates
 # ---------------------------------------------------------------------------
 
@@ -472,3 +537,27 @@ def _print_result(result) -> None:  # type: ignore[no-untyped-def]
                 dirs[parent] = tree.add(f"[bold]{parent}/[/bold]")
             dirs[parent].add(parts[-1])
     console.print(tree)
+
+
+def _print_run_result(result) -> None:  # type: ignore[no-untyped-def]
+    from rich.markup import escape
+
+    console.print(
+        Panel(
+            escape(result.final_output),
+            title="[bold green]Final result[/bold green]",
+            expand=False,
+        )
+    )
+    if result.task_results:
+        table = Table(title="Per-task results", show_lines=True)
+        table.add_column("Task", style="cyan", no_wrap=True)
+        table.add_column("Agent", style="magenta", no_wrap=True)
+        table.add_column("Output")
+        for task_result in result.task_results:
+            table.add_row(
+                escape(task_result.name),
+                escape(task_result.agent_role),
+                escape(task_result.output),
+            )
+        console.print(table)
