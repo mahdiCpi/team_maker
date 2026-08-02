@@ -44,7 +44,16 @@ class UnresolvedProvider:
     reason: str = ""
 
 
-class DuplicateAgentRoleError(Exception):
+class InvalidPackageError(Exception):
+    """The package's own data is internally inconsistent, keys aside.
+
+    Distinct from ``MissingCredentialsError``: no key would fix these. The
+    Factory cannot produce them (``schema/request.py`` validates the request);
+    a hand-edited or third-party package can.
+    """
+
+
+class DuplicateAgentRoleError(InvalidPackageError):
     """Two agents in one package claim the same role.
 
     Role is the key for both the credential map and the engine's agent map, so
@@ -53,6 +62,14 @@ class DuplicateAgentRoleError(Exception):
     agent B's credential" failure, so it is refused rather than resolved. The
     Factory cannot produce this (``schema/request.py`` enforces role uniqueness);
     a hand-edited or third-party package can.
+    """
+
+
+class InvalidTaskNamesError(InvalidPackageError):
+    """A task has no name, or two tasks share one.
+
+    Task name is the join key between `TaskResult`, the transcript, and the
+    engine's own task map, so neither case can be resolved silently.
     """
 
 
@@ -80,10 +97,11 @@ def check_credentials(
     """Resolve every agent's credential, or refuse the run.
 
     Returns a ``{role: ResolvedCredential}`` map covering every agent. Raises
-    ``MissingCredentialsError`` if any agent cannot be resolved, or
-    ``DuplicateAgentRoleError`` if two agents share a role.
+    ``MissingCredentialsError`` if any agent cannot be resolved, or an
+    ``InvalidPackageError`` subclass if the package's own data is inconsistent.
     """
     _reject_duplicate_roles(team)
+    _reject_invalid_task_names(team)
 
     resolved: dict[str, ResolvedCredential] = {}
     failed_roles: dict[str, list[str]] = {}
@@ -119,6 +137,40 @@ def _reject_duplicate_roles(team: GeneratedTeam) -> None:
             + ", ".join(duplicates)
             + ". Role must be unique within a package: it keys each agent's "
             "credential, so duplicates would run one agent on another's key."
+        )
+
+
+def _reject_invalid_task_names(team: GeneratedTeam) -> None:
+    """Task name is a join key, so it must be present and unique.
+
+    It identifies a task in `TaskResult`, in every transcript entry, and in the
+    crewai `Task` the engine builds. An empty name makes crewai fall back to the
+    task *description*, so the transcript and `task_results` stop agreeing;
+    duplicates collapse the engine's `crewai_tasks_by_name` map, silently
+    breaking `context=` wiring for anything that depends on them. Same reasoning
+    as the duplicate-role check above.
+    """
+    blank = [task.agent_role for task in team.tasks if not (task.name or "").strip()]
+    if blank:
+        raise InvalidTaskNamesError(
+            "Cannot start this run - "
+            f"{len(blank)} task(s) have no name (owned by: {', '.join(blank)}). "
+            "Task name identifies a task in the results and the transcript, so "
+            "it cannot be blank."
+        )
+
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for task in team.tasks:
+        if task.name in seen and task.name not in duplicates:
+            duplicates.append(task.name)
+        seen.add(task.name)
+    if duplicates:
+        raise InvalidTaskNamesError(
+            "Cannot start this run - these task names are declared more than "
+            "once: " + ", ".join(duplicates) + ". Task name must be unique "
+            "within a package: it keys the run's results and transcript, and "
+            "duplicates would collapse dependent tasks onto one another."
         )
 
 

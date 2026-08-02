@@ -27,7 +27,7 @@ from team_maker.keyconfig import KeyConfig
 from team_maker.pipeline.runner import PipelineRunner
 from team_maker.runtime.executor import UnsupportedFrameworkError, run_team_package
 from team_maker.runtime.loader import TeamPackageError
-from team_maker.runtime.preflight import DuplicateAgentRoleError, MissingCredentialsError
+from team_maker.runtime.preflight import InvalidPackageError, MissingCredentialsError
 from team_maker.schema.request import ProviderConfig, TeamCreationRequest
 from team_maker.utils.yaml_utils import dump_yaml, load_yaml
 
@@ -390,7 +390,26 @@ def _is_crewai_missing(exc: ImportError) -> bool:
     help="Path to the Key Config file (default: $TEAM_MAKER_KEYS or ./team_maker.keys).",
 )
 @click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress progress output.")
-def run(package: Path, goal: str, key_file: Optional[Path], quiet: bool) -> None:
+@click.option(
+    "--transcript",
+    "-t",
+    is_flag=True,
+    default=False,
+    help="Also print the full agent transcript (every message, handoff, and delegation).",
+)
+@click.option(
+    "--transcript-out",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Write the full agent transcript to this file.",
+)
+def run(
+    package: Path,
+    goal: str,
+    key_file: Optional[Path],
+    quiet: bool,
+    transcript: bool,
+    transcript_out: Optional[Path],
+) -> None:
     """Run a built Team Package against a goal and print the results."""
     from rich.markup import escape
 
@@ -410,7 +429,9 @@ def run(package: Path, goal: str, key_file: Optional[Path], quiet: bool) -> None
     except (TeamPackageError, UnsupportedFrameworkError) as exc:
         err_console.print(f"[bold]Cannot run this package:[/bold] {escape(str(exc))}")
         sys.exit(1)
-    except DuplicateAgentRoleError as exc:
+    except InvalidPackageError as exc:
+        # Duplicate agent roles, blank or duplicated task names: the package
+        # contradicts itself and no key would fix it.
         err_console.print(f"[bold]Invalid package:[/bold] {escape(str(exc))}", soft_wrap=True)
         sys.exit(1)
     except MissingCredentialsError as exc:
@@ -454,6 +475,34 @@ def run(package: Path, goal: str, key_file: Optional[Path], quiet: bool) -> None
 
     if not quiet:
         _print_run_result(result)
+        if transcript:
+            _print_transcript(result)
+
+    # Written even under --quiet: the file is a deliverable the user explicitly
+    # asked for, matching how `compose` still writes its spec when quiet.
+    if transcript_out is not None:
+        if not result.transcript:
+            # Never claim success for a zero-byte file — the console path says
+            # the same thing, and a silently empty deliverable is worse than
+            # none at all.
+            err_console.print(
+                "[bold]No transcript was captured for this run,[/bold] so nothing "
+                f"was written to {escape(str(transcript_out))}."
+            )
+            sys.exit(1)
+        try:
+            transcript_out.parent.mkdir(parents=True, exist_ok=True)
+            transcript_out.write_text(_format_transcript(result), encoding="utf-8")
+        # ValueError covers UnicodeEncodeError: raw model output can contain
+        # lone surrogates, which encode() rejects — and that is a far likelier
+        # failure here than a disk error.
+        except (OSError, ValueError) as exc:
+            err_console.print(
+                f"[bold]Could not write the transcript:[/bold] {escape(str(exc))}"
+            )
+            sys.exit(1)
+        if not quiet:
+            console.print(f"[dim]Transcript written to {escape(str(transcript_out))}[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -606,3 +655,34 @@ def _print_run_result(result) -> None:  # type: ignore[no-untyped-def]
                 escape(task_result.output),
             )
         console.print(table)
+
+
+def _format_transcript(result) -> str:  # type: ignore[no-untyped-def]
+    """Render the transcript as plain text, for the console or a file.
+
+    One line per entry so the output stays greppable and diffable, and so the
+    written file is the same thing the user saw on screen.
+    """
+    lines: list[str] = []
+    # `or []` rather than assuming a list: RunResult is a plain dataclass with
+    # no validation, and any ExecutionEngine implementation may hand back None.
+    for entry in result.transcript or []:
+        target = f" -> {entry.target_role}" if entry.target_role else ""
+        header = f"[{entry.sequence}] {entry.task_name} / {entry.agent_role}{target} ({entry.kind})"
+        lines.append(header)
+        content = (entry.content or "").strip()
+        if content:
+            lines.extend(f"    {line}" for line in content.splitlines())
+    return "\n".join(lines)
+
+
+def _print_transcript(result) -> None:  # type: ignore[no-untyped-def]
+    from rich.markup import escape
+
+    if not result.transcript:
+        console.print("[dim]No transcript was captured for this run.[/dim]")
+        return
+    console.print("\n[bold]Run transcript[/bold]")
+    # escape(): entry content is raw LLM text and will contain brackets.
+    # soft_wrap: the text is pre-indented, and re-wrapping destroys the layout.
+    console.print(escape(_format_transcript(result)), soft_wrap=True)

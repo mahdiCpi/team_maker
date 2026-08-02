@@ -31,4 +31,11 @@ class ExecutionEngine(ABC):
         credentials for agents it is not running, and has no key material to
         fall back on if a lookup fails. Every role in *team* is guaranteed
         present in *credentials*.
+
+        The returned ``RunResult`` carries an ordered ``transcript`` alongside
+        the final and per-task outputs (Story 1.7, FR-27). Capture is
+        unconditional — whether to surface it is the caller's decision, so an
+        engine must not take a flag for it. Per AD-13 the transcript is the
+        accumulated sequence of the units a v2 streaming engine would emit one
+        at a time, which is why this signature does not change to add streaming.
         """

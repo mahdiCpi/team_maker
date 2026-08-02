@@ -18,6 +18,8 @@ from team_maker.domain.models import AgentSpec, GeneratedTeam
 from team_maker.keyconfig import KeyConfig
 from team_maker.runtime.preflight import (
     DuplicateAgentRoleError,
+    InvalidPackageError,
+    InvalidTaskNamesError,
     MissingCredentialsError,
     check_credentials,
 )
@@ -254,3 +256,33 @@ def test_unresolved_provider_is_hashable():
         check_credentials(team, KeyConfig(keys={}))
 
     assert len(set(exc_info.value.unresolved)) == 1
+
+
+def test_a_task_with_no_name_is_refused():
+    """Task name is the join key between TaskResult, the transcript, and the
+    engine's task map. Blank makes crewai fall back to the description, so the
+    two halves of the result stop agreeing."""
+    team = generated_team(
+        [agent_spec("architect", api_key_env=None)],
+        [task_spec("", "architect")],
+    )
+
+    with pytest.raises(InvalidTaskNamesError, match="no name"):
+        check_credentials(team, KeyConfig(keys={"anthropic": SecretStr("sk-ant")}))
+
+
+def test_duplicate_task_names_are_refused():
+    """Duplicates collapse the engine's crewai_tasks_by_name map, silently
+    breaking `context=` wiring for anything that depends on them."""
+    team = generated_team(
+        [agent_spec("architect", api_key_env=None)],
+        [task_spec("design", "architect"), task_spec("design", "architect")],
+    )
+
+    with pytest.raises(InvalidTaskNamesError, match="design"):
+        check_credentials(team, KeyConfig(keys={"anthropic": SecretStr("sk-ant")}))
+
+
+def test_invalid_package_errors_share_one_base_so_the_cli_can_catch_them_together():
+    assert issubclass(DuplicateAgentRoleError, InvalidPackageError)
+    assert issubclass(InvalidTaskNamesError, InvalidPackageError)

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from crewai import LLM, Agent, Crew, Process, Task
 
+from team_maker.adapters.runtime_crewai.transcript_capture import TranscriptRecorder
 from team_maker.domain.models import AgentSpec, GeneratedTeam, ResolvedCredential
 from team_maker.ports.execution_engine import ExecutionEngine
 from team_maker.runtime.ordering import topological_sort
@@ -50,6 +51,13 @@ class CrewAIExecutionEngine(ExecutionEngine):
                 if dep in crewai_tasks_by_name
             ]
             crewai_task = Task(
+                # `name` matters beyond cosmetics: crewai stamps it onto the
+                # run events the transcript is built from, and without it crewai
+                # falls back to the description. The transcript would then
+                # attribute entries to "Design it." while `task_results` calls
+                # the same task "design", leaving a consumer unable to line the
+                # two up (Story 1.7).
+                name=task_spec.name,
                 description=task_spec.description,
                 expected_output=task_spec.expected_output,
                 agent=agents_by_role[task_spec.agent_role],
@@ -59,7 +67,18 @@ class CrewAIExecutionEngine(ExecutionEngine):
             crewai_tasks.append(crewai_task)
 
         crew = self._build_crew(team, agents_by_role, crewai_tasks)
-        output = crew.kickoff(inputs={"goal": goal})
+
+        # Capture is unconditional and the recorder is local to this call — never
+        # on `self`, which is stateless by design and reused across runs. The
+        # context manager guarantees handlers come off the process-global event
+        # bus even if kickoff raises (Story 1.7).
+        # Declared owners, so a task-boundary entry is attributed to the role
+        # that owns the task rather than to the manager crewai rebinds onto it
+        # in a hierarchical crew — which would contradict `task_results`.
+        task_owners = {spec.name: spec.agent_role for spec in ordered_tasks}
+        with TranscriptRecorder(task_owners) as recorder:
+            output = crew.kickoff(inputs={"goal": goal})
+        transcript = recorder.entries()
 
         if len(output.tasks_output) != len(ordered_tasks):
             raise RuntimeError(
@@ -75,7 +94,11 @@ class CrewAIExecutionEngine(ExecutionEngine):
             )
             for task_spec, task_output in zip(ordered_tasks, output.tasks_output)
         ]
-        return RunResult(final_output=str(output.raw), task_results=task_results)
+        return RunResult(
+            final_output=str(output.raw),
+            task_results=task_results,
+            transcript=transcript,
+        )
 
     @staticmethod
     def _build_crew(

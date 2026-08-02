@@ -48,26 +48,17 @@ fallback the engine simply cannot construct them.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from typing import Optional
 
 import pytest
 
 pytest.importorskip("crewai")
 
-import httpx  # noqa: E402
-from crewai import LLM  # noqa: E402
-from crewai.llms.base_llm import BaseLLM  # noqa: E402
 from pydantic import SecretStr  # noqa: E402
 
 from team_maker.keyconfig import KeyConfig  # noqa: E402
 from team_maker.pipeline.runner import PipelineRunner  # noqa: E402
 from team_maker.runtime.executor import run_team_package  # noqa: E402
-from team_maker.runtime.loader import load_team_package  # noqa: E402
-from team_maker.runtime.preflight import (  # noqa: E402
-    MissingCredentialsError,
-    check_credentials,
-)
+from team_maker.runtime.preflight import MissingCredentialsError  # noqa: E402
 from team_maker.schema.request import (  # noqa: E402
     ProviderConfig,
     RoleDefinition,
@@ -75,98 +66,17 @@ from team_maker.schema.request import (  # noqa: E402
     TeamCreationRequest,
 )
 
+# Interception harness lives in tests/support/crewai_interception.py so the
+# transcript conformance test (Story 1.7) reuses this proven implementation
+# rather than reinventing it. Assertions below are unchanged.
+from tests.support.crewai_interception import LLMCall  # noqa: E402
+from tests.support.crewai_interception import block_all_network as _block_all_network
+from tests.support.crewai_interception import install_call_recorder as _install_call_recorder
+from tests.support.crewai_interception import warm_up_models as _warm_up_models
+
 _ANTHROPIC_SECRET = "sk-ant-conformance"
 _OPENAI_SECRET = "sk-oai-conformance"
 _OPENROUTER_SECRET = "sk-or-conformance"
-
-
-@dataclass(frozen=True)
-class LLMCall:
-    """One intercepted LLM invocation, attributed to the agent that made it."""
-
-    role: Optional[str]
-    provider: str
-    model: str
-    api_key: Optional[str]
-    base_url: Optional[str]
-
-
-# ---------------------------------------------------------------------------
-# Interception
-# ---------------------------------------------------------------------------
-
-
-def _all_subclasses(cls: type) -> list[type]:
-    found: list[type] = []
-    for sub in cls.__subclasses__():
-        found.append(sub)
-        found.extend(_all_subclasses(sub))
-    return found
-
-
-def _install_call_recorder(
-    monkeypatch: pytest.MonkeyPatch, warm_up_models: list[str]
-) -> list[LLMCall]:
-    """Patch every LLM implementation's `call` and record who called with what."""
-    calls: list[LLMCall] = []
-
-    def _record(
-        self,
-        messages,
-        tools=None,
-        callbacks=None,
-        available_functions=None,
-        from_task=None,
-        from_agent=None,
-        response_model=None,
-    ):
-        calls.append(
-            LLMCall(
-                role=getattr(from_agent, "role", None),
-                provider=getattr(self, "provider", None),
-                model=getattr(self, "model", None),
-                api_key=getattr(self, "api_key", None),
-                base_url=getattr(self, "base_url", None),
-            )
-        )
-        return "Final Answer: done"
-
-    # Force each provider module to import so its class exists to be patched.
-    for model in warm_up_models:
-        LLM(model=model, api_key="warm-up-not-a-real-key")
-
-    patched = [cls for cls in [BaseLLM, *_all_subclasses(BaseLLM)] if "call" in cls.__dict__]
-    assert patched, "found no BaseLLM implementation to patch — crewai internals changed"
-    for cls in patched:
-        monkeypatch.setattr(cls, "call", _record)
-
-    return calls
-
-
-class _NetworkEscaped(BaseException):
-    """Raised when a real HTTP request escapes interception.
-
-    Deliberately a `BaseException` and not an `Exception`: agent frameworks wrap
-    provider calls in `except Exception` for retry/fallback, which would swallow
-    this guard and turn a hard conformance failure into a soft retry loop. Only
-    a BaseException is uncatchable by that application code.
-    """
-
-
-def _block_all_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Belt-and-braces: an unpatched provider must fail loudly, not phone home."""
-
-    def _blocked(self, request, *args, **kwargs):
-        raise _NetworkEscaped(
-            f"conformance test attempted a real network call to {request.url} — "
-            "an LLM implementation escaped interception"
-        )
-
-    monkeypatch.setattr(httpx.Client, "send", _blocked)
-    monkeypatch.setattr(httpx.AsyncClient, "send", _blocked)
-    # crewai's telemetry is opt-out; leaving it on would trip the guard above.
-    monkeypatch.setenv("CREWAI_TELEMETRY_OPT_OUT", "true")
-    monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
 
 
 # ---------------------------------------------------------------------------
@@ -234,27 +144,6 @@ def _mixed_provider_package(tmp_path, *, third_provider: str = "ollama"):
         ],
     )
     return PipelineRunner().run(request).output_path
-
-
-def _warm_up_models(package_path, key_config) -> list[str]:
-    """Derive the warm-up list from the run's *own* resolved credentials.
-
-    Emphatically not a hardcoded literal. Every model string the run will use
-    has to have had its provider module imported before the `BaseLLM` subclass
-    walk, or that provider's `call` is never patched and its request escapes to
-    the network. Deriving the list from `check_credentials` — the same call the
-    real run makes — means a provider added to the fixture is covered
-    automatically, instead of silently escaping until someone notices.
-
-    Returns `[]` when the gate refuses the run: nothing will execute, so there
-    is nothing to warm up.
-    """
-    team = load_team_package(package_path)
-    try:
-        credentials = check_credentials(team, key_config)
-    except MissingCredentialsError:
-        return []
-    return [credential.model for credential in credentials.values()]
 
 
 def _run_with_recorder(monkeypatch, package_path, key_config):
