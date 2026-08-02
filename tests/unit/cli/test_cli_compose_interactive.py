@@ -7,7 +7,7 @@ from click.testing import CliRunner
 
 import team_maker.cli as cli_module
 from team_maker.cli import main
-from tests.unit.test_cli_compose import _FakeProvider, _isolate_keys, _valid_payload
+from tests.unit.cli.test_cli_compose import _FakeProvider, _isolate_keys, _valid_payload
 
 
 def test_interactive_run_now_builds_after_a_refinement(tmp_path, monkeypatch):

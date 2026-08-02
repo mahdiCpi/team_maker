@@ -9,8 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from team_maker.domain.models import GeneratedTeam
-from team_maker.keyconfig import KeyConfig
+from team_maker.domain.models import GeneratedTeam, ResolvedCredential
 from team_maker.runtime.results import RunResult
 
 
@@ -18,5 +17,18 @@ class ExecutionEngine(ABC):
     """Executes a ``GeneratedTeam`` against a goal and returns a ``RunResult``."""
 
     @abstractmethod
-    def run(self, team: GeneratedTeam, key_config: KeyConfig, goal: str) -> RunResult:
-        """Run *team* toward *goal*, resolving credentials from *key_config*."""
+    def run(
+        self,
+        team: GeneratedTeam,
+        credentials: dict[str, ResolvedCredential],
+        goal: str,
+    ) -> RunResult:
+        """Run *team* toward *goal* using the pre-resolved per-agent credentials.
+
+        Engines receive a ``{role: ResolvedCredential}`` map, never the
+        ``KeyConfig`` (Story 1.6, AD-7). Resolution happens once, before the run
+        is admitted, so an engine cannot re-resolve differently, cannot reach
+        credentials for agents it is not running, and has no key material to
+        fall back on if a lookup fails. Every role in *team* is guaranteed
+        present in *credentials*.
+        """

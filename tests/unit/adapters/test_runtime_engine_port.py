@@ -114,35 +114,48 @@ def _has_module_level_crewai_import(path: Path) -> bool:
     return False
 
 
+def _team_maker_root() -> Path:
+    """Locate the package from the import system, not from this file's depth —
+    so moving this test between directories can never silently narrow it to an
+    empty sweep that passes for the wrong reason."""
+    import team_maker
+
+    return Path(team_maker.__file__).resolve().parent
+
+
 def test_no_module_level_crewai_import_in_team_maker():
     """crewai may be imported at module scope in exactly one place:
     team_maker/adapters/runtime_crewai/ (Story 1.5's execution adapter,
     matching how team_maker/adapters/providers/anthropic_provider.py is the
     one legitimate place that imports the anthropic SDK). Everywhere else in
-    team_maker/ — including the new team_maker/runtime/ package and
+    team_maker/ — including the team_maker/runtime/ package and
     team_maker/ports/execution_engine.py — must stay crewai-free."""
-    root = Path(__file__).resolve().parents[2] / "team_maker"
+    root = _team_maker_root()
     exempt_dir = root / "adapters" / "runtime_crewai"
-    offenders = [
-        str(path)
-        for path in root.rglob("*.py")
-        if not path.is_relative_to(exempt_dir) and _has_module_level_crewai_import(path)
-    ]
+    scanned = [path for path in root.rglob("*.py") if not path.is_relative_to(exempt_dir)]
+    assert scanned, "sweep found no modules to scan — the package root is wrong"
+    offenders = [str(path) for path in scanned if _has_module_level_crewai_import(path)]
     assert offenders == []
 
 
 def test_runtime_and_execution_port_modules_stay_crewai_free():
     """Documents the intended boundary explicitly, rather than relying on it
     being incidentally true via the broader sweep above: the Runtime's own
-    orchestration modules depend only on the ExecutionEngine port, never on
-    crewai directly."""
-    root = Path(__file__).resolve().parents[2] / "team_maker"
+    orchestration modules — and Story 1.6's credential layer, whose whole
+    purpose is to be engine-independent — depend only on the ExecutionEngine
+    port, never on crewai directly."""
+    root = _team_maker_root()
     must_stay_clean = [
         root / "runtime" / "executor.py",
         root / "runtime" / "loader.py",
         root / "runtime" / "ordering.py",
         root / "runtime" / "results.py",
+        root / "runtime" / "preflight.py",
+        root / "adapters" / "providers" / "resolution.py",
+        root / "adapters" / "providers" / "registry.py",
         root / "ports" / "execution_engine.py",
     ]
+    missing = [str(path) for path in must_stay_clean if not path.exists()]
+    assert missing == [], f"named modules no longer exist: {missing}"
     offenders = [str(path) for path in must_stay_clean if _has_module_level_crewai_import(path)]
     assert offenders == []

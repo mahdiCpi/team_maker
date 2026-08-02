@@ -27,6 +27,7 @@ from team_maker.keyconfig import KeyConfig
 from team_maker.pipeline.runner import PipelineRunner
 from team_maker.runtime.executor import UnsupportedFrameworkError, run_team_package
 from team_maker.runtime.loader import TeamPackageError
+from team_maker.runtime.preflight import DuplicateAgentRoleError, MissingCredentialsError
 from team_maker.schema.request import ProviderConfig, TeamCreationRequest
 from team_maker.utils.yaml_utils import dump_yaml, load_yaml
 
@@ -354,6 +355,19 @@ def compose(
 # ---------------------------------------------------------------------------
 
 
+def _is_crewai_missing(exc: ImportError) -> bool:
+    """True only when crewai itself is absent, not when a provider module is.
+
+    `import crewai` failing and `LLM(model="groq/...")` failing both raise
+    ImportError, but they need opposite advice: install the runtime extra, or
+    stop routing to a provider this engine cannot reach.
+    """
+    name = getattr(exc, "name", None) or ""
+    if name == "crewai" or name.startswith("crewai."):
+        return True
+    return "crewai" in str(exc).lower() and "no module named" in str(exc).lower()
+
+
 @main.command()
 @click.option(
     "--package",
@@ -396,12 +410,43 @@ def run(package: Path, goal: str, key_file: Optional[Path], quiet: bool) -> None
     except (TeamPackageError, UnsupportedFrameworkError) as exc:
         err_console.print(f"[bold]Cannot run this package:[/bold] {escape(str(exc))}")
         sys.exit(1)
-    except ImportError as exc:
+    except DuplicateAgentRoleError as exc:
+        err_console.print(f"[bold]Invalid package:[/bold] {escape(str(exc))}", soft_wrap=True)
+        sys.exit(1)
+    except MissingCredentialsError as exc:
+        # A configuration problem, not a broken package — kept as its own
+        # category so the message tells the user what to actually do, and
+        # echoing the resolved Key Config path makes "add the key" actionable.
+        # soft_wrap: the message is a pre-rendered hanging-indent list, and
+        # letting Rich re-wrap it at the console width destroys the alignment.
         err_console.print(
-            "[bold]CrewAI is required to run a team.[/bold] Install it with: "
-            + escape("pip install 'team_maker[runtime]'")
-            + f" ({escape(str(exc))})"
+            f"[bold]Missing credentials:[/bold] {escape(str(exc))}", soft_wrap=True
         )
+        # Any warning from loading the Key Config is very likely the explanation
+        # (a typo'd key name is silently ignored at load time), so surface it
+        # here rather than leaving the user staring at a file that looks right.
+        for warning in key_config.load_warnings:
+            err_console.print(f"[yellow]Note:[/yellow] {escape(str(warning))}")
+        resolved = key_file or KeyConfig.default_path()
+        err_console.print(f"[dim]Key Config: {escape(str(resolved))}[/dim]")
+        sys.exit(1)
+    except ImportError as exc:
+        # Only a genuinely absent crewai gets the install hint. Provider modules
+        # raise ImportError too (crewai has no native groq/xai, and google needs
+        # an extra), and telling that user to install a package they already
+        # have sends them down the wrong path entirely.
+        if _is_crewai_missing(exc):
+            err_console.print(
+                "[bold]CrewAI is required to run a team.[/bold] Install it with: "
+                + escape("pip install 'team_maker[runtime]'")
+                + f" ({escape(str(exc))})"
+            )
+        else:
+            err_console.print(
+                "[bold]This provider is not available in the installed runtime:[/bold] "
+                + escape(str(exc)),
+                soft_wrap=True,
+            )
         sys.exit(1)
     except Exception as exc:
         err_console.print(f"[bold]Run failed:[/bold] {escape(str(exc))}")

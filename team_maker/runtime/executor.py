@@ -16,6 +16,7 @@ from typing import Optional
 from team_maker.keyconfig import KeyConfig
 from team_maker.ports.execution_engine import ExecutionEngine
 from team_maker.runtime.loader import load_team_package
+from team_maker.runtime.preflight import check_credentials
 from team_maker.runtime.results import RunResult
 
 _SUPPORTED_FRAMEWORK = "crewai"
@@ -39,6 +40,12 @@ def run_team_package(
             f"'{team.primary_framework}')."
         )
 
+    # AD-9: resolve every agent's credential before any work begins. Raises
+    # MissingCredentialsError naming every unusable provider. Doing it here —
+    # rather than inside an engine — means every caller (CLI today, API in
+    # Epic 4) inherits fail-fast, and no engine can re-resolve differently.
+    credentials = check_credentials(team, key_config)
+
     if engine is None:
         from team_maker.adapters.runtime_crewai.crewai_execution_engine import (
             CrewAIExecutionEngine,
@@ -46,4 +53,4 @@ def run_team_package(
 
         engine = CrewAIExecutionEngine()
 
-    return engine.run(team, key_config, goal)
+    return engine.run(team, credentials, goal)
