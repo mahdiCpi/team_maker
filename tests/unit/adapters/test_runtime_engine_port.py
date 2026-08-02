@@ -4,7 +4,9 @@ Verifies the ports-and-adapters move: the RuntimeEngine ABC lives under team_mak
 each concrete engine subclasses it, get_runtime_engine's dict lookup preserves the exact
 crewai fallback behavior of the old get_adapter, the dependency-pin lists are single-sourced
 from the engines (locking the dedup so it can't silently drift from what requirements.txt
-ships), and crewai is never imported at module scope anywhere in team_maker/ (AD-6 guard).
+ships), and crewai is never imported at module scope anywhere in team_maker/ (AD-6 guard) —
+**except** team_maker/adapters/runtime_crewai/, a single, deliberate exception carved out by
+Story 1.5's in-process execution adapter (see that story's Dev Notes for why).
 """
 from __future__ import annotations
 
@@ -98,18 +100,62 @@ def test_render_requirements_plumbs_adapter_extra_requirements_through(framework
         assert requirement in rendered
 
 
+def _has_module_level_crewai_import(path: Path) -> bool:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in tree.body:
+        if isinstance(node, ast.Import) and any(
+            a.name == "crewai" or a.name.startswith("crewai.") for a in node.names
+        ):
+            return True
+        if isinstance(node, ast.ImportFrom) and node.module and (
+            node.module == "crewai" or node.module.startswith("crewai.")
+        ):
+            return True
+    return False
+
+
+def _team_maker_root() -> Path:
+    """Locate the package from the import system, not from this file's depth —
+    so moving this test between directories can never silently narrow it to an
+    empty sweep that passes for the wrong reason."""
+    import team_maker
+
+    return Path(team_maker.__file__).resolve().parent
+
+
 def test_no_module_level_crewai_import_in_team_maker():
-    root = Path(__file__).resolve().parents[2] / "team_maker"
-    offenders: list[str] = []
-    for path in root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in tree.body:
-            if isinstance(node, ast.Import) and any(
-                a.name == "crewai" or a.name.startswith("crewai.") for a in node.names
-            ):
-                offenders.append(str(path))
-            if isinstance(node, ast.ImportFrom) and node.module and (
-                node.module == "crewai" or node.module.startswith("crewai.")
-            ):
-                offenders.append(str(path))
+    """crewai may be imported at module scope in exactly one place:
+    team_maker/adapters/runtime_crewai/ (Story 1.5's execution adapter,
+    matching how team_maker/adapters/providers/anthropic_provider.py is the
+    one legitimate place that imports the anthropic SDK). Everywhere else in
+    team_maker/ — including the team_maker/runtime/ package and
+    team_maker/ports/execution_engine.py — must stay crewai-free."""
+    root = _team_maker_root()
+    exempt_dir = root / "adapters" / "runtime_crewai"
+    scanned = [path for path in root.rglob("*.py") if not path.is_relative_to(exempt_dir)]
+    assert scanned, "sweep found no modules to scan — the package root is wrong"
+    offenders = [str(path) for path in scanned if _has_module_level_crewai_import(path)]
+    assert offenders == []
+
+
+def test_runtime_and_execution_port_modules_stay_crewai_free():
+    """Documents the intended boundary explicitly, rather than relying on it
+    being incidentally true via the broader sweep above: the Runtime's own
+    orchestration modules — and Story 1.6's credential layer, whose whole
+    purpose is to be engine-independent — depend only on the ExecutionEngine
+    port, never on crewai directly."""
+    root = _team_maker_root()
+    must_stay_clean = [
+        root / "runtime" / "executor.py",
+        root / "runtime" / "loader.py",
+        root / "runtime" / "ordering.py",
+        root / "runtime" / "results.py",
+        root / "runtime" / "preflight.py",
+        root / "adapters" / "providers" / "resolution.py",
+        root / "adapters" / "providers" / "registry.py",
+        root / "ports" / "execution_engine.py",
+    ]
+    missing = [str(path) for path in must_stay_clean if not path.exists()]
+    assert missing == [], f"named modules no longer exist: {missing}"
+    offenders = [str(path) for path in must_stay_clean if _has_module_level_crewai_import(path)]
     assert offenders == []

@@ -15,12 +15,44 @@ class ProviderRouting:
     provider: str
     model: str
     api_key_env: Optional[str] = None
+    base_url: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {"provider": self.provider, "model": self.model}
         if self.api_key_env:
             d["api_key_env"] = self.api_key_env
+        if self.base_url:
+            d["base_url"] = self.base_url
         return d
+
+
+@dataclass(frozen=True)
+class ResolvedCredential:
+    """A fully-resolved, engine-agnostic answer to "how does this agent talk to
+    its model" (Story 1.6, AD-7).
+
+    Lives in `domain/` rather than beside the resolver in `adapters/providers/`
+    because it is the type the `ExecutionEngine` port speaks: putting it in the
+    adapter layer would make `ports/` import `adapters/`, inverting the boundary
+    the port exists to enforce. It is a dependency-free plain dataclass, which
+    is exactly what `domain/` is for.
+
+    ``model`` is already in the provider-qualified form the runtime engine
+    expects (``<provider>/<model>``, or ``openrouter/<vendor>/<model>`` when the
+    call is going through the gateway).
+
+    ``api_key`` is excluded from ``repr`` on purpose: this object holds a real
+    secret unwrapped from ``KeyConfig``'s ``SecretStr``, and a map of these
+    crosses a public port boundary. Without ``repr=False`` any pytest assertion
+    dump, Rich traceback with locals, or ``logger.debug("%r", ...)`` would print
+    every agent's key — the exact thing AD-9 forbids. Deliberately no
+    ``to_dict()``: a credential must never be casually serialized.
+    """
+
+    model: str
+    api_key: Optional[str] = field(repr=False)
+    base_url: Optional[str]
+    via_openrouter: bool
 
 
 @dataclass

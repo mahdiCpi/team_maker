@@ -1,0 +1,128 @@
+"""Unit tests for the Runtime's single public entry point (Story 1.5 AC 1/2/6,
+Story 1.6 AC 1/9).
+
+Fully offline — uses a fake ExecutionEngine, no CrewAI needed for these tests.
+
+Story 1.6 changed the `ExecutionEngine` port: engines now receive a resolved
+`{role: ResolvedCredential}` map instead of the raw `KeyConfig`. The entry point
+resolves credentials once, up front, and refuses the run if any agent cannot be
+satisfied — so an engine can neither re-resolve differently nor see key material
+for agents it isn't running (AD-7).
+"""
+from __future__ import annotations
+
+import pytest
+from pydantic import SecretStr
+
+from team_maker.keyconfig import KeyConfig
+from team_maker.pipeline.runner import PipelineRunner
+from team_maker.ports.execution_engine import ExecutionEngine
+from team_maker.runtime.executor import UnsupportedFrameworkError, run_team_package
+from team_maker.runtime.preflight import MissingCredentialsError
+from team_maker.runtime.results import RunResult
+from team_maker.schema.request import RoleDefinition, TeamCreationRequest
+
+# The default routing for a request that names no models (project-context:
+# role.llm -> request.default_llm -> anthropic/claude-sonnet-4-6).
+_DEFAULT_KEYS = KeyConfig(keys={"anthropic": SecretStr("sk-ant-test")})
+
+
+class _FakeEngine(ExecutionEngine):
+    def __init__(self):
+        self.calls = []
+
+    def run(self, team, credentials, goal):
+        self.calls.append((team, credentials, goal))
+        return RunResult(final_output="fake result", task_results=[])
+
+
+def test_run_team_package_loads_and_delegates_to_the_engine(minimal_request):
+    build = PipelineRunner().run(minimal_request)
+    engine = _FakeEngine()
+
+    result = run_team_package(build.output_path, "ship it", _DEFAULT_KEYS, engine=engine)
+
+    assert result.final_output == "fake result"
+    assert len(engine.calls) == 1
+    called_team, called_credentials, called_goal = engine.calls[0]
+    assert called_team.team_name == minimal_request.team_name
+    assert called_goal == "ship it"
+    # The engine receives resolved credentials, not the KeyConfig.
+    assert set(called_credentials) == {agent.role for agent in called_team.agents}
+    assert all(c.api_key == "sk-ant-test" for c in called_credentials.values())
+
+
+def test_run_team_package_rejects_non_crewai_framework(tmp_path):
+    request = TeamCreationRequest(
+        team_name="LangGraph Team",
+        purpose="A team targeting a non-crewai framework for this test.",
+        output_path=str(tmp_path / "lg_team"),
+        framework="langgraph",
+        desired_roles=[
+            RoleDefinition(
+                name="architect",
+                description="Designs system architecture and makes technical decisions.",
+            )
+        ],
+    )
+    build = PipelineRunner().run(request)
+    engine = _FakeEngine()
+
+    with pytest.raises(UnsupportedFrameworkError, match="crewai"):
+        run_team_package(build.output_path, "ship it", _DEFAULT_KEYS, engine=engine)
+
+    assert engine.calls == []
+
+
+def test_run_team_package_defaults_to_the_crewai_execution_engine(minimal_request, monkeypatch):
+    """When no engine is passed, run_team_package must default to
+    CrewAIExecutionEngine — patch the class at its *source* module (where the
+    lazy import in executor.py reads it from), not on executor.py itself
+    (which has no such module-level attribute, by design)."""
+    build = PipelineRunner().run(minimal_request)
+    fake = _FakeEngine()
+    monkeypatch.setattr(
+        "team_maker.adapters.runtime_crewai.crewai_execution_engine.CrewAIExecutionEngine",
+        lambda: fake,
+    )
+
+    result = run_team_package(build.output_path, "ship it", _DEFAULT_KEYS)
+
+    assert result.final_output == "fake result"
+    assert len(fake.calls) == 1
+
+
+def test_missing_credentials_abort_before_the_engine_is_ever_called(minimal_request):
+    """Story 1.6 AC 1: fail fast means *before work begins* — not merely before
+    the first LLM call. The engine must never be entered."""
+    build = PipelineRunner().run(minimal_request)
+    engine = _FakeEngine()
+
+    with pytest.raises(MissingCredentialsError) as exc_info:
+        run_team_package(build.output_path, "ship it", KeyConfig(keys={}), engine=engine)
+
+    assert engine.calls == []
+    assert "anthropic" in str(exc_info.value)
+    assert "ANTHROPIC_API_KEY" in str(exc_info.value)
+
+
+def test_framework_check_runs_before_the_credential_gate(tmp_path):
+    """A non-crewai package is unrunnable regardless of keys; reporting the
+    framework problem is more useful than a missing-key message the user would
+    fix pointlessly."""
+    request = TeamCreationRequest(
+        team_name="LangGraph Team",
+        purpose="A team targeting a non-crewai framework for this test.",
+        output_path=str(tmp_path / "lg_team2"),
+        framework="langgraph",
+        desired_roles=[
+            RoleDefinition(
+                name="architect",
+                description="Designs system architecture and makes technical decisions.",
+            )
+        ],
+    )
+    build = PipelineRunner().run(request)
+
+    with pytest.raises(UnsupportedFrameworkError):
+        run_team_package(build.output_path, "ship it", KeyConfig(keys={}))

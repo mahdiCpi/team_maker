@@ -37,6 +37,8 @@ _Runtime_
 - FR-9: Agents collaborate / hand off per the task DAG.
 - FR-10: Resolve credentials before running (fail fast on missing keys).
 - FR-11: Return final + per-task results (batch in v1).
+- FR-27: Expose the full run transcript — every agent's messages, handoffs, and delegations in
+  order — not just the final answer.
 
 _Keys & Providers_
 - FR-12: Keys only in a separate Key Config file (never in UI, never logged).
@@ -61,6 +63,7 @@ _Team Workspace_
 - FR-24: Attach documents to a run (transient context).
 - FR-25: Save a team and its results.
 - FR-26: Recent-teams list (find/reuse built teams).
+- FR-28: Name/rename a saved team; delete a team and its saved results.
 
 ### NonFunctional Requirements
 
@@ -102,11 +105,12 @@ _(from Architecture spine)_
 
 - FR-1, FR-2, FR-4 → Epic 1 (Composer core)
 - FR-5, FR-6, FR-7 → Epic 1 (Factory reuse + multi-provider)
-- FR-8, FR-9, FR-10, FR-11 → Epic 1 (Runtime)
+- FR-8, FR-9, FR-10, FR-11, FR-27 → Epic 1 (Runtime; FR-27 surfaced in Epic 2 and Epic 4)
 - FR-12, FR-13, FR-21, FR-22 → Epic 1 (keys, key-aware resolution, OpenRouter)
 - FR-20 → Epic 1 (conversational core) / surfaced in Epic 2
 - FR-3, FR-14, FR-15 → Epic 2 (UI: optional review, end-to-end flow, plain-language errors)
-- FR-23, FR-24, FR-25, FR-26 → Epic 2 (Team Workspace: chat, docs, save, recent teams)
+- FR-23, FR-24, FR-25, FR-26, FR-28 → Epic 2 (Team Workspace: chat, docs, save, recent teams,
+  team naming + deletion)
 - FR-19 → Epic 3 (starter teams)
 - FR-16, FR-17, FR-18 → Epic 4 (developer API + embed)
 
@@ -126,14 +130,15 @@ The walking skeleton, usable from the CLI: a user goes from plain-language inten
 team's result. Composer (conversational, validate-and-repair, per-agent routing) → Factory
 (reuse) → Runtime (CrewAI behind a port). Includes key-aware resolution, Key Config, OpenRouter,
 and the required multi-provider conformance test — the biggest technical risk, retired first.
-**FRs covered:** FR-1, FR-2, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-20, FR-21, FR-22
+**FRs covered:** FR-1, FR-2, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-20, FR-21, FR-22, FR-27
 
 ### Epic 2: The app — minimal UI & Team Workspace
 A friendly cross-platform app over the core: sidebar IA, conversational Composer with a "run now"
 escape and optional review/edit, the Team Workspace (chat with the team, document loader, task
-list, results), save + recent-teams, plain-language key-check states, and Settings. Realizes the
-UX spines (shadcn + Coinpela brand, teal tokens, light/dark).
-**FRs covered:** FR-3, FR-14, FR-15, FR-23, FR-24, FR-25, FR-26  · **UX-DR1–9**
+list, results incl. the full agent transcript), named teams with save/rename/delete + recent-teams,
+plain-language key-check states, and Settings. Realizes the UX spines (shadcn + Coinpela brand,
+teal tokens, light/dark).
+**FRs covered:** FR-3, FR-14, FR-15, FR-23, FR-24, FR-25, FR-26, FR-27 (surfaced), FR-28  · **UX-DR1–9**
 
 ### Epic 3: Start fast — starter teams
 Ship runnable starter teams (baseline education + research/content); browse and run one
@@ -274,6 +279,22 @@ and a conformance test asserts each agent hit its intended provider
 **And** if a required provider key is missing the run fails fast at start, naming the provider
 and how to fix it. (FR-6, FR-10, FR-21, FR-22, AD-7)
 
+### Story 1.7: Capture and return the full agent run transcript
+As a user, I want to see everything the agents said and handed off to each other,
+so that I can follow and trust how the result was produced instead of only seeing the final answer.
+**Acceptance Criteria:**
+**Given** a team run (Story 1.5)
+**When** it completes
+**Then** the RuntimeEngine port returns an ordered transcript alongside the existing final +
+per-task results — each entry attributed to a task and an agent, including inter-agent handoffs
+and delegations — and the CLI can show or write it on request
+**And** the default CLI output is unchanged (transcript is opt-in), the transcript rides the same
+batch-behind-a-streamable-interface seam so per-turn streaming can be added later without a
+contract change, and no key or secret ever appears in it. (FR-27, FR-11, AD-6, AD-13, NFR3)
+_Extends, not replaces:_ Story 1.5 shipped `final + per-task outputs`; this widens that result
+object rather than introducing a second run path. Surfaced in the UI by Story 2.4 and over the API
+by Story 4.2.
+
 ## Epic 2: The app — minimal UI & Team Workspace
 
 A friendly cross-platform app over the core, realizing the UX spines.
@@ -317,17 +338,27 @@ so that I can give it goals, add context, and read outputs together.
 **When** I chat a goal, optionally drag in a document, and run
 **Then** attached documents are used as transient context for that run (not persisted), the task
 list shows progress (accent pulse on the active task), and results appear with per-task outputs
-expandable. (FR-23, FR-24, FR-14, UX-DR6)
+expandable
+**And** I can open the full agent transcript for that run (Story 1.7) — every agent message and
+handoff in order, attributed to agent and task — not just the final result. (FR-23, FR-24, FR-14,
+FR-27, UX-DR6)
 
-### Story 2.5: Save team + results and recent-teams list
-As a user, I want to keep teams and results and find them later,
-so that I can reuse a team without recomposing.
+### Story 2.5: Named teams — save, browse, rename, delete
+As a user, I want teams to have names I choose and to be able to remove ones I no longer want,
+so that My Teams stays meaningful and under my control instead of an append-only pile.
 **Acceptance Criteria:**
 **Given** a completed run
 **When** I'm prompted to save
 **Then** declining persists nothing beyond the recent-teams entry, and accepting stores the team
-and that run's results locally (SQLite + files)
-**And** My Teams lists built teams so I can reopen a Workspace or re-run. (FR-25, FR-26, AD-11)
+under a human-readable team name — proposed by the Composer, editable at save time, unique within
+My Teams — together with that run's results locally (SQLite + files)
+**And** My Teams lists built teams by name so I can reopen a Workspace, re-run, or rename a team
+**And** I can delete a team: an explicit confirm that names what goes with it (the team and its
+saved runs/results), after which it disappears from My Teams and recent teams. (FR-25, FR-26,
+FR-28, AD-11)
+_Already partly present:_ `TeamCreationRequest.team_name` (`team_maker/schema/request.py`) is
+already a required, validated, unique-per-team name — this story surfaces and edits it rather than
+introducing it. Rename and delete are the new capabilities.
 
 ### Story 2.6: Settings — keys and providers
 As a user, I want a place to understand my key setup,
@@ -384,7 +415,9 @@ so that I can trigger teams from my own software.
 **Acceptance Criteria:**
 **Given** a valid team reference
 **When** I POST a goal to the run endpoint
-**Then** I get final + per-task outputs (batch), or a fast-fail naming a missing provider key. (FR-17, FR-10)
+**Then** I get final + per-task outputs (batch) — with the full run transcript (Story 1.7)
+available on request rather than always inlined — or a fast-fail naming a missing provider key.
+(FR-17, FR-10, FR-27)
 
 ### Story 4.3: Embed a team in third-party software (CLI + docs)
 As a developer, I want the endpoints and CLI to be sufficient to embed a team,

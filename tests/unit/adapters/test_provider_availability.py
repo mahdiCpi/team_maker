@@ -7,6 +7,7 @@ from team_maker.adapters.providers.registry import (
     STATUS_AVAILABLE,
     STATUS_KEYLESS_LOCAL,
     STATUS_MISSING,
+    STATUS_UNSUPPORTED_BY_RUNTIME,
     STATUS_VIA_OPENROUTER,
     is_usable,
     report_availability,
@@ -62,22 +63,58 @@ def test_report_contains_no_secret_values():
 
 
 def test_is_usable_only_missing_blocks():
-    """Decision 2a: available / keyless-local / via-openrouter are runnable; missing is not."""
+    """available / keyless-local / via-openrouter are runnable; missing is not,
+    and neither is a provider the installed engine cannot construct."""
     assert is_usable(STATUS_AVAILABLE) is True
     assert is_usable(STATUS_KEYLESS_LOCAL) is True
     assert is_usable(STATUS_VIA_OPENROUTER) is True
     assert is_usable(STATUS_MISSING) is False
+    assert is_usable(STATUS_UNSUPPORTED_BY_RUNTIME) is False
 
 
 def test_google_api_key_alone_no_longer_recognized(tmp_path):
     """Story 0.4: the catalog's google entry was fixed from GOOGLE_API_KEY (wrong) to
-    GOOGLE_AI_API_KEY (matches the real adapter default) — locks in that the old name
-    no longer marks google as available, and the new name does."""
+    GOOGLE_AI_API_KEY (matches the real adapter default).
+
+    Story 1.6 code review narrowed what "recognized" means: the correct key name
+    is now *recognized* but still not directly runnable, because the installed
+    CrewAI needs the `crewai[google-genai]` extra to call Google natively. The
+    wrong name is still simply missing — the distinction the original test was
+    written to lock in survives, it just has three states now instead of two.
+    """
     path = tmp_path / "team_maker.keys"
     path.write_text("GOOGLE_API_KEY=old-wrong-name\n", encoding="utf-8")
     cfg = KeyConfig.from_file(path, include_env=False)
-    assert _status_map(cfg)["google"] == STATUS_MISSING
+    assert _status_map(cfg)["google"] == STATUS_UNSUPPORTED_BY_RUNTIME
 
     path.write_text("GOOGLE_AI_API_KEY=correct-name\n", encoding="utf-8")
     cfg = KeyConfig.from_file(path, include_env=False)
-    assert _status_map(cfg)["google"] == STATUS_AVAILABLE
+    assert _status_map(cfg)["google"] == STATUS_UNSUPPORTED_BY_RUNTIME
+
+    # ...and with an OpenRouter key it becomes genuinely runnable via the gateway.
+    path.write_text(
+        "GOOGLE_AI_API_KEY=correct-name\nOPENROUTER_API_KEY=sk-or\n", encoding="utf-8"
+    )
+    cfg = KeyConfig.from_file(path, include_env=False)
+    assert _status_map(cfg)["google"] == STATUS_VIA_OPENROUTER
+
+
+def test_a_provider_the_engine_cannot_construct_is_not_reported_runnable(tmp_path):
+    """The gate must not admit a provider that would die at LLM construction.
+
+    crewai 1.14.6 has no native groq/xai provider and litellm is not installed,
+    so a valid key for either is not enough — and groq, being an inference host
+    rather than a model vendor, has no OpenRouter namespace to fall back to.
+    """
+    path = tmp_path / "team_maker.keys"
+    path.write_text(
+        "GROQ_API_KEY=sk-groq\nXAI_API_KEY=sk-xai\nOPENROUTER_API_KEY=sk-or\n",
+        encoding="utf-8",
+    )
+    cfg = KeyConfig.from_file(path, include_env=False)
+    statuses = _status_map(cfg)
+
+    assert statuses["groq"] == STATUS_UNSUPPORTED_BY_RUNTIME
+    assert statuses["xai"] == STATUS_UNSUPPORTED_BY_RUNTIME
+    assert is_usable(statuses["groq"]) is False
+    assert is_usable(statuses["xai"]) is False
