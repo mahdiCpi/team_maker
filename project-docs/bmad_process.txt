@@ -1,0 +1,19 @@
+Good question — let me separate two things: what BMAD work has actually happened, and something important I just noticed while checking git history.
+
+We do after Architecture 
+1. bmad-create-story
+2. bmad-dev-story
+3.bmad-code-review/story-automator-review
+
+BMAD work used so far:
+None of it happened in this conversation — I haven't invoked any bmad-* skill this session. But your git history shows BMAD was used in earlier sessions to get Epic 0 this far:
+
+bmad-create-story drafted Stories 0.1 and 0.2 (docs(story): create Story 0.1/0.2) — and, per their Change Log sections, also originally drafted 0.3/0.4/0.5 (the "Story drafted via create-story context engine" notes), though those three sat as uncommitted files until I committed them today.
+Some dev-story/review flow (BMAD's bmad-dev-story + bmad-code-review/story-automator-review) implemented and reviewed Story 0.1 (feat(story-0.1) → docs(story-0.1): record APPROVE) and Story 0.2 (feat(story-0.2) → docs(story-0.2): record APPROVE).
+Everything I've done today has been through the Archon CLI (archon-piv-loop), which is a separate tool from BMAD.
+
+Important — while checking this I found something you need to know: there's already a pushed branch archon/task-archon-plan-to-pr-1784394925723 (remote: origin/archon/task-archon-plan-to-pr-1784394925723) with two commits dated 2026-07-18 13:30–13:42 that also implement Story 0.3 — but via a different Archon workflow (archon-plan-to-pr, not piv-loop) and in a way that contradicts the story's explicit ACs:
+
+Bumps the CrewAI pin to ==1.14.6 and adds crewai as a real optional dependency in pyproject.toml — Story 0.3 AC 5 explicitly says not to do this (deferred to Story 1.6)
+Keeps frameworks/crewai_adapter.py as a back-compat shim — the story says no shim is needed
+Only moves CrewAI (not LangGraph/AutoGen), into adapters/runtime_crewai/ using a Protocol, not the ABC the story specifies

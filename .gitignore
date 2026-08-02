@@ -18,3 +18,6 @@ to_run/
 # Key Config — never commit API keys (AD-9)
 team_maker.keys
 *.keys
+
+# Local agent tooling
+.claude/
