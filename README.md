@@ -268,6 +268,22 @@ for that.
 
 ---
 
+## Web app
+
+Story 2.1 adds a standalone Next.js UI at [web/](web/) — no backend yet, so it's static empty
+states and navigation only. Requires Node ≥20.9.
+
+```bash
+make web-install   # npm --prefix web ci
+make web-dev       # npm --prefix web run dev
+make web-test      # npm --prefix web test
+make web-lint      # npm --prefix web run lint
+```
+
+The Python CLI above is unaffected — `web/` is additive and does not touch `team_maker/` or `tests/`.
+
+---
+
 ## Request YAML schema
 
 Most fields are optional; `compose` fills them in for you.

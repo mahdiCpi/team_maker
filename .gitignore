@@ -21,3 +21,11 @@ team_maker.keys
 
 # Local agent tooling
 .claude/
+
+# Web app (Story 2.1) — node/Next.js artifacts
+node_modules/
+web/.next/
+web/out/
+web/coverage/
+*.tsbuildinfo
+.turbo/

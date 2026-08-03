@@ -1,4 +1,4 @@
-.PHONY: install install-dev test test-unit test-integration lint fmt clean example
+.PHONY: install install-dev test test-unit test-integration lint fmt clean example web-install web-dev web-build web-test web-lint
 
 install:
 	pip install -e .
@@ -35,3 +35,19 @@ example:
 # Show all available templates
 list-templates:
 	python -m team_maker list-templates
+
+# Web app (Story 2.1) — standalone Next.js UI in web/, no backend yet
+web-install:
+	npm --prefix web ci
+
+web-dev:
+	npm --prefix web run dev
+
+web-build:
+	npm --prefix web run build
+
+web-test:
+	npm --prefix web test
+
+web-lint:
+	npm --prefix web run lint
