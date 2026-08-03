@@ -133,7 +133,8 @@ and the required multi-provider conformance test — the biggest technical risk,
 **FRs covered:** FR-1, FR-2, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-20, FR-21, FR-22, FR-27
 
 ### Epic 2: The app — minimal UI & Team Workspace
-A friendly cross-platform app over the core: sidebar IA, conversational Composer with a "run now"
+A friendly cross-platform app over the core: the **API seam AD-4 requires** (Story 2.0, an enabler
+that unblocks 2.2–2.6), sidebar IA, conversational Composer with a "run now"
 escape and optional review/edit, the Team Workspace (chat with the team, document loader, task
 list, results incl. the full agent transcript), named teams with save/rename/delete + recent-teams,
 plain-language key-check states, and Settings. Realizes the UX spines (shadcn + Coinpela brand,
@@ -299,6 +300,43 @@ by Story 4.2.
 
 A friendly cross-platform app over the core, realizing the UX spines.
 
+### Story 2.0: The API seam — FastAPI app and compose endpoints
+As the team building Epic 2, I want the FastAPI layer AD-4 requires with the compose endpoints,
+so that every Epic 2 surface has a legal path to the core instead of inventing one.
+**Acceptance Criteria:**
+**Given** AD-4 admits no exception to "the UI reaches the system only through the API", and no
+`api/` layer exists
+**When** this story lands
+**Then** a FastAPI app exists at repo-root `api/` per the Structural Seed, exposing the compose
+session/refine/edit/build endpoints with a single error envelope, an in-process session registry
+with a turn cap, and no key value ever crossing to the browser
+**And** it ships no UI, and `web/` reaches it through a Next `rewrites` proxy. (AD-3, AD-4, AD-9, AD-10)
+
+> **Enabler, numbered 2.0 deliberately.** No story in this plan created the FastAPI application:
+> the architecture spine assumes `api/` throughout, its Structural Seed scopes it to
+> "compose/create, run, teams, settings", the Capability Map assigns Epic 2's FR-23–FR-26 to it,
+> and Epic 4's Story 4.1 opens *"Given the API is running"* — presupposing it. Story 2.1 deferred
+> the decision explicitly ("Epic 2 does not create one until it needs it"). This story is that
+> moment. Numbered `2.0` rather than renumbering 2.2–2.7 because 45 cross-references to those
+> numbers exist across six files, four of them already-accepted stories. Follows the Epic 0
+> precedent for work that must land before features.
+
+#### Ownership of the `api/` surface
+
+The Structural Seed (`ARCHITECTURE-SPINE.md:192`) scopes `api/` to four capability groups. Story
+2.0 creates the application and the first group; the rest belong to the story that first needs
+them, so no part of `api/` is orphaned again:
+
+| `api/` group | Owned by | Notes |
+|---|---|---|
+| **the app itself** (`main.py`, `deps.py`, error envelope, dev topology) | **Story 2.0** | created once; every later story extends it |
+| **compose/create** | **Story 2.0** | session start/refine/edit/build |
+| **key status** (read-only) | **Story 2.3** | first consumer; AD-9 forbids a browser-side read |
+| **run** | **Story 2.4** | the Workspace runs a built team (FR-23–FR-26 → `api/` per the Capability Map) |
+| **teams** (save / browse / rename / delete / recent) | **Story 2.5** | storage-backed, AD-11 |
+| **settings** (provider + Key Config *status*, never values) | **Story 2.6** | AD-9: status only, never a key value |
+| **the public, versioned contract** (FR-16–FR-18) | **Epic 4** | 4.1/4.2 wrap the same app object; 2.0's routes are an internal precursor they may rename |
+
 ### Story 2.1: App shell, sidebar nav, and theming
 As a semi-technical user, I want a clean app with clear navigation,
 so that I can use team_maker without the CLI.
@@ -330,6 +368,10 @@ so that I know exactly what to fix.
 a missing required key blocks the run with a fix hint
 **And** validation/run errors render as human-readable messages, never raw stack traces. (FR-15, UX-DR5)
 
+
+> **Owns the `api/` key-status read.** AD-9 forbids the browser touching keys, so the four
+> states come from a read-only endpoint this story adds to the app Story 2.0 created. Status only —
+> never a key value. Story 2.0 leaves the seam and deliberately fakes nothing.
 ### Story 2.4: Team Workspace — chat, documents, run, results
 As a user, I want to use a built team in one place,
 so that I can give it goals, add context, and read outputs together.
@@ -343,6 +385,12 @@ expandable
 handoff in order, attributed to agent and task — not just the final result. (FR-23, FR-24, FR-14,
 FR-27, UX-DR6)
 
+
+> **Owns the `api/` run group.** The Capability Map assigns FR-23–FR-26 to `api/`; this story adds
+> the run and document endpoints to the app Story 2.0 created. AD-13 keeps results batch behind a
+> streamable interface. Note `deferred-work.md` records that concurrent runs in one process corrupt
+> each other's transcripts — the crewai event bus is a process-global singleton — so a run endpoint
+> must serialise runs or scope capture per run.
 ### Story 2.5: Named teams — save, browse, rename, delete
 As a user, I want teams to have names I choose and to be able to remove ones I no longer want,
 so that My Teams stays meaningful and under my control instead of an append-only pile.
@@ -360,6 +408,10 @@ _Already partly present:_ `TeamCreationRequest.team_name` (`team_maker/schema/re
 already a required, validated, unique-per-team name — this story surfaces and edits it rather than
 introducing it. Rename and delete are the new capabilities.
 
+
+> **Owns the `api/` teams group.** Save / browse / rename / delete / recent, storage-backed per
+> AD-11 (SQLite + files, no external services). Also settles the "stable Team reference" question
+> PRD Open Q3 leaves open — Story 2.0's `session_id` is deliberately *not* that.
 ### Story 2.6: Settings — keys and providers
 As a user, I want a place to understand my key setup,
 so that I can configure providers safely.
@@ -369,6 +421,9 @@ so that I can configure providers safely.
 **Then** it shows the Key Config file path, per-provider key status, the OpenRouter option, and
 plain guidance on keeping keys safe — with no key-entry field in the UI. (UX-DR7, AD-9)
 
+
+> **Owns the `api/` settings group.** Provider and Key Config **status** only — AD-9 bans key entry
+> in the UI outright, so no endpoint here accepts a key value.
 ### Story 2.7: Accessibility floor
 As any user, I want the app to be keyboard- and screen-reader-usable,
 so that it's accessible.
