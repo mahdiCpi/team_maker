@@ -1,20 +1,22 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
-import { EmptyState } from "@/components/empty-state";
-import { Button } from "@/components/ui/button";
+import { ComposerSurface } from "@/components/composer/composer-surface";
 
 export const metadata: Metadata = {
   title: "New Team · team_maker",
 };
 
+/**
+ * The landing route, and the Composer (AC 1).
+ *
+ * Kept a **server component** so this `metadata` export stays valid; every piece
+ * of interactivity lives in `ComposerSurface`, which is `"use client"`.
+ *
+ * This replaces the placeholder Story 2.1 shipped. Its heading ("New Team") and
+ * its description ("Describe the team you need, or begin from a starter team.")
+ * appeared in no spine, and its primary action was a `New Team` button on the
+ * New Team page that linked to `/starter-teams`.
+ */
 export default function NewTeamPage() {
-  return (
-    <EmptyState
-      title="New Team"
-      description="Describe the team you need, or begin from a starter team."
-    >
-      <Button render={<Link href="/starter-teams" />}>New Team</Button>
-    </EmptyState>
-  );
+  return <ComposerSurface />;
 }
