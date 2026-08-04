@@ -4,7 +4,7 @@ baseline_commit: 725b475
 
 # Story 2.2: New Team — conversational Composer with optional review
 
-Status: review
+Status: done
 
 ## Story
 
@@ -108,6 +108,63 @@ For this story that means:
     - Story 2.1's Open Question 1 — light `--primary` at **4.12:1**, below AA's 4.5:1 for normal text — becomes **user-visible for the first time here**, on the primary `Run it now` / `Build team` labels. Do not change the token unilaterally; escalate.
     - `web/app/page.tsx:15,17` currently ships invented copy that appears in no spine; this story replaces that page wholesale.
   - [x] Add to `deferred-work.md`: whatever this story leaves open, and any contract friction found against Story 2.0's endpoints.
+
+### Review Findings
+
+Adversarial code review, 2026-08-03, on `story_2_2` @ `9da62c5`. Diff baseline `70a0a14` — **not** the frontmatter's `725b475`, which predates Story 2.0's merge and would have re-reviewed 45 files of already-reviewed `api/` code. Three independent layers: Blind Hunter (diff only, no context), Edge Case Hunter (diff + project read access), Acceptance Auditor (diff + spec + spines + 2.0 contract + CLAUDE.md). Every finding below was re-verified against the source before being recorded.
+
+**Caveat on this review's own weight:** it was run by the same model and session that wrote the code. The three layers were isolated subagents specifically to counter that, and they found substantive defects the author did not — but a pass from a genuinely different model would still be stronger evidence.
+
+**Cross-layer confirmations** (found independently by two or more layers, so highest confidence): the invisible save failure, the missing length bounds, the unguarded `Save`, the stale build panel, the autoscroll gap, the false "it will send" copy, and the stale `spec-editor` docstring.
+
+**Independently verified as correct:** all three suites green (18 files / 309 tests, lint clean, `tsc` clean, build clean); Python 525 + 7 skipped, unchanged; Guards A and B unmodified and the reserved token referenced zero times; no `web/app/api/`; `api/`, `tests/`, `team_maker/`, `scripts/`, `Makefile`, `pyproject.toml` and `web/package.json` all untouched; every verbatim string exact including the placeholder's ellipsis; none of the six do-not-borrow strings present; `output_path` never sent, asserted on serialised bodies; the chord test's both-halves assertion genuine; the leaked-internals falsification genuine.
+
+#### Decisions needed
+
+- [x] [Review][Decision] **RESOLVED 2026-08-04 (option c): keep `purpose` editable, make `team_name` display-only.** AC 4 names exactly three dimensions, and renaming is Story 2.5-s job; keeping the field would also show a renamed team beside an `output_path` slugged from the old name, because `api/output.py` pins the path from the first spec. `purpose` stays editable as a declared minor deviation — it is one of the four fields `PUT .../spec` accepts and carries no such side effect. Answers Open Question 5: **2.2 displays the team name and does not edit it.** → patch below.
+- [x] [Review][Decision] **RESOLVED 2026-08-04 (option b): declare the add/remove limitation and defer it.** Reason: adding roles/tasks is net-new authoring surface rather than the *editing* AC 4 asks for, and the conversation is the intended way to change the team-s shape — but it does mean the empty-roles guard Task 4 required stays unreachable from the UI, so the guard is unit-tested only. → deferred below and in `deferred-work.md`.
+- [x] [Review][Decision] **RESOLVED 2026-08-04 (option a): after a timeout, warn and block editing and building until a turn succeeds.** Chosen over forcing a restart (which throws away a transcript that is probably still valid) and over escalating a read route to Story 2.0 (which AC 9 puts outside this story). The client cannot know whether the server completed the turn, so it must stop asserting that its spec is current rather than silently building or reverting one. → patch below.
+- [x] [Review][Decision] **RESOLVED 2026-08-04 (option a): override the server copy for `output_exists` only.** The authored neutral sentence already exists in `FALLBACK_MESSAGE`; this makes it reachable for the one code whose server text instructs the user to do something the hard constraint (2.0 AC 13) forbids the UI from offering. Deliberately narrow — every other code still prefers the server-s message, and Story 2.3 still owns copy refinement generally. → patch below.
+
+#### Patches
+
+- [x] [Review][Patch] A save failing with anything other than `spec_invalid` renders its only message *behind* the modal — invisible, unfocusable, undismissable; the editor shows nothing and Save looks inert [web/components/composer/composer-surface.tsx:132]
+- [x] [Review][Patch] `draftIssues` bounds only `team_name` and role description — role name, task name, task description, purpose and model id are unchecked, and each produces the invisible `too_long` above [web/components/composer/spec-draft.ts:122]
+- [x] [Review][Patch] `Save` is the only control whose `onClick` ignores its own `aria-disabled`, so a double-click issues two concurrent PUTs; the later can re-write the session spec back to the pre-remount draft [web/components/composer/spec-editor.tsx:319]
+- [x] [Review][Patch] Closing the editor mid-save reopens it by itself, and the late `spec_replaced` resets `pending` from `"build"` to `null`, re-enabling both build controls while a build is still running [web/components/composer/composer-state.ts:171]
+- [x] [Review][Patch] Keystrokes entered while a save is in flight are destroyed by the `specRevision` remount, while the "Saved." notice implies everything on screen was stored [web/components/composer/spec-editor.tsx:69]
+- [x] [Review][Patch] `build` is never cleared by `turn_requested`/`turn_succeeded`/`spec_replaced`, so a stale build panel survives later turns and renders as the newest event — below the thinking skeleton during the next turn [web/components/composer/composer-state.ts:111]
+- [x] [Review][Patch] Autoscroll deps are `[entries.length, thinking]`; `children` is omitted, so the build panel never scrolls into view — and the comment claims it does "like any other entry" [web/components/composer/transcript.tsx:43]
+- [x] [Review][Patch] The send hint promises "Keep typing — it will send when that finishes." Nothing queues or replays it; the message sits unsent forever [web/components/composer/composer-surface.tsx:222]
+- [x] [Review][Patch] `fields[].message` is never leak-checked, yet `composer-failure.tsx`'s docstring states it is — and 2.0's own deferred-work records that `fields[].message` carries pydantic-derived text, so it is the one field that genuinely is not authored copy [web/lib/api-client.ts:102]
+- [x] [Review][Patch] `clearTimeout` runs in the `finally` of the *fetch* await, so the documented ceiling does not cover `response.json()`; a stalled body leaves `pending` set forever with no timeout and no recovery but a reload [web/lib/api-client.ts:151]
+- [x] [Review][Patch] `parseBuildResponse` coerces a non-array `model_substitutions` to `[]` — silently "no substitutions", the exact outcome its own comment forbids; the comment also contradicts itself between dropping and refusing [web/lib/api-types.ts:276]
+- [x] [Review][Patch] A build response with `validation` absent, `null`, or `passed: "true"` renders a red "Failed" badge with an empty issue list — a successful build reported as a failure with no reason [web/lib/api-types.ts:286]
+- [x] [Review][Patch] The IME test is vacuous: it sets `textarea.value` imperatively, so React's controlled `value` stays `""` and `empty` is true — the `isComposing` guard can be deleted with the suite green [web/tests/composer/keyboard.test.tsx:138]
+- [x] [Review][Patch] `serverIssues` cannot be cleared by the editor, so a 422's field reasons stay pinned to rows the user has already fixed, mixed with fresh client reasons [web/components/composer/spec-editor.tsx:78]
+- [x] [Review][Patch] `spec-editor.tsx`'s docstring asserts "a successful save closes it" — the reducer was deliberately changed to hold it open, and this is the comment a future reader would reason from [web/components/composer/spec-editor.tsx:41]
+- [x] [Review][Patch] `looksLikeLeakedInternals` claims to catch file paths but matches none, and pattern 4's `[A-Za-z_.]*` cannot span a digit, so `urllib3.exceptions.MaxRetryError:` passes; a single-line JS frame also passes [web/lib/api-client.ts:93]
+- [x] [Review][Patch] Building from inside the editor bypasses `onClose`, so `savedNotice` survives and a later unrelated open announces "Saved." with no save having occurred [web/components/composer/composer-surface.tsx:54]
+- [x] [Review][Patch] The follow-up question repeats identically on every turn — `describeProposal` has no memory, and the server never writes `llm` from a conversational reply, so "use what I have" is met with the same question indefinitely [web/components/composer/proposal.ts:113]
+- [x] [Review][Patch] After a successful build both build controls stay enabled although a second build must 409, and the doomed attempt wipes the success panel — the only place `output_path` was ever shown — leaving no recovery affordance [web/components/composer/composer-surface.tsx:195]
+- [x] [Review][Patch] `turns_remaining` is stored and never read: no warning before the cap, and post-cap sends still append a user bubble indistinguishable from a delivered message [web/components/composer/composer-state.ts:33]
+- [x] [Review][Patch] The `hintFor` branch meant to explain a blocked chord is unreachable, and `⌘/Ctrl+Enter` `preventDefault`s then no-ops before the first proposal with no stated reason [web/components/composer/composer-input.tsx:146]
+- [x] [Review][Patch] Completion Notes claim "17/17 checks"; the harness contains **16** `check()` calls, never prints a count, and the pasted block lists **14** PASS lines with one label paraphrased — the tail was reformatted, not pasted (Dev Notes rule 7) [web/tests/composer/e2e-live-check.mjs:1]
+- [x] [Review][Patch] `spec_invalid` is labelled `provenance: "synthesised"`, making five test names read `(synthesised)` while the Completion Notes and the file header both say four — its fixture is captured and is used as such elsewhere [web/tests/composer/error-paths.test.tsx:166]
+- [x] [Review][Patch] No `aria-describedby` links any `aria-disabled` control to its stated reason, so "the reason stays reachable" holds visually but not programmatically [web/components/composer/composer-actions.tsx:55]
+- [x] [Review][Patch] `route.test.tsx`'s do-not-borrow, key-state and 2.4/2.5 guards run only on the pre-conversation render, where none of those strings could appear anyway [web/tests/composer/route.test.tsx:75]
+- [x] [Review][Patch] Undeclared: `Run it now` is unreachable while the review dialog is open (Esc first), which sits awkwardly beside `EXPERIENCE.md:97`'s "always present" and the Conflicts table's "bypasses the toggle even when review is on" [web/components/composer/composer-surface.tsx:167]
+
+- [x] [Review][Patch] Decision 1c: make `team_name` display-only in the editor, keeping `purpose` editable (answers Open Question 5; avoids a renamed team shown beside a path slugged from the old name) [web/components/composer/spec-editor.tsx:130]
+- [x] [Review][Patch] Decision 3a: after a `timeout` on a turn, warn that the server may have completed it and block editing and building until a later turn succeeds, rather than building or reverting a spec the user never saw [web/components/composer/composer-surface.tsx:195]
+- [x] [Review][Patch] Decision 4a: render the authored neutral sentence for `output_exists` instead of the server's, which instructs the user to change a path the UI is forbidden to expose; every other code still prefers the server's message [web/lib/api-client.ts:102]
+
+#### Deferred
+
+- [x] [Review][Defer] A second build in any session can only ever return 409, because `output_path` is pinned from the first spec [api/output.py:61] — deferred, pre-existing (Story 2.0's surface; already logged as contract friction)
+- [x] [Review][Defer] The `g` chord fires from focus on any Composer button, unmounting the surface and destroying the transcript with no warning [web/components/nav-shortcuts.tsx:23] — deferred, pre-existing (AC 6 required only the textarea case; no unsaved-work guard exists anywhere in the app)
+- [x] [Review][Defer] Three test files exceed CLAUDE.md's ~400-line guideline: `api-client.test.ts` 450, `build.test.tsx` 412, `error-paths.test.tsx` 401 [web/tests/composer/api-client.test.ts:1] — deferred, pre-existing pattern (a 649-line file was split for this reason, so the rule was applied unevenly)
+- [x] [Review][Defer] The review editor cannot add or remove a role or a task, so the empty-roles guard Task 4 required is unreachable from the UI and unit-tested only [web/components/composer/spec-editor.tsx:145] — deferred by decision (2026-08-04, option b): adding roles/tasks is net-new authoring surface rather than the *editing* AC 4 asks for, and the conversation is the intended way to change the team's shape.
 
 ## Dev Notes
 
@@ -277,7 +334,7 @@ $ python -m pytest -q         → 525 passed, 7 skipped, 385 warnings in 79.77s
 Final:
 
 ```
-$ npm test          (web)     → Test Files  18 passed (18)  Tests  309 passed (309)
+$ npm test          (web)     → Test Files  19 passed (19)  Tests  339 passed (339)
 $ npm run lint      (web)     → (no output; 0 problems)
 $ npx tsc --noEmit  (web)     → (no output)
 $ npm run build     (web)     → ✓ Compiled successfully in 2.3s
@@ -287,7 +344,9 @@ $ python -m pytest -q         → 525 passed, 7 skipped, 385 warnings in 156.46s
 
 **AC 10's "393 Python tests (7 skipped)" figure is stale.** The suite is **525 passed, 7 skipped**, both before and after this story — byte-identical counts, and no file under `team_maker/`, `api/` or `tests/` was touched. The story file is not edited to correct the number (Story 1.4–2.1 precedent: record, do not rewrite the planning artifact).
 
-Net test change: **+162** web tests across **+9** files. Python: **±0**.
+Net test change: **+192** web tests across **+10** files (147 → 339, 9 → 19). Python: **±0**.
+
+The post-review figures above supersede the pre-review ones (18 files / 309 tests); the 30 added tests cover the paths the review found unguarded, chiefly the non-`spec_invalid` save failures, which had no coverage at all.
 
 Two guards were falsified before being trusted (Dev Notes rule 1):
 
@@ -314,24 +373,49 @@ The `/` route is now a multi-turn Composer. `web/app/page.tsx` stays a server co
 - `fetch` — queue-driven stub, `vi.stubGlobal`, in every component suite.
 - `next/navigation`'s `useRouter`/`usePathname` — `vi.mock`, per file (`vi.mock` is hoisted and cannot be shared from `harness.tsx`).
 - `window.matchMedia` — pre-existing global from `vitest.setup.ts`, backed by `window.innerWidth`. Not added by this story.
-- `Element.scrollIntoView` — **absent in jsdom, and relied upon being absent.** The transcript's autoscroll guards with a `typeof` check, which is why appending a message does not throw in tests.
-- `KeyboardEvent.isComposing` — hand-constructed in one IME test; `user-event` cannot model an IME candidate window.
+- `Element.scrollIntoView` — **absent in jsdom, and relied upon being absent.** The transcript's autoscroll guards with a `typeof` check, which is why appending a message does not throw in tests. One test now **installs** a `scrollIntoView` spy on `Element.prototype` and removes it afterwards, because that absence had made the autoscroll fix untestable: neutering it left the whole suite green.
+- `KeyboardEvent.isComposing` — hand-constructed in one IME test; `user-event` cannot model an IME candidate window. That test was **vacuous as first written** (it assigned `textarea.value` directly, leaving React's controlled `value` empty, so the send was refused for an unrelated reason); it now types through `user-event` first and includes the falsifying case.
 - Four error codes are **synthesised, not captured** — see below.
 
-**A real end-to-end run WAS performed**, against a live `api/` with a genuine `anthropic` key, and it passed 17/17 checks with zero console and zero page errors:
+**A real end-to-end run WAS performed**, against a live `api/` with a genuine `anthropic` key: real Chromium → real `next dev` proxy → real uvicorn → a real Anthropic authoring turn → a real build writing files.
+
+**Correction (2026-08-04, from the code review).** This section first claimed "**17/17 checks**". That figure was wrong twice over: the harness contained **16** `check()` calls, it printed no count at all, and the block pasted below it listed only **14** PASS lines with one label reworded. The tail had been reformatted while the surrounding prose asserted it was pasted — exactly the failure Dev Notes rule 7 exists to prevent. The harness now prints its own total so the number is measured rather than asserted, and it gained five checks covering the review's fixes.
+
+Below is the **verbatim, unedited tail** of the post-review run, copied as emitted:
 
 ```
-[e2e] PASS heading is "Describe your team."      [e2e] PASS the input is a real textarea
-[e2e] PASS a thinking indicator appears         [e2e] PASS the input is NOT disabled mid-turn
-[e2e] PASS typing during the turn is kept       [e2e] PASS two messages after one turn
-[e2e] PASS the reply asks exactly one question  [e2e] PASS Run it now is present from the first proposal
-[e2e] PASS the build result panel renders       [e2e] PASS output_path is text, not a link or an input
-[e2e] PASS we did not navigate away             [e2e] PASS the conversation is still usable
-[e2e] api calls observed — ["POST /api/compose/sessions -> 201",
-                            "POST /api/compose/sessions/6ILIsw0CjxQoLZlGY5PVIQ/build -> 200"]
-[e2e] PASS no uncaught page errors              [e2e] PASS no console errors
-[e2e] ALL CHECKS PASSED
+[e2e] PASS heading is "Describe your team."
+[e2e] PASS the input is a real textarea
+[e2e] PASS placeholder is the mockup's
+[e2e] submitting the first turn (real LLM call, may take a while)
+[e2e] PASS a thinking indicator appears
+[e2e] PASS the input is NOT disabled mid-turn
+[e2e] PASS typing during the turn is kept
+[e2e] first proposal received
+[e2e] PASS two messages after one turn
+[e2e] PASS the reply asks exactly one question
+[e2e] PASS Run it now is present from the first proposal
+[e2e] building (real generation + per-provider model calls)
+[e2e] PASS the build result panel renders on this surface
+[e2e] PASS output_path is shown
+[e2e] PASS output_path is text, not a link or an input
+[e2e] PASS we did not navigate away
+[e2e] PASS the conversation is still usable
+[e2e] PASS a second build is blocked rather than offered
+[e2e] PASS the block states why
+[e2e] PASS a restart control is offered instead of a dead end
+[e2e] PASS clicking the blocked control issues no request
+[e2e] PASS the success panel survives the click
+[e2e] api calls observed — ["POST /api/compose/sessions -> 201","POST /api/compose/sessions/12o_pg72KEC9zGX60SK3Eg/build -> 200"]
+[e2e] PASS no uncaught page errors
+[e2e] PASS no console errors
+[e2e] ALL CHECKS PASSED (21/21)
 ```
+
+Two harness defects were found and fixed while getting that run, both worth recording because each would have produced a misleading result:
+
+1. **The harness was not idempotent.** `output_path` is derived from the LLM-chosen team name and pinned per session, so a leftover directory from a *previous run of this same harness* made the build 409 — surfacing as a bare 240-second timeout with no stated cause. It now races the success panel against the failure alert and prints whatever the surface actually says.
+2. **`aria-disabled` is not `disabled` to Playwright either.** The new "second build is blocked" check hung on `.click()`, because Playwright's actionability wait treats `aria-disabled` as not-enabled. It now clicks with `force` — and the hang was itself evidence the attribute is real.
 
 `playwright` is **not** a project dependency (a new dependency needs approval, which was not sought) — it was installed into a throwaway directory outside the repo and the harness was run from there. The harness lives at `web/tests/composer/e2e-live-check.mjs`, **not** `scripts/`, because the story's Project Structure Notes list `scripts/` as untouched; `web/tests/` is already outside Guard A's `SCAN_ROOTS`, so this adds no newly unguarded directory. It is not collected by vitest (no `.test.` segment) and nothing runs it automatically — logged in `deferred-work.md`.
 
@@ -362,6 +446,14 @@ The same-origin topology was verified for real too: `curl http://localhost:3100/
 - **The team name is display/edit-only.** Confirming Open Question 5: nothing here proposes a name; it arrives in the spec and the editor lets you change it via `PUT .../spec`.
 - **`web/tests/shell/routes.test.tsx`'s `slice(0, 3)` was replaced with an explicit name filter.** That index silently meant "everything except Settings"; once `/` left the array the same slice would have started including Settings, whose `ThemeToggle` ships a deliberate `disabled` hydration placeholder — turning a real assertion into an unexplained failure.
 - **`composer-surface.test.tsx` was split** into `chat.test.tsx` (AC 1–2) and `build.test.tsx` (AC 3–5) with a shared `harness.tsx`, because it had reached 649 lines. Per CLAUDE.md, the crowded area was reorganised as part of this story.
+
+#### Declared at code review (2026-08-04)
+
+- **`Run it now` is unreachable while the review dialog is open.** The editor is a modal `Dialog` with a `fixed inset-0 z-50` backdrop, and the `⌘/Ctrl+Enter` handler lives on the composer textarea, which is behind it — so the bypass requires `Esc` first. The story permits a `Dialog`, so this is inherent to the permitted choice rather than a deviation from it, but it sits awkwardly beside `EXPERIENCE.md:97`'s "always present" and is declared rather than left implicit.
+- **`purpose` remains editable in the review editor**, alongside the three dimensions AC 4 names. It is one of the four fields `PUT .../spec` accepts and carries no side effect; `team_name` was made display-only precisely because it does (see the decisions above).
+- **The turn cap now blocks sending** with a stated reason once `turns_remaining` reaches zero, and a user message whose turn failed is marked **"Not delivered."** Neither was specified; both exist because a message that never reached the model was otherwise indistinguishable from one that did.
+- **A built conversation is terminal.** Because `output_path` is pinned per session, both build controls become unavailable after a success, with a stated reason and a `Start a new conversation` control. This is a UI consequence of a server-side constraint, not a choice about how building should feel.
+- **This review was run by the model that wrote the code.** The three layers were isolated subagents to counter that, and they found substantive defects the author had missed — but the status below reflects the workflow's completion criterion (all decisions resolved, all patches applied, no unresolved High/Medium), **not** an independent sign-off. A pass from a genuinely different model before merge would still be worth having.
 
 #### Scope stopped short, deliberately
 
@@ -449,3 +541,4 @@ Nothing under `team_maker/`, `api/`, `tests/`, `pyproject.toml`, `Makefile`, `we
 - 2026-08-02 — Story drafted via the create-story context engine on branch `story_2_1` @ `725b475`, with four parallel research agents and an independent validation pass.
 - 2026-08-03 — **Split.** The original draft carried both the API seam and the Composer UI, which made it the largest story in the epic and mixed two reviewable concerns. The API seam moved to **Story 2.0** (`2-0-api-seam-compose-endpoints.md`), numbered as an enabler rather than renumbering 2.3–2.7, because 45 cross-references to those numbers exist across 6 files, four of them already-accepted stories. This file is now frontend-only and **depends on 2.0**; its ACs renumbered 1–10 and its tasks 1–6. The API contract moved with 2.0 and is summarised here for convenience only. Retained from the original research: the Composer is a chat (the mock's one-shot box is its first turn); `Run it now` **bypasses** the review toggle while `Build team` honours it; auto-build must not fire on its own after a turn or the conversation ends at turn 1; a successful build reports **inline** because 2.4/2.5's destinations do not exist; the surface references `--signal` zero times so Story 2.1's Guard B stays green; the input must be a real textarea or a recognised `contenteditable` value or the `g` chord fires mid-sentence; and seven shadcn components need installing with the **pinned** CLI, not `@latest`.
 - 2026-08-03 — **Implemented** on branch `story_2_2`, cut from `epic_2` @ `70a0a14`. Frontend only: 12 new components under `web/components/composer/`, `web/lib/api-client.ts` + `api-types.ts` as the single API boundary, 7 vendored shadcn components from the pinned 4.16.1 CLI, and 10 test files under `web/tests/composer/` with 9 fixtures captured verbatim from a live server. Web tests **147 → 309** (9 → 18 files); Python **525 passed / 7 skipped, unchanged** (AC 10's "393" figure was already stale and is left uncorrected per precedent). Guard A and Guard B pass **unmodified** — and Guard B caught a comment of mine naming the reserved token, its first real catch. A **real end-to-end run** against a live `api/` with a genuine Anthropic key passed 17/17 checks with zero console errors. Two behavioural corrections were made during implementation because tests caught them: a successful spec save now **keeps the editor open** and re-renders from the response (closing it hid the server's re-serialisation and gave no confirmation at all), and `spec_invalid` reasons are no longer rendered twice. Chief declared addition: **the assistant's prose is authored in the browser**, because the API returns no assistant text — only a spec. Stopped short of `EXPERIENCE.md:186`'s My Teams/workspace destination, which does not exist until 2.4/2.5. Story 2.1's 4.12:1 primary-contrast question is now user-visible on `Run it now` / `Build team` and is **escalated, not decided**.
+- 2026-08-04 — **Code review applied.** Three independent review layers (Blind Hunter with diff only, Edge Case Hunter with project access, Acceptance Auditor with spec + spines + 2.0 contract) returned 4 decisions, 29 patches and 4 deferrals; every finding was re-verified against source before being recorded, and all 29 patches are now applied. Decisions settled `1c 2b 3a 4a`: `team_name` becomes display-only (answering Open Question 5, and avoiding a renamed team shown beside a path slugged from the old name, since `api/output.py` pins `output_path` from the first spec); add/remove of roles and tasks is declared and deferred; a timed-out turn now warns and blocks editing and building instead of silently building or reverting a spec the user never saw; and `output_exists` renders authored neutral copy instead of the server's instruction to "choose a different output path" — a remedy 2.0's AC 13 forbids this UI from offering. The three blocking defects were all in the review editor: a save failing with anything other than `spec_invalid` rendered its only message *underneath* the modal backdrop while the dialog showed nothing and `Save` looked inert; `draftIssues` bounded only two of six fields, which is what made that path easy to reach; and `Save` was the one control whose `onClick` ignored its own `aria-disabled`, so a double-click issued two concurrent PUTs. Also fixed: a stale build panel survived later turns as the newest event, the build outcome never scrolled into view, a timed-out body read could hang `pending` forever, `fields[].message` was never leak-checked (the one part of the envelope 2.0 does *not* author), a non-array `model_substitutions` silently became "none", and a missing validation verdict rendered a successful build as red "Failed". Three of my own **false statements** were corrected: the send hint promised a queued send that no code performs, `spec-editor.tsx`'s docstring described the opposite of the shipped save behaviour, and the Completion Notes asserted "17/17" E2E checks against a harness with 16 and a pasted tail showing 14 — the harness now prints its own total. Every new guard was falsified before being trusted; the autoscroll one initially could **not** fail and needed a `scrollIntoView` spy to become real, and the IME test was vacuous as written. Web tests **309 → 339** (18 → 19 files); Python **525 / 7 skipped, unchanged**; lint, `tsc` and `build` clean; Guards A and B still unmodified. A fresh live end-to-end run passed **21/21** with zero console errors, its tail pasted verbatim.
