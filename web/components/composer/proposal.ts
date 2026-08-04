@@ -80,7 +80,20 @@ export function rolesInPipelineOrder(spec: SpecView): RoleView[] {
   return ordered;
 }
 
-export type Proposal = { summary: string; followUp: string };
+/**
+ * A stable identifier for *which* follow-up was asked, so it can be asked once.
+ *
+ * The question text varies with the spec (it names a role), so the caller cannot
+ * dedupe on the string. `null` means "nothing was asked that should be
+ * remembered" — the generic closing question is repeatable by design.
+ */
+export type FollowUpKind = "routing" | "idle_role" | null;
+
+export type Proposal = {
+  summary: string;
+  followUp: string;
+  kind: FollowUpKind;
+};
 
 /**
  * One proposal sentence plus exactly one follow-up question.
@@ -90,7 +103,19 @@ export type Proposal = { summary: string; followUp: string };
  * targeted question rather than a checklist — so the follow-ups below are a
  * precedence list, and only the first applicable one is asked.
  */
-export function describeProposal(spec: SpecView, turn: number): Proposal {
+export function describeProposal(
+  spec: SpecView,
+  turn: number,
+  /**
+   * Follow-up kinds already asked in this conversation.
+   *
+   * Required for correctness, not politeness: the server never writes `llm` from
+   * a conversational reply, so "use what I have" leaves the routing condition
+   * permanently true. Without this the same question was re-asked on every turn,
+   * forever — the opposite of the converging conversation AC 1 describes.
+   */
+  askedFollowUps: readonly string[] = []
+): Proposal {
   const roles = rolesInPipelineOrder(spec);
   const names = roles.map((role) => role.name);
 
@@ -103,28 +128,46 @@ export function describeProposal(spec: SpecView, turn: number): Proposal {
         ? `Here is a team for that: ${names.join(" → ")}.`
         : `Updated: ${names.join(" → ")}.`;
 
-  return { summary, followUp: followUpFor(spec, roles) };
+  return { summary, ...followUpFor(spec, roles, askedFollowUps) };
 }
 
-function followUpFor(spec: SpecView, roles: RoleView[]): string {
+function followUpFor(
+  spec: SpecView,
+  roles: RoleView[],
+  asked: readonly string[]
+): { followUp: string; kind: FollowUpKind } {
   if (roles.length === 0) {
-    return "Could you describe the work you want done, in a sentence or two?";
+    return {
+      followUp: "Could you describe the work you want done, in a sentence or two?",
+      kind: null,
+    };
   }
 
   // 1. Routing is the question EXPERIENCE.md:184 actually names, and it is the
   //    one the captured responses always provoke — every role came back with no
-  //    `llm` at all.
-  if (roles.some((role) => !role.llm)) {
-    return "Any model preferences, or should I pick from the keys you have?";
+  //    `llm` at all. Asked at most once.
+  if (!asked.includes("routing") && roles.some((role) => !role.llm)) {
+    return {
+      followUp: "Any model preferences, or should I pick from the keys you have?",
+      kind: "routing",
+    };
   }
 
-  // 2. A role with no task will contribute nothing to the built package.
+  // 2. A role with no task will contribute nothing to the built package. Also
+  //    asked at most once, for the same reason: the user may deliberately leave
+  //    it, and re-asking would stall the conversation on their answer.
   const owners = new Set(spec.desired_tasks.map((task) => task.agent_role));
   const idle = roles.find((role) => !owners.has(role.name));
-  if (idle) return `What should ${idle.name} do?`;
+  if (idle && !asked.includes("idle_role")) {
+    return { followUp: `What should ${idle.name} do?`, kind: "idle_role" };
+  }
 
-  // 3. Nothing specific is missing, so invite a change rather than assert the
-  //    team is finished — the user decides when it is ready.
+  // 3. Nothing specific is left to ask, so invite a change rather than assert the
+  //    team is finished — the user decides when it is ready. Repeatable, and
+  //    therefore carries no kind.
   const last = roles[roles.length - 1].name;
-  return `Anything you would change about ${last}, or is this ready to build?`;
+  return {
+    followUp: `Anything you would change about ${last}, or is this ready to build?`,
+    kind: null,
+  };
 }

@@ -59,7 +59,9 @@ page.on("response", (response) => {
 });
 
 let failures = 0;
+let total = 0;
 function check(label, condition) {
+  total += 1;
   if (condition) log(`PASS ${label}`);
   else {
     failures += 1;
@@ -117,7 +119,23 @@ try {
   await runNow.click();
 
   const panel = page.locator('[data-slot="build-result"]');
-  await panel.waitFor({ state: "visible", timeout: 240_000 });
+  const alert = page.locator('[data-slot="composer-failure"]');
+  // Raced against the failure alert rather than waited for blindly. A build that
+  // 409s on `output_exists` — routine, because `output_path` is derived from the
+  // LLM-chosen team name and pinned, so a leftover directory from a previous run
+  // of this very harness triggers it — otherwise surfaced as a bare 240s timeout
+  // with no indication of the cause.
+  await Promise.race([
+    panel.waitFor({ state: "visible", timeout: 240_000 }),
+    alert.waitFor({ state: "visible", timeout: 240_000 }),
+  ]);
+  if (!(await panel.isVisible())) {
+    const why = (await alert.textContent()) ?? "(no message rendered)";
+    log(`build did not succeed — the surface says: ${why.trim()}`);
+    log(
+      "if that is `output_exists`, clear the matching directory under generated_teams/ and re-run"
+    );
+  }
   check("the build result panel renders on this surface", await panel.isVisible());
 
   const outputPath = await panel
@@ -132,6 +150,33 @@ try {
   check("we did not navigate away", new URL(page.url()).pathname === "/");
   check("the conversation is still usable", !(await box.isDisabled()));
 
+  // Added after the first code review, which found that a second build could
+  // only ever 409 (the output path is pinned per session) while both controls
+  // stayed enabled, and that the doomed attempt wiped the success panel.
+  check(
+    "a second build is blocked rather than offered",
+    (await runNow.getAttribute("aria-disabled")) === "true"
+  );
+  const reason = await page
+    .locator('[data-slot="composer-actions-reason"]')
+    .textContent();
+  check(
+    "the block states why",
+    Boolean(reason && /has been built/i.test(reason))
+  );
+  check(
+    "a restart control is offered instead of a dead end",
+    await page.getByRole("button", { name: "Start a new conversation" }).isVisible()
+  );
+  const beforeSecond = apiCalls.length;
+  // `force` because Playwright's actionability check treats `aria-disabled` as
+  // not-enabled and would wait forever — which is itself evidence the attribute
+  // is real. The point of the click is to prove the handler does nothing.
+  await runNow.click({ force: true });
+  await page.waitForTimeout(300);
+  check("clicking the blocked control issues no request", apiCalls.length === beforeSecond);
+  check("the success panel survives the click", await panel.isVisible());
+
   log("api calls observed", JSON.stringify(apiCalls));
 } finally {
   await browser.close();
@@ -142,5 +187,12 @@ if (pageErrors.length > 0) console.log("[e2e] page errors:", pageErrors);
 check("no uncaught page errors", pageErrors.length === 0);
 check("no console errors", consoleErrors.length === 0);
 
-console.log(failures === 0 ? "[e2e] ALL CHECKS PASSED" : `[e2e] ${failures} CHECK(S) FAILED`);
+// Prints the count. The first run of this harness reported "17/17" in the story
+// file when the script had 16 checks and the pasted log showed 14 — a figure
+// asserted rather than measured. Now the number comes from the run itself.
+console.log(
+  failures === 0
+    ? `[e2e] ALL CHECKS PASSED (${total - failures}/${total})`
+    : `[e2e] ${failures} of ${total} CHECK(S) FAILED`
+);
 process.exit(failures === 0 ? 0 : 1);

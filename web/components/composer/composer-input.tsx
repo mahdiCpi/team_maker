@@ -98,13 +98,16 @@ export function ComposerInput({
             if (!empty && !blocked) onSend()
           }}
           // `aria-disabled`, not `disabled`: the reason stays reachable by
-          // keyboard and is stated in text beside it.
+          // keyboard and is stated in text beside it — and `aria-describedby`
+          // is what makes it reachable programmatically too, not just visually.
           aria-disabled={empty || blocked !== null}
+          aria-describedby={SEND_HINT_ID}
           data-slot="composer-send"
         >
           Send
         </Button>
         <p
+          id={SEND_HINT_ID}
           data-slot="composer-send-hint"
           className="text-xs text-muted-foreground"
         >
@@ -124,9 +127,17 @@ function lengthMessage(length: number): string {
   return `That is ${length.toLocaleString()} characters. Shorten it to ${MAX_MESSAGE_LENGTH.toLocaleString()} or fewer to send.`
 }
 
+const SEND_HINT_ID = "composer-send-hint"
+
 /**
  * One line of text under the send control. It always says something: an empty
  * hint would make a non-actionable control look like a dead one.
+ *
+ * Order matters. `runNowBlockedReason` is checked **before** `blocked`, because
+ * the two overlap: every state that blocks the chord also blocks sending, so the
+ * old ordering made the chord's explanation unreachable and `⌘/Ctrl+Enter`
+ * swallowed the keystroke in silence. The chord-specific reason is the more
+ * informative of the two whenever it applies.
  */
 function hintFor({
   blocked,
@@ -139,9 +150,15 @@ function hintFor({
   empty: boolean
   hasRunNow: boolean
 }): string {
+  if (runNowBlockedReason && !hasRunNow) {
+    return `Enter sends. ⌘/Ctrl+Enter is unavailable: ${lowerFirst(runNowBlockedReason)}`
+  }
   if (blocked) return blocked
   if (empty) return "Enter sends. Shift+Enter adds a line."
   if (hasRunNow) return "Enter sends. ⌘/Ctrl+Enter builds the team as it stands."
-  if (runNowBlockedReason) return `Enter sends. ${runNowBlockedReason}`
   return "Enter sends. Shift+Enter adds a line."
+}
+
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1)
 }

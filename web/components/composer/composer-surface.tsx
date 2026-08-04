@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/empty-state"
 import { BuildResult } from "@/components/composer/build-result"
 import { ComposerActions } from "@/components/composer/composer-actions"
@@ -75,6 +76,7 @@ export function ComposerSurface() {
   async function runBuild() {
     const sessionId = state.sessionId
     if (!sessionId) return
+    setSavedNotice(null)
     dispatch({ type: "build_requested" })
     const result = await buildTeam(sessionId)
     if (result.ok) dispatch({ type: "build_succeeded", result: result.data })
@@ -93,20 +95,29 @@ export function ComposerSurface() {
   async function saveSpec(edit: SpecEditInput) {
     const sessionId = state.sessionId
     if (!sessionId) return
+    // The epoch is captured BEFORE the await and sent back with the result, so a
+    // save whose editor has since been closed — or which a later save
+    // superseded — is discarded by the reducer instead of reopening the dialog
+    // and resetting `pending` out from under a running build.
+    const epoch = state.saveEpoch + 1
+    dispatch({ type: "save_requested" })
     setSaving(true)
     const result = await replaceSpec(sessionId, edit)
     setSaving(false)
     if (result.ok) {
       setSavedNotice("Saved. The team below is what the server stored.")
-      dispatch({ type: "spec_replaced", session: result.data })
+      dispatch({ type: "spec_replaced", session: result.data, epoch })
     } else {
       setSavedNotice(null)
-      dispatch({ type: "spec_edit_failed", failure: result })
+      dispatch({ type: "spec_edit_failed", failure: result, epoch })
     }
   }
 
   const blockedReason = actionBlockedReason(state)
-  const runNowReason = hasSpec ? blockedReason : null
+  // Passed unconditionally, including the "nothing to build yet" case. Gating it
+  // on `hasSpec` made the hint branch that explains a blocked `⌘/Ctrl+Enter`
+  // unreachable, so the chord swallowed the keystroke and said nothing.
+  const runNowReason = blockedReason
 
   return (
     <div data-slot="composer" className="flex min-h-0 flex-1 flex-col gap-3">
@@ -121,6 +132,10 @@ export function ComposerSurface() {
         <Transcript
           entries={state.transcript}
           thinking={state.pending === "turn"}
+          // The build panel appends no transcript entry, so without a signal of
+          // its own the autoscroll effect never fired for it and the outcome
+          // rendered below the fold.
+          footerSignal={state.buildRevision}
         >
           {state.build ? <BuildResult result={state.build} /> : null}
         </Transcript>
@@ -136,6 +151,27 @@ export function ComposerSurface() {
           onRestart={() => dispatch({ type: "conversation_restarted" })}
           onDismiss={() => dispatch({ type: "failure_dismissed" })}
         />
+      ) : null}
+
+      {/* The only way out of a built conversation, since the output location is
+          pinned per session and a second build could only ever 409. Rendered as a
+          real control rather than left to the error the user would otherwise have
+          to provoke first. */}
+      {state.build ? (
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => dispatch({ type: "conversation_restarted" })}
+            data-slot="composer-restart"
+          >
+            Start a new conversation
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            This one has been built, and its output location is fixed.
+          </p>
+        </div>
       ) : null}
 
       {hasSpec ? (
@@ -169,13 +205,14 @@ export function ComposerSurface() {
           // from the response, never from local state" true rather than intended.
           key={state.specRevision}
           spec={state.spec}
-          serverIssues={
-            state.failure?.code === "spec_invalid" ? state.failure.fields : []
-          }
+          // The whole failure, so the modal can show a message for every code
+          // rather than only distributing `spec_invalid`'s field reasons.
+          failure={state.failure}
           saving={saving}
           savedNotice={savedNotice}
           onSave={(edit) => void saveSpec(edit)}
           onBuild={() => void runBuild()}
+          onEdit={() => dispatch({ type: "failure_dismissed" })}
           onClose={() => {
             setSavedNotice(null)
             dispatch({ type: "editor_closed" })
@@ -186,9 +223,17 @@ export function ComposerSurface() {
   )
 }
 
-/** True when the open editor is already rendering this failure's reasons. */
+/**
+ * True when the open editor is already rendering this failure.
+ *
+ * Any failure present while the editor is open came from a save: `editor_opened`
+ * clears the previous one, and `build_requested` closes the editor before a build
+ * can fail. So the condition is simply "the editor is open" — narrowing it to
+ * `spec_invalid` was the bug, because every other code then rendered in the
+ * surface, underneath a modal backdrop, where it could not be read or dismissed.
+ */
 function editorOwnsFailure(state: ReturnType<typeof composerReducer>): boolean {
-  return state.editorOpen && state.failure?.code === "spec_invalid"
+  return state.editorOpen && state.failure !== null
 }
 
 /** Why `Build team` / `Run it now` cannot proceed, or null when they can. */
@@ -202,6 +247,19 @@ function actionBlockedReason(
   if (state.pending === "build") return "Building the team…"
   if (!state.spec) {
     return "Describe your team first — there is nothing to build yet."
+  }
+  // A turn we stopped waiting for may have succeeded server-side, so this spec
+  // may no longer be the session's. Building it would write a team the user
+  // never saw.
+  if (state.specMayBeStale) {
+    return "That last turn timed out, so this team may not match what the server has. Send another message before building."
+  }
+  // `output_path` is derived from the first spec and pinned for the session's
+  // life, so a second build in this conversation can only ever return 409. Say
+  // so instead of offering a button whose sole outcome is an error that wipes
+  // the success panel — the one place the output path was ever shown.
+  if (state.build) {
+    return "This team has been built. Start a new conversation to build another — the output location is fixed per conversation."
   }
   return null
 }
@@ -220,8 +278,16 @@ function sendBlockedReason(
     return "This conversation is no longer available. Start a new one to continue."
   }
   if (state.pending === "turn") {
-    return "Still working on your last message. Keep typing — it will send when that finishes."
+    // Says only what is true. The previous wording — "Keep typing — it will send
+    // when that finishes" — promised a queue that does not exist, so a user who
+    // believed it waited for a message that never left the box.
+    return "Still working on your last message. You can keep typing; send it when this finishes."
   }
   if (state.pending === "build") return "Building the team…"
+  // The cap is a server limit on authoring turns; sending past it appends a
+  // bubble for a message that never reaches the model.
+  if (state.sessionId && state.turnsRemaining <= 0) {
+    return "This conversation has used all its turns. Build the team as it stands, or start a new conversation."
+  }
   return null
 }

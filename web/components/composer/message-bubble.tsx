@@ -21,9 +21,12 @@ export const AUTHOR_LABEL = {
 export function MessageBubble({
   author,
   text,
+  undelivered,
 }: {
   author: "user" | "assistant"
   text: string
+  /** The turn this message belonged to failed, so the model never saw it. */
+  undelivered?: boolean
 }) {
   return (
     <div data-slot="composer-message" data-author={author} className="mb-3">
@@ -40,6 +43,17 @@ export function MessageBubble({
       >
         {text}
       </div>
+      {/* Text, not colour alone: a message that never reached the model would
+          otherwise be indistinguishable from one that did — which matters most at
+          the turn cap, where every further attempt looks like it was sent. */}
+      {undelivered ? (
+        <p
+          data-slot="composer-undelivered"
+          className="mt-1 text-xs text-muted-foreground"
+        >
+          Not delivered.
+        </p>
+      ) : null}
     </div>
   )
 }

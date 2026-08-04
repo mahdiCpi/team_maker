@@ -14,6 +14,7 @@
  */
 import {
   MAX_MESSAGE_LENGTH,
+  MAX_MODEL_ID_LENGTH,
   MAX_NAME_LENGTH,
   MAX_TEXT_LENGTH,
   type ApiErrorCode,
@@ -60,8 +61,12 @@ const FALLBACK_MESSAGE: Record<ApiErrorCode, string> = {
     "Composing needs a model provider that is currently unavailable.",
   compose_failed:
     "The team specification could not be created. Retry once; if the problem repeats, stop and report it.",
+  // Replaces the server's copy for this code (see `toFailure`). States the same
+  // fact, then offers only a remedy the UI can actually reach: the destination is
+  // derived from the team name and pinned per conversation, so a differently
+  // named team in a new conversation writes somewhere else.
   output_exists:
-    "A directory already exists at the team's output path, and this build will not overwrite it.",
+    "A directory already exists at the team's output path, so this build stopped rather than overwrite it. The destination is chosen by the server; start a new conversation to build a differently-named team.",
   build_failed:
     "The team package could not be built. The error has been logged on the server.",
   session_busy:
@@ -81,8 +86,8 @@ const FALLBACK_MESSAGE: Record<ApiErrorCode, string> = {
 };
 
 /**
- * True when a message carries what looks like a stack trace or file path from
- * the server's internals.
+ * True when a message carries what looks like a stack trace, an exception name,
+ * or an absolute filesystem path from the server's internals.
  *
  * Story 2.0 guarantees it never sends one (`api/errors.py:1-11` — `message` is
  * authored copy, never `str(exc)`). This is the client half of AC 8's promise:
@@ -94,8 +99,16 @@ function looksLikeLeakedInternals(message: string): boolean {
   return (
     /Traceback \(most recent call last\)/.test(message) ||
     /File "[^"]+", line \d+/.test(message) ||
-    /\n\s*at .+:\d+:\d+/.test(message) ||
-    /^[A-Za-z_.]*Error: /m.test(message)
+    // No leading `\n` requirement: a single-line JS frame such as
+    // `at handler (/srv/app.js:12:9)` carries a path and a position and used to
+    // pass because the pattern insisted on a preceding newline.
+    /(?:^|\s)at .+:\d+:\d+/.test(message) ||
+    // `[A-Za-z_.]` could not span a digit, so `urllib3.exceptions.MaxRetryError:`
+    // slipped through — the class stopped at `urllib` and never reached `Error:`.
+    /^[\w.]*(?:Error|Exception):\s/m.test(message) ||
+    // An absolute filesystem path names server internals even without a frame
+    // around it. The docstring claimed this was covered; nothing matched it.
+    /(?:[A-Za-z]:\\|(?:^|\s)\/)(?:[\w.-]+[\\/]){2,}/.test(message)
   );
 }
 
@@ -111,7 +124,29 @@ function failure(
     !looksLikeLeakedInternals(message)
       ? message
       : authored;
-  return { ok: false, code, message: usable, fields };
+  return { ok: false, code, message: usable, fields: scrubFields(fields) };
+}
+
+/**
+ * The same leak check, applied to `fields[].message`.
+ *
+ * This is the field that most needs it. `api/errors.py`'s docstring promises
+ * `message` is authored copy, and it is — but Story 2.0's own review recorded
+ * that `fields[].message` is the `msg` half of a pydantic or `ComposerError`
+ * string, forwarded verbatim. Pydantic routinely interpolates the offending
+ * input, and here that input is LLM output derived from the user's intent. So
+ * the one part of the envelope that is *not* authored was also the one part
+ * reaching the screen unchecked.
+ *
+ * An entry that fails the check keeps its path — the client still needs to know
+ * which row is wrong — and loses only the untrusted text.
+ */
+function scrubFields(fields: FieldIssue[]): FieldIssue[] {
+  return fields.map((field) =>
+    looksLikeLeakedInternals(field.message)
+      ? { path: field.path, message: "This value was rejected by the server." }
+      : field
+  );
 }
 
 function tooLong(what: string, limit: number): ApiFailure {
@@ -136,14 +171,32 @@ async function request<T>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), spec.timeoutMs);
 
-  let response: Response;
+  // The timer is cleared in ONE place, after the body has been read. Clearing it
+  // when the headers arrive left `response.json()` unbounded: a proxy that
+  // flushes `200 OK` and then stalls mid-body could never be aborted, so the
+  // caller's pending state lasted forever with no timeout and no recovery but a
+  // page reload. The documented ceiling is a ceiling on the whole exchange.
+  let payload: unknown;
   try {
-    response = await fetch(spec.path, {
+    const response = await fetch(spec.path, {
       method: spec.method,
       headers: spec.body === undefined ? undefined : { "Content-Type": "application/json" },
       body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
       signal: controller.signal,
     });
+
+    try {
+      payload = await response.json();
+    } catch (error) {
+      // An abort during the body read is a timeout, not an unreadable body —
+      // otherwise a stalled response is reported as malformed JSON.
+      if (isAbort(error)) return failure("timeout");
+      // A proxy's HTML error page, or an empty body. Either way the envelope
+      // promise is broken and there is nothing to read a code from.
+      return failure("unreadable_response");
+    }
+
+    if (!response.ok) return toFailure(payload);
   } catch (error) {
     // Nothing from `error` reaches the caller: a DOMException's message is
     // browser-specific text, not product copy.
@@ -151,17 +204,6 @@ async function request<T>(
   } finally {
     clearTimeout(timer);
   }
-
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    // A proxy's HTML error page, or an empty body. Either way the envelope
-    // promise is broken and there is nothing to read a code from.
-    return failure("unreadable_response");
-  }
-
-  if (!response.ok) return toFailure(payload);
 
   const parsed = parse(payload);
   if (parsed === null) return failure("unreadable_response");
@@ -188,8 +230,20 @@ function toFailure(payload: unknown): ApiFailure {
   const code: ApiErrorCode = isServerErrorCode(envelope.code)
     ? envelope.code
     : "unknown_error";
+  // Deliberately narrow override, decided at code review. Every other code keeps
+  // the server's authored message, which is more specific than anything this
+  // build could invent. `output_exists` is the exception: its copy instructs the
+  // user to "choose a different output path", and `output_path` is server-owned
+  // and read-only to the browser (Story 2.0 AC 13) — the UI is forbidden to offer
+  // that remedy, so relaying the instruction sends the user looking for a control
+  // that must not exist. The authored fallback states the same fact without it.
+  if (code === OVERRIDDEN_SERVER_COPY) {
+    return failure(code, undefined, envelope.fields);
+  }
   return failure(code, envelope.message, envelope.fields);
 }
+
+const OVERRIDDEN_SERVER_COPY: ApiErrorCode = "output_exists";
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -355,8 +409,8 @@ function boundsFailure(
   if (description.length > MAX_TEXT_LENGTH) {
     return tooLong(`Each ${kind} description`, MAX_TEXT_LENGTH);
   }
-  if (llm && llm.model.length > 200) {
-    return tooLong("A model id", 200);
+  if (llm && llm.model.length > MAX_MODEL_ID_LENGTH) {
+    return tooLong("A model id", MAX_MODEL_ID_LENGTH);
   }
   return null;
 }

@@ -233,9 +233,11 @@ describe("building", () => {
 
 describe("the review editor", () => {
   it("re-renders from the server's response, never from the local edit", () => {
-    const state = composerReducer(AFTER_FIRST_TURN, {
+    const requested = composerReducer(AFTER_FIRST_TURN, { type: "save_requested" });
+    const state = composerReducer(requested, {
       type: "spec_replaced",
       session: TURN_2,
+      epoch: requested.saveEpoch,
     });
     expect(state.spec?.desired_roles.map((r) => r.name)).toEqual([
       "researcher",
@@ -247,9 +249,11 @@ describe("the review editor", () => {
 
   it("stays open after a save, and bumps the revision the form is keyed on", () => {
     const open = composerReducer(AFTER_FIRST_TURN, { type: "editor_opened" });
-    const saved = composerReducer(open, {
+    const requested = composerReducer(open, { type: "save_requested" });
+    const saved = composerReducer(requested, {
       type: "spec_replaced",
       session: TURN_2,
+      epoch: requested.saveEpoch,
     });
     // Closing on success would hide the server's re-serialisation, which is the
     // one thing AC 4 requires the editor to render, and would leave the save
@@ -260,16 +264,20 @@ describe("the review editor", () => {
 
   it("adds no transcript entry — an edit is not a conversational turn", () => {
     const before = AFTER_FIRST_TURN.transcript.length;
-    const state = composerReducer(AFTER_FIRST_TURN, {
+    const requested = composerReducer(AFTER_FIRST_TURN, { type: "save_requested" });
+    const state = composerReducer(requested, {
       type: "spec_replaced",
       session: TURN_2,
+      epoch: requested.saveEpoch,
     });
     expect(state.transcript).toHaveLength(before);
   });
 
   it("keeps the editor open and preserves the good spec when an edit is invalid", () => {
     const open = composerReducer(AFTER_FIRST_TURN, { type: "editor_opened" });
-    const rejected = composerReducer(open, {
+    const requested = composerReducer(open, { type: "save_requested" });
+    const rejected = composerReducer(requested, {
+      epoch: requested.saveEpoch,
       type: "spec_edit_failed",
       failure: {
         ok: false,

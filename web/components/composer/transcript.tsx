@@ -30,10 +30,20 @@ import type { TranscriptEntry } from "@/components/composer/composer-state"
 export function Transcript({
   entries,
   thinking,
+  footerSignal,
   children,
 }: {
   entries: TranscriptEntry[]
   thinking: boolean
+  /**
+   * Changes whenever `children` changes.
+   *
+   * Required, not decorative: the build panel appends no transcript entry, so
+   * `entries.length` and `thinking` are both unchanged when it appears and the
+   * effect below would not run. The outcome of the primary action then rendered
+   * below the fold with nothing visibly happening.
+   */
+  footerSignal?: number
   /** Rendered after the last entry — the build outcome reads as the next thing
    *  that happened, and autoscroll brings it into view like any other entry. */
   children?: React.ReactNode
@@ -45,7 +55,7 @@ export function Transcript({
     if (node && typeof node.scrollIntoView === "function") {
       node.scrollIntoView({ block: "end" })
     }
-  }, [entries.length, thinking])
+  }, [entries.length, thinking, footerSignal])
 
   return (
     <ScrollArea className="min-h-0 flex-1">
@@ -62,7 +72,12 @@ export function Transcript({
         className="py-2 pr-3"
       >
         {entries.map((entry) => (
-          <MessageBubble key={entry.id} author={entry.author} text={entry.text} />
+          <MessageBubble
+            key={entry.id}
+            author={entry.author}
+            text={entry.text}
+            undelivered={entry.undelivered}
+          />
         ))}
         {thinking ? <ThinkingIndicator /> : null}
         {children}

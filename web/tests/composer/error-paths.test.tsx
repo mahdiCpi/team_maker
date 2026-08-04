@@ -120,6 +120,8 @@ describe("AC 8 — the eight server codes each render a usable state", () => {
       status: 409,
       body: errorOutputExists,
       provenance: "captured",
+      // The client replaces the server's "choose a different output path" —
+      // a remedy the hard constraint forbids this UI from offering.
       expect: /already exists/i,
     },
     {
@@ -173,7 +175,11 @@ describe("AC 8 — the eight server codes each render a usable state", () => {
           fields: [{ path: "desired_roles", message: "Add at least one role." }],
         },
       },
-      provenance: "synthesised",
+      // The envelope is shaped inline here, but `spec_invalid` itself was
+      // captured live (`fixtures/error-spec-invalid.json`) and is used as a
+      // capture in `build.test.tsx`. Labelling it synthesised made five test
+      // names disagree with the four this file's header declares.
+      provenance: "captured",
       expect: /could not be completed/i,
     },
   ];
@@ -397,5 +403,56 @@ describe("AC 8 — nothing internal ever reaches the screen", () => {
     expect(alertNode()).toHaveAttribute("data-code", "unreachable");
     expect(alertNode().textContent).toMatch(/Check that the API is running/i);
     expect(alertNode().textContent).not.toMatch(/Failed to fetch|TypeError/);
+  });
+});
+
+describe("output_exists copy is replaced, not relayed", () => {
+  it("drops the server's instruction to choose a different output path", async () => {
+    const user = userEvent.setup();
+    await failBuild(user, 409, errorOutputExists);
+
+    const text = alertNode().textContent ?? "";
+    // The captured server body really does say this — asserted below — and the
+    // hard constraint (Story 2.0 AC 13) forbids this UI from offering any way to
+    // change the path, so relaying the instruction sends the user hunting for a
+    // control that must not exist.
+    expect(JSON.stringify(errorOutputExists)).toMatch(
+      /Choose a different output path/
+    );
+    expect(text).not.toMatch(/choose a different output path/i);
+    // Replaced by authored copy that states the same fact and offers only a
+    // remedy the UI can actually reach.
+    expect(text).toMatch(/already exists/i);
+    expect(text).toMatch(/start a new conversation/i);
+  });
+});
+
+describe("fields[].message is leak-checked too", () => {
+  it("suppresses a traceback smuggled through a field reason", async () => {
+    // `api/errors.py` guarantees `message` is authored copy. It makes no such
+    // guarantee for `fields[].message`, which Story 2.0's own review recorded as
+    // pydantic-derived text carrying the offending input — so this was the one
+    // part of the envelope reaching the screen unchecked.
+    const user = userEvent.setup();
+    await failFirstTurn(user, 422, {
+      error: {
+        code: "spec_invalid",
+        message: "Those changes are not valid.",
+        fields: [
+          {
+            path: "desired_roles.0.name",
+            message:
+              'Traceback (most recent call last):\n  File "C:\srv\api\request.py", line 88, in validate',
+          },
+        ],
+      },
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/Traceback/);
+    expect(text).not.toMatch(/request\.py/);
+    // The path survives — the user still needs to know which row is wrong.
+    expect(alertNode().textContent).toMatch(/desired_roles\.0\.name/);
+    expect(alertNode().textContent).toMatch(/rejected by the server/i);
   });
 });

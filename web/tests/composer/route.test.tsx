@@ -102,3 +102,53 @@ describe("the / route", () => {
     expect(container.textContent).not.toMatch(/My Teams|workspace|Adapt with/i);
   });
 });
+
+describe("the copy guards hold AFTER a conversation starts, not just before it", () => {
+  it("borrows no other surface's copy once a turn has landed", async () => {
+    // The pre-conversation checks above run on an empty state where none of the
+    // banned strings could appear anyway. This drives a real turn first, so the
+    // haystack actually contains the assistant's proposal, the action bar and the
+    // review toggle.
+    const { render: rtlRender } = await import("@testing-library/react");
+    const userEvent = (await import("@testing-library/user-event")).default;
+    const { ComposerSurface } = await import(
+      "@/components/composer/composer-surface"
+    );
+    const { createFetchQueue, completeFirstTurn } = await import("./harness");
+
+    vi.doMock("next/navigation", () => ({
+      useRouter: () => ({ push: vi.fn() }),
+      usePathname: () => "/",
+    }));
+
+    const queue = createFetchQueue();
+    queue.install();
+    try {
+      const user = userEvent.setup();
+      rtlRender(<ComposerSurface />);
+      await completeFirstTurn(user, queue);
+
+      const text = document.body.textContent ?? "";
+      // Proof the haystack is real and post-turn.
+      expect(text).toMatch(/researcher/);
+      expect(text).toMatch(/Run it now/);
+
+      for (const borrowed of [
+        "No teams yet. Describe one, or start from a template.",
+        "Ask a follow-up or refine the goal…",
+        "Running · 2 of 4 tasks",
+        "Save this team and its results?",
+        "All models reachable.",
+        "Keys: anthropic",
+      ]) {
+        expect(text).not.toContain(borrowed);
+      }
+      // Story 2.3's key-check states are still not faked. `keys` appears only in
+      // the spine's own follow-up question ("the keys you have"), never as a
+      // status.
+      expect(text).not.toMatch(/key (missing|found)|via OpenRouter|✓/i);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

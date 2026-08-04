@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import type { SpecEditInput } from "@/lib/api-client"
-import type { FieldIssue, SpecView } from "@/lib/api-types"
+import type { ApiFailure, FieldIssue, SpecView } from "@/lib/api-types"
 import {
   PROVIDER_IDS,
   draftIssues,
@@ -28,8 +28,12 @@ import {
  * The review-before-build editor (AC 4).
  *
  * Exposes exactly the three dimensions the spine names — roles, tasks, and
- * per-agent Provider/model (`EXPERIENCE.md:33,73`) — plus the team name and
- * purpose, which are the other two fields `PUT .../spec` accepts.
+ * per-agent Provider/model (`EXPERIENCE.md:33,73`) — plus `purpose`, the one
+ * other field `PUT .../spec` accepts that carries no side effect. **`team_name`
+ * is display-only**: renaming is Story 2.5's, and `api/output.py` pins
+ * `output_path` from the *first* spec, so an editable name would show a renamed
+ * team beside a path slugged from the old one (Open Question 5, settled at code
+ * review: 2.2 displays the name and does not edit it).
  *
  * **Modal depth is one.** This is the `Dialog`, and there is no second layer
  * inside it: the provider control is a native `<select>` and the model is a text
@@ -37,39 +41,53 @@ import {
  * is why the installed `popover` component is unused by this story — no picker
  * layer beats a correctly nested one.
  *
- * **It re-renders from the response, never from local state.** The parent mounts
- * this only while the editor is open, and a successful save closes it; the next
- * open seeds a fresh draft from the spec the *server* returned. That matters
- * because `_pre_process` rewrites input in five ways, so "edited JSON in" is not
- * "JSON out". A rejected save keeps this mounted with the user's draft intact so
- * they can fix it, while the parent's `spec` still holds the last good one.
+ * **It re-renders from the response, never from local state.** A successful save
+ * keeps the dialog *open* and the parent remounts this component by keying it on
+ * `specRevision`, so the form is re-seeded from the spec the **server** returned
+ * rather than from what was typed. That matters because `_pre_process` rewrites
+ * input in five ways, so "edited JSON in" is not "JSON out". A rejected save
+ * keeps this mounted with the user's draft intact so they can fix it, while the
+ * parent's `spec` still holds the last good one.
+ *
+ * (An earlier version closed the dialog on success. That hid the server's
+ * re-serialisation — the one thing this component exists to show — and left the
+ * save with no confirmation at all.)
+ *
+ * **The editor owns every save failure while it is open**, not just
+ * `spec_invalid`. The dialog is modal with a `fixed inset-0 z-50` backdrop, so a
+ * message rendered by the parent would be painted underneath it: unreadable,
+ * unfocusable, and indistinguishable from Save having done nothing.
  *
  * `Esc` closes it — Base UI's Dialog handles that, and it reaches `onClose`
  * through `onOpenChange`.
  */
 export function SpecEditor({
   spec,
-  serverIssues,
+  failure,
   saving,
   savedNotice,
   onSave,
   onBuild,
   onClose,
+  onEdit,
 }: {
   spec: SpecView
-  /** `fields[]` from a rejected save. */
-  serverIssues: FieldIssue[]
+  /** The whole save failure, not just `spec_invalid`'s `fields[]`. */
+  failure: ApiFailure | null
   saving: boolean
   /** Set after a save succeeded, so the reopened form confirms it happened. */
   savedNotice: string | null
   onSave: (edit: SpecEditInput) => void
   onBuild: () => void
   onClose: () => void
+  /** Lets an edit clear a server failure the editor cannot clear itself. */
+  onEdit: () => void
 }) {
   const pristine = React.useMemo(() => toDraft(spec), [spec])
   const [draft, setDraft] = React.useState<SpecDraft>(pristine)
   const [clientIssues, setClientIssues] = React.useState<FieldIssue[]>([])
 
+  const serverIssues = failure?.code === "spec_invalid" ? failure.fields : []
   const dirty =
     JSON.stringify(toEditInput(draft)) !== JSON.stringify(toEditInput(pristine))
   const issues = [...clientIssues, ...serverIssues]
@@ -77,11 +95,18 @@ export function SpecEditor({
 
   function update(next: (current: SpecDraft) => SpecDraft) {
     setDraft(next)
-    // Stale reasons must not outlive the edit that caused them.
+    // Stale reasons must not outlive the edit that caused them — including the
+    // server's, which live in the parent's `failure` and which the editor could
+    // not previously clear, so a fixed row kept its 422 reason.
     setClientIssues([])
+    if (failure) onEdit()
   }
 
   function handleSave() {
+    // Guarded, like every other control. Without this, `aria-disabled` was
+    // decorative and a double-click issued two concurrent PUTs — the later one
+    // able to re-write the session spec back to the pre-remount draft.
+    if (saving) return
     const found = draftIssues(draft)
     setClientIssues(found)
     if (found.length === 0) onSave(toEditInput(draft))
@@ -115,7 +140,7 @@ export function SpecEditor({
           </DialogDescription>
         </DialogHeader>
 
-        {savedNotice && !dirty ? (
+        {savedNotice && !dirty && !failure ? (
           <p
             data-slot="spec-editor-saved"
             role="status"
@@ -125,21 +150,46 @@ export function SpecEditor({
           </p>
         ) : null}
 
+        {/* Every save failure surfaces here, inside the modal. `spec_invalid`
+            additionally distributes its `fields[]` to the rows below. */}
+        {failure ? (
+          <p
+            data-slot="spec-editor-failure"
+            data-code={failure.code}
+            role="alert"
+            className="rounded-lg border border-destructive/40 px-3 py-2 text-sm"
+          >
+            {failure.message}
+          </p>
+        ) : null}
+
+        {saving ? (
+          <p
+            data-slot="spec-editor-saving"
+            role="status"
+            className="text-xs text-muted-foreground"
+          >
+            Saving — the fields are locked until the server answers, because it
+            re-serialises the team and this form re-renders from its reply.
+          </p>
+        ) : null}
+
         <IssueList issues={grouped.other} slot="spec-editor-general-issues" />
 
+        {/* Display-only, decided at code review. AC 4 names exactly three
+            editable dimensions, renaming is Story 2.5's, and `api/output.py`
+            pins `output_path` from the FIRST spec — so an editable name would
+            show a renamed team beside a path slugged from the old one. */}
         <Field label="Team name">
-          <Input
-            aria-label="Team name"
-            value={draft.team_name}
-            onChange={(event) =>
-              update((current) => ({ ...current, team_name: event.target.value }))
-            }
-          />
+          <p data-slot="spec-editor-team-name" className="text-sm">
+            {draft.team_name}
+          </p>
         </Field>
         <Field label="Purpose">
           <Textarea
             aria-label="Purpose"
             rows={2}
+            readOnly={saving}
             value={draft.purpose}
             onChange={(event) =>
               update((current) => ({ ...current, purpose: event.target.value }))
@@ -158,6 +208,7 @@ export function SpecEditor({
             >
               <Input
                 aria-label={`Role ${index + 1} name`}
+                readOnly={saving}
                 value={role.name}
                 onChange={(event) =>
                   update((current) => ({
@@ -171,6 +222,7 @@ export function SpecEditor({
               <Textarea
                 aria-label={`Role ${index + 1} description`}
                 rows={2}
+                readOnly={saving}
                 value={role.description}
                 onChange={(event) =>
                   update((current) => ({
@@ -189,6 +241,7 @@ export function SpecEditor({
                     modal layer. */}
                 <select
                   aria-label={`Role ${index + 1} provider`}
+                  disabled={saving}
                   className="h-9 rounded-lg border border-input bg-transparent px-2 text-sm"
                   value={role.provider}
                   onChange={(event) =>
@@ -213,6 +266,7 @@ export function SpecEditor({
                   aria-label={`Role ${index + 1} model`}
                   // Free text on purpose: there is no model catalogue to offer.
                   placeholder="model id"
+                  readOnly={saving}
                   className="max-w-56"
                   value={role.model}
                   onChange={(event) =>
@@ -244,6 +298,7 @@ export function SpecEditor({
             >
               <Input
                 aria-label={`Task ${index + 1} name`}
+                readOnly={saving}
                 value={task.name}
                 onChange={(event) =>
                   update((current) => ({
@@ -257,6 +312,7 @@ export function SpecEditor({
               <Textarea
                 aria-label={`Task ${index + 1} description`}
                 rows={2}
+                readOnly={saving}
                 value={task.description}
                 onChange={(event) =>
                   update((current) => ({
@@ -271,6 +327,7 @@ export function SpecEditor({
               />
               <select
                 aria-label={`Task ${index + 1} role`}
+                disabled={saving}
                 className="h-9 w-fit rounded-lg border border-input bg-transparent px-2 text-sm"
                 value={task.agent_role}
                 onChange={(event) =>
@@ -328,6 +385,11 @@ export function SpecEditor({
               if (!buildBlockedReason) onBuild()
             }}
             aria-disabled={buildBlockedReason !== null}
+            // Without this the control announces as unavailable and the reason —
+            // which is only adjacent text — is never announced with it.
+            aria-describedby={
+              buildBlockedReason ? EDITOR_BUILD_REASON_ID : undefined
+            }
             data-slot="spec-editor-build"
           >
             Build team
@@ -335,6 +397,7 @@ export function SpecEditor({
         </DialogFooter>
         {buildBlockedReason ? (
           <p
+            id={EDITOR_BUILD_REASON_ID}
             data-slot="spec-editor-build-reason"
             className="text-xs text-muted-foreground"
           >
@@ -345,6 +408,8 @@ export function SpecEditor({
     </Dialog>
   )
 }
+
+const EDITOR_BUILD_REASON_ID = "spec-editor-build-reason"
 
 function Field({
   label,

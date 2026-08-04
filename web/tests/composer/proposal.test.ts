@@ -206,3 +206,47 @@ describe("describeProposal", () => {
     expect(followUp.length).toBeGreaterThan(0);
   });
 });
+
+describe("a follow-up is asked once, not on every turn", () => {
+  it("stops asking about models after it has been asked", () => {
+    // The server never writes `llm` from a conversational reply, so the routing
+    // condition stays true forever. Without memory, "use what I have" was met
+    // with the same question indefinitely — the opposite of a converging
+    // conversation.
+    const first = describeProposal(CAPTURED_SPEC, 1);
+    expect(first.followUp).toMatch(/model/i);
+    expect(first.kind).toBe("routing");
+
+    const second = describeProposal(CAPTURED_TURN_2, 2, [first.kind as string]);
+    expect(second.followUp).not.toMatch(/model/i);
+  });
+
+  it("falls through to the next unasked question rather than going silent", () => {
+    const withIdleRole = spec({
+      desired_roles: [
+        { name: "loiterer", description: "" },
+        { name: "worker", description: "" },
+      ],
+      desired_tasks: [
+        { name: "a", description: "", agent_role: "worker", dependencies: [] },
+      ],
+    });
+    // Routing already asked, so the idle role is next in the precedence list.
+    const next = describeProposal(withIdleRole, 2, ["routing"]);
+    expect(next.followUp).toContain("loiterer");
+    expect(next.kind).toBe("idle_role");
+    // Both asked: the closing question is repeatable and carries no kind, so it
+    // never suppresses itself and the assistant is never left with nothing.
+    const closing = describeProposal(withIdleRole, 3, ["routing", "idle_role"]);
+    expect(closing.followUp.length).toBeGreaterThan(0);
+    expect(closing.kind).toBeNull();
+    expect((closing.followUp.match(/\?/g) ?? []).length).toBe(1);
+  });
+
+  it("still asks exactly one question at every stage", () => {
+    for (const asked of [[], ["routing"], ["routing", "idle_role"]]) {
+      const { summary, followUp } = describeProposal(CAPTURED_SPEC, 2, asked);
+      expect((`${summary} ${followUp}`.match(/\?/g) ?? []).length).toBe(1);
+    }
+  });
+});

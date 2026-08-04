@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 
 const REVIEW_LABEL_ID = "composer-review-before-build"
+/** Links an `aria-disabled` control to the sentence that says why. Without it the
+ *  control announces as unavailable and the reason is never announced with it. */
+const ACTIONS_REASON_ID = "composer-actions-reason"
 
 /**
  * The persistent action bar (AC 3, AC 4).
@@ -53,6 +56,7 @@ export function ComposerActions({
             if (!buildBlockedReason) onBuild()
           }}
           aria-disabled={buildBlockedReason !== null}
+          aria-describedby={buildBlockedReason ? ACTIONS_REASON_ID : undefined}
           data-slot="composer-build"
         >
           Build team
@@ -64,6 +68,7 @@ export function ComposerActions({
             if (!runNowBlockedReason) onRunNow()
           }}
           aria-disabled={runNowBlockedReason !== null}
+          aria-describedby={runNowBlockedReason ? ACTIONS_REASON_ID : undefined}
           data-slot="composer-run-now"
         >
           Run it now
@@ -86,6 +91,7 @@ export function ComposerActions({
 
       {buildBlockedReason || runNowBlockedReason ? (
         <p
+          id={ACTIONS_REASON_ID}
           data-slot="composer-actions-reason"
           className="text-xs text-muted-foreground"
         >
@@ -93,6 +99,7 @@ export function ComposerActions({
         </p>
       ) : (
         <p
+          id={ACTIONS_REASON_ID}
           data-slot="composer-actions-reason"
           className="text-xs text-muted-foreground"
         >

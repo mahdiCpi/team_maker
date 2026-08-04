@@ -14,7 +14,11 @@
  */
 import type { FieldIssue, SpecView } from "@/lib/api-types";
 import type { SpecEditInput } from "@/lib/api-client";
-import { MAX_NAME_LENGTH, MAX_TEXT_LENGTH } from "@/lib/api-types";
+import {
+  MAX_MODEL_ID_LENGTH,
+  MAX_NAME_LENGTH,
+  MAX_TEXT_LENGTH,
+} from "@/lib/api-types";
 
 /**
  * The provider ids the schema accepts — whatever `create_provider` resolves
@@ -131,6 +135,17 @@ export function draftIssues(draft: SpecDraft): FieldIssue[] {
     });
   }
 
+  // Every bound `api/schemas.py` enforces is checked here, not just some of them.
+  // The gap mattered more than it looks: an unchecked bound reaches the server,
+  // comes back as `too_long` with an empty `fields[]`, and lands in the one
+  // failure shape the editor had no row to attach a reason to.
+  if (draft.purpose.length > MAX_TEXT_LENGTH) {
+    issues.push({
+      path: "purpose",
+      message: `Use ${MAX_TEXT_LENGTH} characters or fewer.`,
+    });
+  }
+
   if (draft.roles.length === 0) {
     issues.push({
       path: "desired_roles",
@@ -151,6 +166,11 @@ export function draftIssues(draft: SpecDraft): FieldIssue[] {
         path: `desired_roles.${index}.name`,
         message:
           "Use lowercase letters, digits and underscores, starting with a letter.",
+      });
+    } else if (name.length > MAX_NAME_LENGTH) {
+      issues.push({
+        path: `desired_roles.${index}.name`,
+        message: `Use ${MAX_NAME_LENGTH} characters or fewer.`,
       });
     } else if (roleNames.has(name)) {
       issues.push({
@@ -174,6 +194,12 @@ export function draftIssues(draft: SpecDraft): FieldIssue[] {
 
     const provider = role.provider.trim();
     const model = role.model.trim();
+    if (model.length > MAX_MODEL_ID_LENGTH) {
+      issues.push({
+        path: `desired_roles.${index}.llm.model`,
+        message: `Use ${MAX_MODEL_ID_LENGTH} characters or fewer.`,
+      });
+    }
     if (provider && !model) {
       issues.push({
         path: `desired_roles.${index}.llm.model`,
@@ -196,6 +222,11 @@ export function draftIssues(draft: SpecDraft): FieldIssue[] {
         path: `desired_tasks.${index}.name`,
         message: "Give the task a name.",
       });
+    } else if (name.length > MAX_NAME_LENGTH) {
+      issues.push({
+        path: `desired_tasks.${index}.name`,
+        message: `Use ${MAX_NAME_LENGTH} characters or fewer.`,
+      });
     } else if (taskNames.has(name)) {
       issues.push({
         path: `desired_tasks.${index}.name`,
@@ -208,6 +239,11 @@ export function draftIssues(draft: SpecDraft): FieldIssue[] {
       issues.push({
         path: `desired_tasks.${index}.description`,
         message: "Say what this task does.",
+      });
+    } else if (task.description.length > MAX_TEXT_LENGTH) {
+      issues.push({
+        path: `desired_tasks.${index}.description`,
+        message: `Use ${MAX_TEXT_LENGTH} characters or fewer.`,
       });
     }
 

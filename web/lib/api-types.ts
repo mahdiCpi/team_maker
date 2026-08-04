@@ -28,6 +28,10 @@
 export const MAX_MESSAGE_LENGTH = 8_000;
 export const MAX_NAME_LENGTH = 120;
 export const MAX_TEXT_LENGTH = 2_000;
+/** `_MAX_MODEL_ID` in `api/schemas.py`. Named rather than inlined, because it
+ *  is checked in two layers and a drifting literal is how one of them silently
+ *  stopped matching the server. */
+export const MAX_MODEL_ID_LENGTH = 200;
 
 // ---------------------------------------------------------------------------
 // View types
@@ -72,7 +76,14 @@ export type ModelSubstitutionView = {
 };
 
 export type ValidationSummaryView = {
-  passed: boolean;
+  /**
+   * `null` means the server did not report a usable verdict.
+   *
+   * Distinguished from `false` deliberately: coercing a missing or mis-typed
+   * `passed` to `false` rendered a successful build as a red "Failed" with an
+   * empty issue list — a failure claim the response never made.
+   */
+  passed: boolean | null;
   issues: string[];
   warnings: string[];
 };
@@ -273,14 +284,14 @@ export function parseBuildResponse(value: unknown): BuildResultView | null {
     return null;
   }
 
-  const rawSubstitutions = Array.isArray(value.model_substitutions)
-    ? value.model_substitutions
-    : [];
-  // A substitution that fails to parse is dropped rather than failing the
-  // build report, but the count is what AC 5 cares about, so a partial parse
-  // must not silently claim "no substitutions": if any entry is unreadable the
-  // whole report is refused.
-  const substitutions = rawSubstitutions.map(parseSubstitution);
+  // Refused, never coerced. A non-array `model_substitutions` — `null`, `{}`, a
+  // string — used to become `[]`, which is exactly the "silently claim no
+  // substitutions" outcome this field exists to prevent: the UI would report a
+  // team built on the model the user asked for when the server had swapped it.
+  // The same rule applies to an entry that fails to parse: the whole report is
+  // refused rather than partially believed.
+  if (!Array.isArray(value.model_substitutions)) return null;
+  const substitutions = value.model_substitutions.map(parseSubstitution);
   if (substitutions.some((item) => item === null)) return null;
 
   const validationSource = isRecord(value.validation) ? value.validation : {};
@@ -292,7 +303,11 @@ export function parseBuildResponse(value: unknown): BuildResultView | null {
     written_file_count: writtenFileCount,
     model_substitutions: substitutions as ModelSubstitutionView[],
     validation: {
-      passed: validationSource.passed === true,
+      // Tri-state rather than `=== true`: a missing or mis-typed `passed` is
+      // "not reported", not "failed". The build itself succeeded — refusing the
+      // whole report over a bad verdict field would hide a package that was
+      // genuinely written to disk.
+      passed: typeof validationSource.passed === "boolean" ? validationSource.passed : null,
       issues: asStringArray(validationSource.issues),
       warnings: asStringArray(validationSource.warnings),
     },

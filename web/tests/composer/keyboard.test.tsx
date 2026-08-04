@@ -135,21 +135,33 @@ describe("AC 6 — Enter and Shift+Enter", () => {
   });
 
   it("does not send while an IME is composing", async () => {
+    const user = userEvent.setup();
     renderSurface();
-    const textarea = box() as HTMLTextAreaElement;
-    textarea.value = "にほんご";
+
+    // Typed through user-event so REACT STATE actually holds the text. The
+    // previous version assigned `textarea.value` directly, which left the
+    // controlled `value` prop at "" — so `empty` was true and the send was
+    // refused for that reason instead. The `isComposing` guard could be deleted
+    // with the test still green; it is now the only thing preventing the send.
+    await user.type(box(), "にほんご");
+    expect(box()).toHaveValue("にほんご");
 
     // `isComposing` is only reachable by constructing the event: user-event
     // cannot model an IME candidate window.
-    const event = new KeyboardEvent("keydown", {
+    const composing = new KeyboardEvent("keydown", {
       key: "Enter",
       bubbles: true,
       cancelable: true,
     });
-    Object.defineProperty(event, "isComposing", { value: true });
-    textarea.dispatchEvent(event);
-
+    Object.defineProperty(composing, "isComposing", { value: true });
+    box().dispatchEvent(composing);
     expect(requests).toHaveLength(0);
+
+    // Falsification built in: the SAME text with `isComposing` false does send,
+    // proving the zero above is the guard's doing and not an unrelated block.
+    queueResponse(201, sessionCreate);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(requests).toHaveLength(1));
   });
 });
 

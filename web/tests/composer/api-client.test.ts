@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  BUILD_TIMEOUT_MS,
+  COMPOSE_TIMEOUT_MS,
   MAX_MESSAGE_LENGTH,
   MAX_NAME_LENGTH,
   MAX_TEXT_LENGTH,
@@ -446,5 +448,128 @@ describe("parseSessionResponse narrowing", () => {
     const view = parseSessionResponse(specEdit);
     const critic = view?.spec.desired_roles.find((r) => r.name === "critic");
     expect(critic?.llm).toEqual({ provider: "openai", model: "gpt-4o" });
+  });
+});
+
+describe("hardening found by the first code review", () => {
+  it("refuses a build report whose model_substitutions is not an array", async () => {
+    // Coercing a non-array to `[]` silently claimed "no substitutions" — the
+    // exact outcome AC 5 exists to prevent, since the UI would then report the
+    // model the user asked for rather than the one that was built.
+    for (const bad of [null, {}, "none", 0]) {
+      stubFetch(200, { ...(build as object), model_substitutions: bad });
+      const result = await buildTeam("SID");
+      expect(result.ok, `model_substitutions: ${JSON.stringify(bad)}`).toBe(false);
+      if (result.ok) throw new Error("expected failure");
+      expect(result.code).toBe("unreadable_response");
+    }
+  });
+
+  it("reports an unusable validation verdict as not-reported, not as failed", async () => {
+    for (const bad of [undefined, null, "true", 1]) {
+      const body = { ...(build as object), validation: bad };
+      stubFetch(200, body);
+      const result = await buildTeam("SID");
+      if (!result.ok) throw new Error("expected the build report to survive");
+      // The build wrote files; refusing the whole report, or calling it "Failed",
+      // both assert something the response never said.
+      expect(result.data.validation.passed).toBeNull();
+    }
+  });
+
+  it("keeps a real boolean verdict of either polarity", async () => {
+    stubFetch(200, {
+      ...(build as object),
+      validation: { passed: false, issues: ["nope"], warnings: [] },
+    });
+    const failed = await buildTeam("SID");
+    if (!failed.ok) throw new Error("expected success");
+    expect(failed.data.validation.passed).toBe(false);
+    expect(failed.data.validation.issues).toEqual(["nope"]);
+  });
+
+  it("scrubs a leaked trace from fields[].message but keeps the path", async () => {
+    stubFetch(422, {
+      error: {
+        code: "spec_invalid",
+        message: "Those changes are not valid.",
+        fields: [
+          { path: "desired_roles.0.name", message: "urllib3.exceptions.MaxRetryError: pool" },
+          { path: "desired_tasks.1.name", message: "Give the task a name." },
+        ],
+      },
+    });
+    const result = await buildTeam("SID");
+    if (result.ok) throw new Error("expected failure");
+    expect(result.fields).toHaveLength(2);
+    expect(result.fields[0].path).toBe("desired_roles.0.name");
+    expect(result.fields[0].message).not.toMatch(/MaxRetryError|urllib3/);
+    // A clean reason is untouched.
+    expect(result.fields[1].message).toBe("Give the task a name.");
+  });
+
+  it("catches the leak shapes the first regex missed", async () => {
+    for (const leaked of [
+      "urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='api.openai.com')",
+      "at handler (/srv/app/api/build.js:12:9)",
+      // `String.raw` so the backslashes are real path separators and not `\t`/`\s`
+      // escapes — a mangled fixture would make this test pass for the wrong
+      // reason, which is the defect class it exists to catch.
+      String.raw`Failed to write C:\srv\team_maker\team_maker.keys`,
+      "could not open /var/lib/team_maker/secrets.env",
+    ]) {
+      stubFetch(500, { error: { code: "build_failed", message: leaked } });
+      const result = await buildTeam("SID");
+      if (result.ok) throw new Error("expected failure");
+      expect(result.message, leaked).not.toBe(leaked);
+      expect(result.message).toMatch(/could not be built/i);
+    }
+  });
+
+  it("replaces the output_exists message with copy the UI can honour", async () => {
+    stubFetch(409, errorOutputExists);
+    const result = await buildTeam("SID");
+    if (result.ok) throw new Error("expected failure");
+    expect(result.code).toBe("output_exists");
+    expect(result.message).not.toMatch(/choose a different output path/i);
+    expect(result.message).toMatch(/start a new conversation/i);
+  });
+
+  it("still prefers the server's message for every other code", async () => {
+    stubFetch(502, {
+      error: { code: "compose_failed", message: "A very specific server sentence." },
+    });
+    const result = await buildTeam("SID");
+    if (result.ok) throw new Error("expected failure");
+    expect(result.message).toBe("A very specific server sentence.");
+  });
+
+  it("reports an abort during the body read as a timeout, not a bad body", async () => {
+    // The timeout used to be cleared when the headers arrived, so a stalled body
+    // could never be aborted at all; now that it can, the abort must not be
+    // misreported as malformed JSON.
+    const abort = new Error("aborted");
+    abort.name = "AbortError";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.reject(abort),
+        } as unknown as Response)
+      )
+    );
+    const result = await buildTeam("SID");
+    if (result.ok) throw new Error("expected failure");
+    expect(result.code).toBe("timeout");
+  });
+
+  it("pins the documented timeout ceilings", async () => {
+    // Asserted so a "harmonisation" or a debugging tweak cannot quietly abort
+    // every real compose turn while the suite stays green.
+    expect(COMPOSE_TIMEOUT_MS).toBe(180_000);
+    expect(BUILD_TIMEOUT_MS).toBe(120_000);
+    expect(COMPOSE_TIMEOUT_MS).toBeGreaterThanOrEqual(BUILD_TIMEOUT_MS);
   });
 });

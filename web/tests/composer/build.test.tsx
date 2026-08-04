@@ -237,27 +237,53 @@ describe("AC 4 — the spec editor", () => {
     render(<ComposerSurface />);
     await openSpecEditor(user, queue);
 
-    const name = screen.getByRole("textbox", { name: "Team name" });
-    await user.clear(name);
-    await user.type(name, "local_only_value");
+    // Edited via `Purpose`, not a role name: renaming a role orphans the tasks
+    // that point at it, which the client-side referential check now refuses
+    // before any request — so the save would never reach the server and this
+    // test would prove nothing.
+    const purpose = screen.getByRole("textbox", { name: "Purpose" });
+    await user.clear(purpose);
+    await user.type(purpose, "local_only_value");
 
     // The server answers with its own re-serialisation: four roles including
-    // fact_checker, a shape the local edit never asked for.
+    // fact_checker, and its own purpose — a shape the local edit never asked for.
     queue.queueResponse(200, messageTurn2);
     await user.click(screen.getByRole("button", { name: "Save" }));
 
+    // The captured turn-2 order is researcher, writer, fact_checker, critic.
     await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "Team name" })).toHaveValue(
-        "article_team"
+      expect(screen.getByRole("textbox", { name: "Role 3 name" })).toHaveValue(
+        "fact_checker"
       )
     );
-    expect(screen.getByRole("textbox", { name: "Role 3 name" })).toHaveValue(
-      "fact_checker"
+    expect(screen.getByRole("textbox", { name: "Role 1 name" })).toHaveValue(
+      "researcher"
     );
     expect(screen.getByRole("textbox", { name: "Role 4 name" })).toHaveValue("critic");
+    // The local edit is gone: the form re-seeded from the response.
     expect(screen.queryByDisplayValue("local_only_value")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Purpose" })).not.toHaveValue(
+      "local_only_value"
+    );
     // And the save is confirmed rather than silently succeeding.
     expect(screen.getByText(/what the server stored/)).toBeInTheDocument();
+  });
+
+  it("shows the team name but does not offer to edit it", async () => {
+    const user = userEvent.setup();
+    render(<ComposerSurface />);
+    await openSpecEditor(user, queue);
+
+    // AC 4 names exactly three editable dimensions; renaming is Story 2.5's, and
+    // `output_path` is pinned from the first spec so a rename would desync the
+    // path shown on the build panel.
+    expect(
+      document.querySelector('[data-slot="spec-editor-team-name"]')?.textContent
+    ).toBe("article_team");
+    expect(screen.queryByRole("textbox", { name: "Team name" })).toBeNull();
+    // `purpose` stays editable — it is the one other accepted field with no
+    // such side effect.
+    expect(screen.getByRole("textbox", { name: "Purpose" })).toBeInTheDocument();
   });
 
   it("blocks the build with inline reasons from fields[] and keeps the good spec", async () => {
@@ -397,16 +423,89 @@ describe("AC 5 — the build outcome", () => {
     expect(within(transcript()).getByText("You")).toBeInTheDocument();
   });
 
-  it("replaces a stale result when a second build starts", async () => {
+  it("blocks a second build, which could only ever 409, and offers a way out", async () => {
     const user = userEvent.setup();
     await buildWith(user, build);
 
-    queue.queueHeld(buildWithSubstitution);
+    // `output_path` is derived from the first spec and pinned for the session's
+    // life (`api/output.py`), so a second build in this conversation cannot
+    // succeed. Offering the button anyway meant the only way to learn that was
+    // to press it — and the resulting error wiped the success panel, the one
+    // place the output path was ever shown.
+    for (const name of ["Run it now", "Build team"]) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute(
+        "aria-disabled",
+        "true"
+      );
+    }
+    expect(
+      document.querySelector('[data-slot="composer-actions-reason"]')?.textContent
+    ).toMatch(/has been built/i);
+
+    // Clicking anyway issues no request, and the panel survives.
     await user.click(screen.getByRole("button", { name: "Run it now" }));
-    // Otherwise a success panel from the previous attempt sits next to a
-    // spinner, claiming a build this attempt has not made.
+    expect(queue.buildRequests()).toHaveLength(1);
+    expect(buildPanel()).toBeInTheDocument();
+
+    // And there is a real control out of the dead end, not just an error.
+    const restart = screen.getByRole("button", {
+      name: "Start a new conversation",
+    });
+    await user.click(restart);
+    await waitFor(() =>
+      expect(screen.getByText("Describe your team.")).toBeInTheDocument()
+    );
+    expect(buildPanel()).toBeNull();
+  });
+
+  it("clears a stale build panel when the next turn changes the team", async () => {
+    const user = userEvent.setup();
+    await buildWith(user, build);
+    expect(buildPanel()).toBeInTheDocument();
+
+    queue.queueResponse(200, messageTurn2);
+    await user.type(box(), "add a fact-checker");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    // The panel described a 3-role team; the conversation now has 4. Leaving it
+    // rendered — as the newest entry in the transcript, no less — claimed the
+    // team on disk matched the team on screen.
     await waitFor(() => expect(buildPanel()).toBeNull());
-    queue.releaseHeld();
-    await waitFor(() => expect(buildPanel()).toBeInTheDocument());
+    expect(within(transcript()).getByText(/fact_checker/)).toBeInTheDocument();
+  });
+});
+
+describe("the build outcome is scrolled into view", () => {
+  it("scrolls when the panel appears, though it appends no transcript entry", async () => {
+    // jsdom implements no `scrollIntoView` at all, which is why the production
+    // code guards on `typeof`. That absence is also why this needed an explicit
+    // stub: without one, removing the effect's dependency on the build signal
+    // left the whole suite green while the outcome of the primary action
+    // rendered below the fold.
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      writable: true,
+      value: scrollIntoView,
+    });
+    try {
+      const user = userEvent.setup();
+      render(<ComposerSurface />);
+      await completeFirstTurn(user, queue);
+
+      const beforeBuild = scrollIntoView.mock.calls.length;
+      expect(beforeBuild).toBeGreaterThan(0); // the turn itself scrolled
+
+      queue.queueResponse(200, build);
+      await user.click(screen.getByRole("button", { name: "Run it now" }));
+      await waitFor(() => expect(buildPanel()).toBeInTheDocument());
+
+      // `entries.length` and `thinking` are both unchanged by a build, so this
+      // call can only come from the build signal being a dependency.
+      expect(scrollIntoView.mock.calls.length).toBeGreaterThan(beforeBuild);
+    } finally {
+      delete (Element.prototype as unknown as Record<string, unknown>)
+        .scrollIntoView;
+    }
   });
 });

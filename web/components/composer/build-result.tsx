@@ -56,11 +56,24 @@ export function BuildResult({ result }: { result: BuildResultView }) {
 
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Validation</span>
+          {/* Tri-state. `passed === null` means the server sent no usable verdict;
+              rendering that as "Failed" claimed a failure the response never
+              made, on a build that had just written files to disk. */}
           <Badge
             data-slot="build-validation"
-            variant={validation.passed ? "secondary" : "destructive"}
+            variant={
+              validation.passed === null
+                ? "outline"
+                : validation.passed
+                  ? "secondary"
+                  : "destructive"
+            }
           >
-            {validation.passed ? "Passed" : "Failed"}
+            {validation.passed === null
+              ? "Not reported"
+              : validation.passed
+                ? "Passed"
+                : "Failed"}
           </Badge>
         </div>
 
