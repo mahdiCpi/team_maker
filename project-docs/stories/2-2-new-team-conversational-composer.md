@@ -18,6 +18,19 @@ so that composing feels like a conversation, not a form.
 
 Set `Status: ready-for-dev` once 2.0 is merged, and re-read 2.0's Completion Notes first — it may have declared deviations from the contract as written (for example, `model_substitutions` returning an empty list if capturing substitutions cleanly required touching `team_maker/`).
 
+### Hard constraint added by Story 2.0's code review (2026-08-03)
+
+**`output_path` is server-owned and read-only to the browser. This story displays it and nothing more.**
+
+Story 2.0 originally documented the field as "server-owned" while only its *edit body* refused it: the value was authored by the LLM from free-text intent, so a message like *"put the output in /tmp/x"* re-authored it and steered where the build wrote. The review closed that — the server now derives the path as `TEAM_MAKER_OUTPUT_ROOT / <slugified team_name>`, pins it for the session's lifetime, and re-applies it after every turn (`api/output.py`, Story 2.0 **AC 13**).
+
+For this story that means:
+
+- **Display only.** No input, no picker, no "change location" affordance, no editable default. It is an absolute path on the server's filesystem, not the user's.
+- **Do not send it.** `PUT /api/compose/sessions/{id}/spec` rejects it with `extra="forbid"`; including it is a 422, not a no-op.
+- **Do not let the conversation move it.** If a user asks the Composer to change the output location, the correct response is UI copy explaining that the destination is chosen by the server — not a refinement turn. The server will ignore it regardless, so a turn spent on it is spend with no effect.
+- **A user-selectable destination is explicitly a later story** — Settings (2.6) or desktop packaging, where the trust boundary differs. Do not anticipate it here with a disabled control or a placeholder.
+
 ## Acceptance Criteria
 
 1. **Given** `EXPERIENCE.md:25` — *"The Composer is a **conversation**, not a one-shot form"* — and `EXPERIENCE.md:70` (*"Multi-turn. User describes; app proposes a team and asks targeted follow-ups"*), **When** the user opens `/` (already the landing route from Story 2.1), **Then** the page is a chat: an initial state headed **`Describe your team.`** (`EXPERIENCE.md:54,181`; `DESIGN.md:90`) with the placeholder `e.g. a team that researches a topic, drafts an article, and critiques it…` (`mockups/color-themes-1.html:87`); submitting calls `POST /api/compose/sessions`; each turn appends a user message and an assistant message; and the assistant's proposal names the roles in pipeline order and asks **one** targeted follow-up, not a checklist (`EXPERIENCE.md:184`; Story 1.3 Dev Notes `:99`). The mockup's single-textarea "Build team" screen is the **first turn of that chat**, not a competing design — `EXPERIENCE.md:14` ("Spines win on conflict with any mock") settles it. (FR-1, FR-20, UX-DR4)
@@ -118,7 +131,7 @@ Story 2.2 is **not** required to build a provider picker — omitting `authoring
 - **No streaming, no progress.** A turn is 1–4 blocking LLM calls behind one HTTP request. Spinner, not stream.
 - **No undo.** `ComposerSession` has no rollback (`deferred-work.md:56`); "revert that" is just another refinement turn.
 - **Sessions are in-process and single-worker.** A backend `--reload` drops every session, so `session_not_found` is a *routine* dev-time event, not an exceptional one. AC 8 exists because of this.
-- **`output_path` is an absolute server-side path.** Render it as informational text, never a link or an input default.
+- **`output_path` is an absolute server-side path, and it is read-only to you.** Render it as informational text, never a link, never an input, never an input default. See the hard constraint in the Dependency section — this is Story 2.0's AC 13, not a styling preference.
 
 ### The frontend you are building into — read this before writing a component
 
