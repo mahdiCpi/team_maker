@@ -1,4 +1,4 @@
-.PHONY: install install-dev test test-unit test-integration lint fmt clean example web-install web-dev web-build web-test web-lint
+.PHONY: install install-dev test test-unit test-integration test-api lint fmt clean example api-dev api-serve web-install web-dev web-build web-test web-lint
 
 install:
 	pip install -e .
@@ -15,14 +15,19 @@ test-unit:
 test-integration:
 	pytest tests/integration/ -v --tb=short
 
+test-api:
+	pytest tests/api/ -v --tb=short
+
+# Both packages: `pyproject.toml`'s [tool.coverage.run] source lists team_maker
+# and api, but --cov here overrides it, so api/ silently reported 0%.
 test-cov:
-	pytest tests/ --cov=team_maker --cov-report=term-missing --cov-report=html
+	pytest tests/ --cov=team_maker --cov=api --cov-report=term-missing --cov-report=html
 
 lint:
-	ruff check team_maker/ tests/
+	ruff check team_maker/ api/ tests/
 
 fmt:
-	ruff format team_maker/ tests/
+	ruff format team_maker/ api/ tests/
 
 clean:
 	rm -rf dist/ build/ *.egg-info .pytest_cache htmlcov .coverage
@@ -36,7 +41,23 @@ example:
 list-templates:
 	python -m team_maker list-templates
 
-# Web app (Story 2.1) — standalone Next.js UI in web/, no backend yet
+# API (Story 2.0) — the FastAPI seam AD-4 requires. Two-terminal dev flow:
+# `make api-dev` here, `make web-dev` next door; the Next rewrite proxies
+# /api/:path* to http://localhost:8000 so the browser stays same-origin.
+#
+# --reload already implies a single worker, so do NOT also pass --workers:
+# uvicorn rejects the combination.
+api-dev:
+	uvicorn api.main:app --reload --port 8000
+
+# Compose sessions live in an in-process dict (Story 2.0, AC 7). Raising the
+# worker count above 1 gives each worker its own registry, and sessions then
+# vanish at random for whichever requests land on the wrong process. The app
+# logs a startup warning if WEB_CONCURRENCY disagrees with this.
+api-serve:
+	uvicorn api.main:app --port 8000 --workers 1
+
+# Web app (Story 2.1) — standalone Next.js UI in web/
 web-install:
 	npm --prefix web ci
 

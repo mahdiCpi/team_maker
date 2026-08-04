@@ -1,4 +1,16 @@
-"""xAI (Grok) LLM adapter — OpenAI-compatible API (implements the LLMProvider port)."""
+"""OpenRouter LLM adapter — OpenAI-compatible gateway (implements the LLMProvider port).
+
+Added by Story 2.0 (AC 11). The key catalog already knew OpenRouter
+(`registry.py:105`), but only as a *routing gateway for team agents* — there
+was no authoring adapter, so `create_provider(provider="openrouter")` raised.
+AC 10 makes the API's authoring provider parametric, and a gateway is one of
+the three shapes it must support (one key, many models), so this row exists.
+
+Deliberately a near-copy of `xai_provider.py` rather than a new design: both
+are the same OpenAI-SDK-over-`base_url` shape, and keeping them identical means
+the next reader sees one pattern instead of two. Adding a provider is
+adapter/config, never core (AD-8).
+"""
 from __future__ import annotations
 
 import json
@@ -13,14 +25,18 @@ from team_maker.adapters.providers._timeouts import request_timeout
 T = TypeVar("T", bound=BaseModel)
 
 
-class XAIProvider:
-    """Calls xAI's OpenAI-compatible API and validates JSON against a Pydantic model."""
+class OpenRouterProvider:
+    """Calls OpenRouter's OpenAI-compatible API and validates JSON against a Pydantic model.
+
+    Model ids are `<model-creator>/<model>` (e.g. `anthropic/claude-sonnet-4-6`)
+    — the organisation that made the weights, not the company serving them.
+    """
 
     def __init__(
         self,
-        model: str = "grok-2",
-        api_key_env: str = "XAI_API_KEY",
-        base_url: str = "https://api.x.ai/v1",
+        model: str = "anthropic/claude-sonnet-4-6",
+        api_key_env: str = "OPENROUTER_API_KEY",
+        base_url: str = "https://openrouter.ai/api/v1",
     ):
         self.model = model
         self.api_key_env = api_key_env
@@ -31,15 +47,15 @@ class XAIProvider:
             from openai import OpenAI
         except ImportError:
             raise ImportError(
-                "openai package is required for the xAI provider (uses OpenAI-compatible API). "
-                "Install with: pip install 'team_maker[openai]'"
+                "openai package is required for the OpenRouter provider (uses "
+                "OpenAI-compatible API). Install with: pip install 'team_maker[openai]'"
             )
 
         api_key = os.environ.get(self.api_key_env)
         if not api_key:
             raise EnvironmentError(
                 f"Environment variable '{self.api_key_env}' is not set. "
-                "Set it to your xAI API key."
+                "Set it to your OpenRouter API key."
             )
 
         client = OpenAI(
@@ -78,7 +94,8 @@ class XAIProvider:
             match = re.search(r"\{.*\}", raw, re.DOTALL)
             if not match:
                 raise ValueError(
-                    f"xAI provider returned invalid JSON: {exc}\nRaw response:\n{raw[:500]}"
+                    f"OpenRouter provider returned invalid JSON: {exc}\n"
+                    f"Raw response:\n{raw[:500]}"
                 ) from exc
             data = json.loads(match.group())
 

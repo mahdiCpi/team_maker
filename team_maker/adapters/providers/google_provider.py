@@ -9,6 +9,7 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from team_maker.adapters.providers._model_match import _closest_model
+from team_maker.adapters.providers._timeouts import request_timeout
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -76,7 +77,11 @@ class GoogleProvider:
             ),
         )
 
-        response = model_instance.generate_content(full_prompt)
+        # Explicit timeout — see `_timeouts`. Gemini takes it per call rather
+        # than on the client, which is why this one reads differently.
+        response = model_instance.generate_content(
+            full_prompt, request_options={"timeout": request_timeout()}
+        )
         raw = response.text.strip()
 
         # Strip markdown fences if the model added them despite instructions.

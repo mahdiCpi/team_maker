@@ -6,7 +6,8 @@ import pytest
 from team_maker.composer.composer import Composer, ComposerError
 from team_maker.composer.session import ComposerSession
 from team_maker.schema.request import TeamCreationRequest
-from tests.unit.test_composer import FakeLLMProvider, _valid_payload
+from tests.support.fake_llm import FakeLLMProvider
+from tests.unit.test_composer import _valid_payload
 
 
 def test_start_then_refine_produces_a_second_valid_spec(tmp_path):

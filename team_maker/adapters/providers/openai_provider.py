@@ -7,6 +7,7 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from team_maker.adapters.providers._model_match import _closest_model
+from team_maker.adapters.providers._timeouts import request_timeout
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -44,7 +45,8 @@ class OpenAIProvider:
                 f"Environment variable '{self.api_key_env}' is not set."
             )
 
-        client = OpenAI(api_key=api_key)
+        # Explicit timeout — see `_timeouts`; the SDK default is 10 minutes.
+        client = OpenAI(api_key=api_key, timeout=request_timeout())
         self._maybe_resolve_model(client)
 
         response = client.beta.chat.completions.parse(

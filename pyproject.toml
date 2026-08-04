@@ -43,12 +43,30 @@ vector = [
 runtime = [
     "crewai>=1.14.6,<1.15",
 ]
+# The HTTP seam (Story 2.0, AD-4). Same pin discipline as `runtime` above.
+# FastAPI floor is 0.141 because 0.140.x carried the SSE status-code and
+# event-line-splitting fixes AD-13's future streaming work will depend on; the
+# ceiling stops an unverified minor arriving silently, since FastAPI's narrow
+# `starlette` range is the single most common install conflict in this tree —
+# `starlette` and `uvicorn` are ALREADY present transitively via `mcp` from the
+# crewai dependency tree, and crewai itself pins `pydantic<2.13` and
+# `httpx~=0.28.1`. Widening either bound requires re-running
+# `pip install -e ".[dev]" --dry-run` and confirming nothing downgrades
+# starlette/httpx/anyio/pydantic, then `tests/conformance/` on the result.
+# Plain `uvicorn`, not `uvicorn[standard]`: the extra's `uvloop` has no Windows
+# wheel and nothing here needs it.
+api = [
+    "fastapi>=0.141,<0.142",
+    "uvicorn>=0.52,<0.53",
+]
 all = [
     "anthropic>=0.40",
     "openai>=1.0",
     "google-generativeai>=0.7",
     "chromadb>=0.5",
     "crewai>=1.14.6,<1.15",
+    "fastapi>=0.141,<0.142",
+    "uvicorn>=0.52,<0.53",
 ]
 dev = [
     "pytest>=7.4",
@@ -57,6 +75,8 @@ dev = [
     "anthropic>=0.40",
     "openai>=1.0",
     "crewai>=1.14.6,<1.15",
+    "fastapi>=0.141,<0.142",
+    "uvicorn>=0.52,<0.53",
 ]
 
 [project.scripts]
@@ -64,7 +84,12 @@ team-maker = "team_maker.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["team_maker*"]
+# `api*` is load-bearing, not decorative (Story 2.0, AC 5). setuptools *finds*
+# `api/` either way and then silently drops it when it does not match `include`:
+# `pip install -e .` still reports success, `import api` still works from the
+# repo root (cwd is on sys.path), and the package is simply absent from any
+# wheel. The failure only surfaces from a different working directory.
+include = ["team_maker*", "api*"]
 
 [tool.setuptools.package-data]
 "team_maker.codegen" = ["templates/*.j2"]
@@ -84,5 +109,5 @@ select = ["E", "F", "I", "N", "W"]
 ignore = ["E501"]
 
 [tool.coverage.run]
-source = ["team_maker"]
+source = ["team_maker", "api"]
 omit = ["tests/*"]

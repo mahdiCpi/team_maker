@@ -6,6 +6,8 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from team_maker.adapters.providers._timeouts import request_timeout
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -32,6 +34,9 @@ class OllamaProvider:
         client = OpenAI(
             base_url=f"{self.base_url}/v1",
             api_key="ollama",  # Ollama ignores the key but the client requires it
+            # Explicit timeout — see `_timeouts`. Local models are often slower
+            # than hosted ones, which is why the value is env-configurable.
+            timeout=request_timeout(),
         )
 
         schema = response_model.model_json_schema()
