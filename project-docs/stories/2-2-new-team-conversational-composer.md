@@ -4,7 +4,7 @@ baseline_commit: 725b475
 
 # Story 2.2: New Team — conversational Composer with optional review
 
-Status: blocked-on-2.0
+Status: ready-for-dev
 
 ## Story
 
@@ -16,7 +16,13 @@ so that composing feels like a conversation, not a form.
 
 **This story requires Story 2.0 (the API seam) to have landed.** It builds the Composer UI only — every call to the Python core goes through the endpoints Story 2.0 creates, because AD-4 admits no other path. Story 2.0 is authoritative for the contract; the summary in Dev Notes is a convenience copy, and if the two disagree, 2.0 wins.
 
-Set `Status: ready-for-dev` once 2.0 is merged, and re-read 2.0's Completion Notes first — it may have declared deviations from the contract as written (for example, `model_substitutions` returning an empty list if capturing substitutions cleanly required touching `team_maker/`).
+**Story 2.0 is merged** (`3bb1520`, fast-forwarded into `epic_2` on 2026-08-03), so this story is now `ready-for-dev`. Read 2.0's Completion Notes and its **Review Findings** section before writing a component — its code review changed several things the contract summary below does not capture:
+
+- **`model_substitutions` is real, not the empty-list fallback.** 2.0 derived it without touching `team_maker/`, so the build response genuinely reports a silent model swap. Two gaps remain (the planner path reports `[]`, and it degrades to `[]` if pre-resolution raises) — see `deferred-work.md`.
+- **`output_path` is server-owned and read-only to you.** See the hard constraint below; this is 2.0's AC 13.
+- **A new error code exists that the table below does not list: `session_busy` (409).** The per-session lock is bounded now, so a second request against a conversation that is mid-turn gets a clean 409 instead of blocking. Handle it as "still working, try again in a moment", not as a failure.
+- **`compose_failed` (502) copy is causally neutral** — *"The team specification could not be created. Retry once; if the problem repeats, stop and report it."* It covers internal defects as well as upstream faults, so **do not** render it as "the provider is down", and **do not** build an automatic retry loop on it. Retry once, then surface it.
+- **Client strings are bounded** (`intent` and `message` 8,000 chars; names 120; text 2,000). Enforce the same limits client-side so the user sees a length error in the composer rather than a 422 from the server.
 
 ### Hard constraint added by Story 2.0's code review (2026-08-03)
 
