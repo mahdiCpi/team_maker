@@ -205,9 +205,20 @@ def _guarded(entry: ComposeSession, call: Callable[[], TeamCreationRequest]) -> 
                 f"choose a hosted authoring provider.",
                 exc,
             ) from exc
+        # Causally neutral on purpose. This branch catches *everything* that is
+        # not a ComposerError — a network fault, yes, but equally a TypeError
+        # from a bug in this repo. The previous copy ("the authoring provider
+        # could not be reached") asserted a cause the code has not established,
+        # which blamed the upstream for our own defects and invited a retry loop
+        # that spends money and can never succeed. Saying only what is known —
+        # the spec was not created — costs nothing and misleads no one.
+        # Classifying the exception properly would mean recognising SDK-specific
+        # types inside api/, which is precisely what AD-8 keeps out of this
+        # layer; it is deliberately not attempted in this story.
         raise log_and_wrap(
             COMPOSE_FAILED,
-            "The authoring provider could not be reached. Please try again.",
+            "The team specification could not be created. Retry once; if the "
+            "problem repeats, stop and report it.",
             exc,
         ) from exc
 
