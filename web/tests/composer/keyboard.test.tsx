@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ComposerSurface } from "@/components/composer/composer-surface";
 import { NavShortcuts } from "@/components/nav-shortcuts";
 
-import { build, sessionCreate } from "./fixtures";
+import { build, keyCheckAllGood, keyStatusHasKeys, sessionCreate } from "./fixtures";
 
 /**
  * AC 6 — the keyboard contract, and the chord collision it exists to prevent.
@@ -36,7 +36,21 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string | URL, init?: RequestInit) => {
-      requests.push({ url: String(url), method: init?.method ?? "GET" });
+      // The Composer reads the Story 2.3 key routes on mount and after each spec.
+      // Answered from a captured body and deliberately NOT recorded in `requests`,
+      // which every assertion below reads as "the compose calls this keystroke
+      // caused". This file has its own stub rather than the shared harness, so the
+      // same separation has to be made here too.
+      const path = String(url);
+      if (path.startsWith("/api/keys/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () =>
+            path.startsWith("/api/keys/check/") ? keyCheckAllGood : keyStatusHasKeys,
+        } as Response;
+      }
+      requests.push({ url: path, method: init?.method ?? "GET" });
       const next = queue.shift();
       if (!next) throw new Error(`unexpected request to ${url}`);
       return {

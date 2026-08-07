@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -40,8 +41,35 @@ SENTINEL_KEYS: dict[str, str] = {
 SENTINEL_VALUES: tuple[str, ...] = tuple(SENTINEL_KEYS.values())
 
 
+def _render_key_config(keys: dict[str, str]) -> str:
+    return "".join(f"{name}={value}\n" for name, value in keys.items())
+
+
+@pytest.fixture
+def key_config_path(tmp_path) -> Path:
+    """Where the isolated Key Config lives, for tests that assert on the path."""
+    return tmp_path / "team_maker.keys"
+
+
+@pytest.fixture
+def write_key_config(key_config_path) -> Callable[[dict[str, str]], None]:
+    """Rewrite the isolated Key Config (Story 2.3).
+
+    **Ordering is load-bearing.** `api/main.py`'s lifespan bridges credentials
+    into `os.environ` once at startup, so calling this *before* `make_client()`
+    changes what the process can actually authenticate with, while calling it
+    *after* simulates a user editing the file while the server runs — which is
+    the AC 3 case, and deliberately does NOT bridge.
+    """
+
+    def _write(keys: dict[str, str]) -> None:
+        key_config_path.write_text(_render_key_config(keys), encoding="utf-8")
+
+    return _write
+
+
 @pytest.fixture(autouse=True)
-def isolated_key_config(tmp_path, monkeypatch) -> Iterator[dict[str, str]]:
+def isolated_key_config(key_config_path, monkeypatch) -> Iterator[dict[str, str]]:
     """Point the app at a throwaway Key Config holding only sentinels.
 
     Restores the whole process environment afterwards: the app bridges
@@ -50,12 +78,9 @@ def isolated_key_config(tmp_path, monkeypatch) -> Iterator[dict[str, str]]:
     full snapshot/restore is guaranteed to undo it.
     """
     saved_environ = dict(os.environ)
-    key_file = tmp_path / "team_maker.keys"
-    key_file.write_text(
-        "".join(f"{name}={value}\n" for name, value in SENTINEL_KEYS.items()),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("TEAM_MAKER_KEYS", str(key_file))
+    tmp_path = key_config_path.parent
+    key_config_path.write_text(_render_key_config(SENTINEL_KEYS), encoding="utf-8")
+    monkeypatch.setenv("TEAM_MAKER_KEYS", str(key_config_path))
     # The API derives `output_path` itself rather than trusting the composer's
     # (code review D2), so builds land under this root. Pointed at `tmp_path`
     # so the suite never writes into the repo's real `generated_teams/`.

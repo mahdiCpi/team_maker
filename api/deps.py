@@ -145,7 +145,7 @@ def authoring_unsupported(choice: AuthoringChoice) -> ApiError:
     )
 
 
-def _safe_label(value: str, *, limit: int = 64) -> str:
+def safe_label(value: str, *, limit: int = 64) -> str:
     """A client-supplied string that is safe to put in a log line or a message.
 
     Control characters are stripped and the length is bounded. Without this, a
@@ -167,7 +167,7 @@ def unknown_authoring_provider(name: str, exc: ValueError) -> ApiError:
     provider name is echoed because it is the client's own input, never
     `str(exc)`.
     """
-    label = _safe_label(name)
+    label = safe_label(name)
     logger.warning("unknown authoring provider requested: %r (%s)", label, exc.__class__.__name__)
     return ApiError(
         SPEC_INVALID,
@@ -234,6 +234,38 @@ def bridge_credentials(key_config: KeyConfig) -> list[str]:
             os.environ[row.env_var] = secret
             bridged.append(row.name)
     return bridged
+
+
+def providers_needing_restart(
+    key_config: KeyConfig, bridged: tuple[str, ...]
+) -> list[str]:
+    """Providers the Key Config can satisfy but *this process* cannot, until restart.
+
+    Two cases, and the second is the common one:
+
+    * **Added** — a provider absent at startup, so its variable was never bridged.
+    * **Changed** — a provider whose value was corrected, rotated or un-expired in
+      place. `config.has(name)` and `name in bridged` are both still true, so a
+      membership test cannot see it; only comparing the values can.
+
+    Either way a team *run* picks the new value up (it resolves from the Key Config
+    directly), while authoring reads `os.environ` and keeps using what was bridged.
+
+    Lives here rather than in `api/keystatus.py` on purpose: this is the one module
+    in `api/` that unwraps a secret, and the comparison must stay inside it.
+    Returns provider *names* only — no value is returned, logged or compared into
+    any message (AD-9).
+    """
+    stale: list[str] = []
+    for row in PROVIDERS:
+        if not row.env_var or not key_config.has(row.name):
+            continue
+        if row.name not in bridged:
+            stale.append(row.name)  # added since startup
+            continue
+        if os.environ.get(row.env_var) != key_config.keys[row.name].get_secret_value():
+            stale.append(row.name)  # changed in place since startup
+    return stale
 
 
 def default_provider_factory() -> ProviderFactory:

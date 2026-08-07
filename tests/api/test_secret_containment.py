@@ -52,6 +52,12 @@ def _exercise_every_route(client, tmp_path, spec_payload) -> list:
             "/api/compose/sessions",
             json={"intent": "docs team", "authoring": {"provider": "google", "model": "g"}},
         ),
+        # The key-status group (Story 2.3). These are the routes closest to a
+        # credential in the whole app — they read the Key Config on every call —
+        # so the sweep matters more here than anywhere else.
+        client.get("/api/keys/status"),
+        client.get(f"/api/keys/check/{session_id}"),
+        client.get("/api/keys/check/unknown"),
     ]
     return responses
 
@@ -96,6 +102,12 @@ def test_the_sweep_actually_reached_every_route(
         parts = path.strip("/").split("/")
         if len(parts) == 5 and parts[:3] == ["api", "compose", "sessions"]:
             return f"/api/compose/sessions/{{session_id}}/{parts[4]}"
+        # `/api/keys/check/{session_id}` is four segments, so the rule above does
+        # not reach it. Story 2.1's review found a scanner narrower than its claim;
+        # leaving this out would have been the same defect, and the assertion below
+        # would have failed rather than passed silently.
+        if len(parts) == 4 and parts[:3] == ["api", "keys", "check"]:
+            return "/api/keys/check/{session_id}"
         return path
 
     assert authored <= {_template(path) for path in visited}

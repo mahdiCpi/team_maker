@@ -164,3 +164,91 @@ class BuildView(BaseModel):
 
 class HealthView(BaseModel):
     status: Literal["ok"] = "ok"
+
+
+# ---------------------------------------------------------------------------
+# Key status (Story 2.3). Status only — never a key value (AD-9).
+# ---------------------------------------------------------------------------
+
+
+class ProviderKeyView(BaseModel):
+    """One provider's availability. `status`/`detail` are the catalog's own words."""
+
+    name: str
+    # A `registry.STATUS_*` value, forwarded verbatim rather than re-spelled, so a
+    # status added to `classify()` cannot silently become a different word here.
+    status: str
+    # What to tell the user: the catalog's status wording, replaced when the
+    # credential came from somewhere other than the Key Config file.
+    detail: str
+    # The catalog's own word for the status, unmodified.
+    status_detail: str
+    usable: bool
+    # The Key Config entry that would satisfy it. The *name* of the variable, never
+    # its value (`preflight.py:12-13`). `None` for a keyless provider.
+    env_var: str | None
+    # `None` when there is nothing to fix.
+    fix_hint: str | None
+    # Which of the two documented sources answered — `key-config`, `environment`,
+    # `startup-leftover`, or `none`. The *source*, never the value (AD-9).
+    credential_source: str
+
+
+class RoleKeyView(BaseModel):
+    """One role's required provider, resolved server-side.
+
+    `inherited_default` matters to the UI: a role that named no `llm` got its
+    provider from `role.llm -> default_llm -> anthropic/claude-sonnet-4-6`, and the
+    browser is forbidden from inventing that default (`spec-draft.ts:9-13`), so it
+    needs telling which roles are showing an inherited choice rather than the
+    user's own.
+    """
+
+    role: str
+    provider: str
+    model: str
+    status: str
+    detail: str
+    usable: bool
+    inherited_default: bool
+    fix_hint: str | None
+    credential_source: str
+    # True for a role the build cannot proceed without, so the UI must not offer to
+    # drop or route around it. The synthetic planner role is the only one today.
+    required: bool
+
+
+class KeyStatusView(BaseModel):
+    """The provider-level read: `GET /api/keys/status`.
+
+    `overall` is only ever `no-keys` or `has-keys`. A four-state verdict would be a
+    guess: this route has no team, and the catalog permanently contains a provider
+    the runtime cannot use (`groq`) and one that needs no key at all (`ollama`).
+    """
+
+    status: Literal["complete"] = "complete"
+    overall: str
+    providers: list[ProviderKeyView]
+    # Not a secret, and the thing that makes "add it to your Key Config" actionable
+    # (Story 1.6 precedent).
+    key_config_path: str
+    load_warnings: list[str]
+    any_key_present: bool
+    # Present in the file now, but not bridged at startup — so usable for a run and
+    # not yet for composing. See `api/keystatus.needs_restart_to_author`.
+    needs_restart_to_author: list[str]
+
+
+class KeyCheckView(BaseModel):
+    """The per-team check: `GET /api/keys/check/{session_id}`."""
+
+    status: Literal["complete"] = "complete"
+    overall: str
+    blocked: bool
+    blocking_reason: str | None
+    roles: list[RoleKeyView]
+    providers: list[ProviderKeyView]
+    key_config_path: str
+    load_warnings: list[str]
+    any_key_present: bool
+    needs_restart_to_author: list[str]

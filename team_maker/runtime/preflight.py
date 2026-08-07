@@ -116,7 +116,7 @@ def check_credentials(
     if failed_roles:
         raise MissingCredentialsError(
             [
-                _describe(provider_name, roles)
+                describe_unresolved_provider(provider_name, roles)
                 for provider_name, roles in failed_roles.items()
             ]
         )
@@ -174,7 +174,23 @@ def _reject_invalid_task_names(team: GeneratedTeam) -> None:
         )
 
 
-def _describe(provider_name: str, roles: Sequence[str]) -> UnresolvedProvider:
+def describe_unresolved_provider(
+    provider_name: str, roles: Sequence[str] = ()
+) -> UnresolvedProvider:
+    """What the user should actually do about a provider that cannot be used.
+
+    Public because it is the *only* fix-hint generator in the system: Story 2.3's
+    key-status routes surface the same advice over HTTP, and a second copy would
+    be free to drift into the two false statements this function exists to avoid
+    — telling someone to add a key that cannot help, and offering OpenRouter to a
+    provider it cannot reach.
+
+    ``roles`` is optional: a provider-level caller (the key check) has no role to
+    attach and must not have to invent one.
+
+    Names the variable, never the value (AD-9). Every string here is built from
+    catalog data, so no credential can enter it.
+    """
     provider = get_provider(provider_name)
     if provider is None:
         return UnresolvedProvider(

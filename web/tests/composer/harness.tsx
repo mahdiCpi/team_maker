@@ -4,7 +4,7 @@ import type userEvent from "@testing-library/user-event";
 // it available at runtime, but `tsc --noEmit` does not see it without the types.
 import { expect, vi } from "vitest";
 
-import { sessionCreate } from "./fixtures";
+import { keyCheckAllGood, keyStatusHasKeys, sessionCreate } from "./fixtures";
 
 /**
  * Shared test harness for the Composer suites.
@@ -40,27 +40,63 @@ export type RecordedRequest = {
 };
 
 export type FetchQueue = {
+  /**
+   * Compose requests only. The Story 2.3 key routes are recorded in
+   * `keyRequests` instead, so that assertions like `requests[1].url` — which
+   * predate those routes and mean "the second *compose* call" — keep meaning it.
+   */
   requests: RecordedRequest[];
+  /** `/api/keys/*` requests, in order. */
+  keyRequests: RecordedRequest[];
   queueResponse: (status: number, body: unknown) => void;
   queueHeld: (body: unknown) => void;
   queueReject: (error: Error) => void;
   queueUnparseable: (status: number) => void;
+  /**
+   * Override the default answer for the next `/api/keys/status` request.
+   *
+   * Separate from `queueKeyCheck` because the Composer re-reads the provider status
+   * on every spec change, so a single FIFO queue across both routes made the number
+   * of status reads part of every test's setup — and a test that guessed wrong got
+   * the default silently.
+   */
+  queueKeyStatus: (status: number, body: unknown) => void;
+  queueKeyStatusReject: (error: Error) => void;
+  /** Override the default answer for the next `/api/keys/check/{id}` request. */
+  queueKeyCheck: (status: number, body: unknown) => void;
+  queueKeyCheckReject: (error: Error) => void;
   releaseHeld: () => void;
   install: () => void;
   buildRequests: () => RecordedRequest[];
 };
 
+/**
+ * The Composer reads `/api/keys/status` on mount and `/api/keys/check/{id}` once a
+ * spec exists (Story 2.3). Those are answered from a **captured** has-keys body by
+ * default rather than from the main queue, for two reasons: every pre-2.3 suite
+ * would otherwise fail with "unexpected request", and a test about chat or builds
+ * should not have to know the key routes exist. Queue an explicit key response when
+ * the key state is what is under test.
+ */
 export function createFetchQueue(): FetchQueue {
   const queue: QueuedResponse[] = [];
+  const statusQueue: QueuedResponse[] = [];
+  const checkQueue: QueuedResponse[] = [];
   const requests: RecordedRequest[] = [];
+  const keyRequests: RecordedRequest[] = [];
   let held: (() => void)[] = [];
 
   const api: FetchQueue = {
     requests,
+    keyRequests,
     queueResponse: (status, body) => queue.push({ kind: "reply", status, body }),
     queueHeld: (body) => queue.push({ kind: "held", body }),
     queueReject: (error) => queue.push({ kind: "reject", error }),
     queueUnparseable: (status) => queue.push({ kind: "unparseable", status }),
+    queueKeyStatus: (status, body) => statusQueue.push({ kind: "reply", status, body }),
+    queueKeyStatusReject: (error) => statusQueue.push({ kind: "reject", error }),
+    queueKeyCheck: (status, body) => checkQueue.push({ kind: "reply", status, body }),
+    queueKeyCheckReject: (error) => checkQueue.push({ kind: "reject", error }),
     releaseHeld: () => {
       held.forEach((resolve) => resolve());
       held = [];
@@ -70,11 +106,37 @@ export function createFetchQueue(): FetchQueue {
       vi.stubGlobal(
         "fetch",
         vi.fn(async (url: string | URL, init?: RequestInit) => {
-          requests.push({
+          const recorded: RecordedRequest = {
             url: String(url),
             method: init?.method ?? "GET",
             body: init?.body ? JSON.parse(String(init.body)) : undefined,
-          });
+          };
+
+          if (recorded.url.startsWith("/api/keys/")) {
+            keyRequests.push(recorded);
+            const isCheck = recorded.url.startsWith("/api/keys/check/");
+            const queued = (isCheck ? checkQueue : statusQueue).shift();
+            if (queued?.kind === "reject") throw queued.error;
+            if (queued?.kind === "reply") {
+              return {
+                ok: queued.status < 400,
+                status: queued.status,
+                json: async () => queued.body,
+              } as Response;
+            }
+            // Default: the captured body for whichever route was asked, so a suite
+            // that does not care about keys renders the same "has keys, nothing
+            // blocked" state a developer with working keys would see. Answering both
+            // routes with the same body would make the check unparseable, which
+            // happens to look the same from outside but for the wrong reason.
+            return {
+              ok: true,
+              status: 200,
+              json: async () => (isCheck ? keyCheckAllGood : keyStatusHasKeys),
+            } as Response;
+          }
+
+          requests.push(recorded);
 
           const next = queue.shift();
           // Loud on purpose: a silent empty response would make a component

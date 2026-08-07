@@ -13,8 +13,9 @@ from __future__ import annotations
 import logging
 
 from api.errors import BUILD_FAILED, OUTPUT_EXISTS, log_and_wrap
+from api.routings import requested_routings, routing_label
 from api.schemas import BuildView, ModelSubstitution, ValidationView
-from team_maker.domain.models import GeneratedTeam, ProviderRouting
+from team_maker.domain.models import GeneratedTeam
 from team_maker.pipeline.runner import PipelineResult, PipelineRunner
 from team_maker.schema.request import TeamCreationRequest
 
@@ -23,15 +24,23 @@ logger = logging.getLogger("api.build")
 
 def run_build(request: TeamCreationRequest) -> BuildView:
     """Build the team package, mapping every failure onto an AC 2 error code."""
-    requested = _requested_routings(request)
+    requested = _requested_labels(request)
     try:
         result = PipelineRunner().run(request)
     except FileExistsError as exc:
         raise log_and_wrap(
             OUTPUT_EXISTS,
-            "A directory already exists at the team's output path, and this build "
-            "will not overwrite it. Choose a different output path, or remove the "
-            "existing directory.",
+            # Story 2.3 owns error copy, and this was the concrete defect
+            # `deferred-work.md:153` recorded: the old wording said "choose a
+            # different output path", which is the one remedy no client can take.
+            # `output_path` is server-owned and read-only to the browser (AC 13),
+            # derived from the team name and pinned for the session's life — so the
+            # only remedies are the two named here, and the API tells the truth
+            # about who owns the destination.
+            "A directory already exists where this team would be written, so the "
+            "build stopped rather than overwrite it. The destination is chosen by "
+            "the server from the team's name; build a differently-named team, or "
+            "remove the existing directory.",
             exc,
         ) from exc
     except Exception as exc:  # AC 8 — catch broadly, leak nothing
@@ -60,46 +69,26 @@ def _to_view(result: PipelineResult, requested: dict[str, str]) -> BuildView:
     )
 
 
-def _requested_routings(request: TeamCreationRequest) -> dict[str, str]:
-    """What model each role asked for, *before* the pipeline normalises it.
+def _requested_labels(request: TeamCreationRequest) -> dict[str, str]:
+    """`{role: "provider/model"}` for what each role asked for, pre-normalisation.
 
-    Obtained by running the same public template the pipeline runs
-    (`PipelineRunner._generate_from_template` -> `get_template(...).generate()`),
-    which is a pure in-memory transform: no disk, no network, no clock
-    (project-context, "Generators are pure string producers"). That is
-    deliberate — the alternative was re-encoding the
-    `role.llm -> default_llm -> anthropic/claude-sonnet-4-6` resolution order
-    here, which would be a second source of truth for a rule that already
-    exists in one place. Nothing under `team_maker/` is modified.
-
-    Returns `{}` for the planner path (empty `desired_roles`), where the team
-    is invented by an LLM and there is no client-requested model to compare to.
+    The resolution itself lives in `api/routings.py`, shared with the key check
+    (Story 2.3 AC 2) so the `role.llm -> default_llm -> default` order is not
+    encoded twice. This only re-labels it into the form the report compares on.
     """
-    if not request.desired_roles:
-        logger.info("build has no desired_roles; model substitutions cannot be reported")
-        return {}
-    try:
-        import team_maker.templates  # noqa: F401 — triggers template registration
-        from team_maker.templates.registry import get_template
-
-        pre = get_template("software_delivery_team").generate(request)
-    except Exception:  # never let reporting break a build
-        logger.exception("could not pre-resolve requested routings")
-        return {}
-    return {agent.role: _routing_label(agent.routing) for agent in pre.agents}
+    return {
+        role: routing_label(routing)
+        for role, routing in requested_routings(request).items()
+    }
 
 
 def _substitutions(requested: dict[str, str], team: GeneratedTeam) -> list[ModelSubstitution]:
     changes: list[ModelSubstitution] = []
     for agent in team.agents:
         before = requested.get(agent.role)
-        after = _routing_label(agent.routing)
+        after = routing_label(agent.routing)
         if before is not None and before != after:
             changes.append(
                 ModelSubstitution(role=agent.role, requested=before, resolved=after)
             )
     return changes
-
-
-def _routing_label(routing: ProviderRouting) -> str:
-    return f"{routing.provider}/{routing.model}"

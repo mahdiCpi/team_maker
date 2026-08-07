@@ -21,6 +21,12 @@ class AppState:
     provider_factory: ProviderFactory
     # Provider *names* whose credential was bridged at startup. Never values.
     bridged_providers: tuple[str, ...]
+    # Provider names the Key Config *file* itself defined at startup, excluding the
+    # environment fallback. Needed to tell "this key only ever came from the
+    # environment" apart from "the file used to define this and no longer does" —
+    # `bridged_providers` cannot, because the bridge publishes whatever `KeyConfig`
+    # loaded, env-sourced entries included. Names only, never values.
+    file_providers: tuple[str, ...] = ()
 
 
 def app_state(request: Request) -> AppState:

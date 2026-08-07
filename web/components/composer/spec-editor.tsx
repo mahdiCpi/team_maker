@@ -14,7 +14,12 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import type { SpecEditInput } from "@/lib/api-client"
-import type { ApiFailure, FieldIssue, SpecView } from "@/lib/api-types"
+import type {
+  ApiFailure,
+  FieldIssue,
+  RoleKeyView,
+  SpecView,
+} from "@/lib/api-types"
 import {
   PROVIDER_IDS,
   draftIssues,
@@ -66,6 +71,8 @@ export function SpecEditor({
   failure,
   saving,
   savedNotice,
+  keyRoles,
+  blockedReason,
   onSave,
   onBuild,
   onClose,
@@ -77,6 +84,22 @@ export function SpecEditor({
   saving: boolean
   /** Set after a save succeeded, so the reopened form confirms it happened. */
   savedNotice: string | null
+  /**
+   * The key check for the *saved* spec (Story 2.3).
+   *
+   * Needed here and not only on the surface: this dialog has a `z-50` backdrop, so
+   * the key-check banner behind it is invisible — the same reason the editor owns
+   * its own failures. Without it, changing a role to a provider with no key would
+   * get no feedback at all, on the one surface where that choice is made.
+   */
+  keyRoles: RoleKeyView[]
+  /**
+   * The surface's build gate, or `null` when it permits a build.
+   *
+   * Threaded in rather than recomputed: this dialog holds the fourth of four ways
+   * to start a build, and its own reasons only know about saving and unsaved edits.
+   */
+  blockedReason: string | null
   onSave: (edit: SpecEditInput) => void
   onBuild: () => void
   onClose: () => void
@@ -115,11 +138,17 @@ export function SpecEditor({
   // `Build team` here must not build something other than what is on screen: an
   // unsaved edit is not in the session's spec, so building would silently
   // discard it. Stated as a reason rather than a dead control.
+  //
+  // `blockedReason` is the surface's own gate, threaded in so this control cannot
+  // route around it. It is the fourth of four ways to start a build, and it was the
+  // one that bypassed the Story 2.3 key check — the local reasons below are about
+  // *this dialog's* state and would never have known about a missing key.
+  // Editor-local reasons come first: they are the more immediate thing to fix.
   const buildBlockedReason = saving
     ? "Saving your changes…"
     : dirty
       ? "Save your changes first, then build."
-      : null
+      : blockedReason
 
   return (
     <Dialog
@@ -279,6 +308,7 @@ export function SpecEditor({
                   }
                 />
               </div>
+              <RoleKeyNote note={keyNoteFor(keyRoles, role)} />
               <IssueList
                 issues={grouped.roleRows.get(index) ?? []}
                 slot="spec-editor-role-row-issues"
@@ -423,6 +453,53 @@ function Field({
       <span className="text-xs text-muted-foreground">{label}</span>
       {children}
     </div>
+  )
+}
+
+/**
+ * The key note for one editor row, or `null` when there is nothing honest to say.
+ *
+ * The check describes the **saved** spec, so it is only shown while the row still
+ * matches what was checked. Change the provider and the note disappears rather than
+ * asserting a status for a provider nobody has checked — a stale "key found" beside
+ * a freshly typed provider is exactly the kind of claim this story exists to stop.
+ *
+ * An empty `provider` in the draft means "server default", which corresponds to the
+ * checked role having inherited its routing.
+ */
+function keyNoteFor(
+  keyRoles: RoleKeyView[],
+  role: { name: string; provider: string }
+): RoleKeyView | null {
+  const checked = keyRoles.find((entry) => entry.role === role.name)
+  if (!checked) return null
+  const stillMatches =
+    role.provider === ""
+      ? checked.inherited_default
+      : role.provider === checked.provider
+  return stillMatches ? checked : null
+}
+
+function RoleKeyNote({ note }: { note: RoleKeyView | null }) {
+  if (note === null) return null
+  return (
+    <p
+      data-slot="spec-editor-role-key"
+      data-status={note.status}
+      data-usable={note.usable}
+      className={
+        "text-xs " + (note.usable ? "text-muted-foreground" : "text-destructive")
+      }
+    >
+      {/* Colour is never the only carrier (`EXPERIENCE.md:117`), and an unusable
+          row carries the server's own remedy rather than a re-authored one.
+          `fix_hint` is guarded: interpolating a null into a template string printed
+          the literal "null", where the JSX interpolation in `key-check.tsx` renders
+          nothing — two sites behaving differently on the same input. */}
+      {note.usable || !note.fix_hint
+        ? note.detail
+        : `${note.detail} — ${note.fix_hint}`}
+    </p>
   )
 }
 

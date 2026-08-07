@@ -1,1 +1,1 @@
-{"error":{"code":"output_exists","message":"A directory already exists at the team's output path, and this build will not overwrite it. Choose a different output path, or remove the existing directory."}}
+{"error":{"code":"output_exists","message":"A directory already exists where this team would be written, so the build stopped rather than overwrite it. The destination is chosen by the server from the team's name; build a differently-named team, or remove the existing directory."}}

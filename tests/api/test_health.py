@@ -33,6 +33,10 @@ def test_authored_routes_are_exactly_the_ac2_set(make_client):
         ("/api/compose/sessions/{session_id}/messages", "POST"),
         ("/api/compose/sessions/{session_id}/spec", "PUT"),
         ("/api/compose/sessions/{session_id}/build", "POST"),
+        # The key-status group, added by Story 2.3 as `epics.md:334`'s designated
+        # first consumer. Both are GET: AD-9 means no endpoint here accepts a key.
+        ("/api/keys/status", "GET"),
+        ("/api/keys/check/{session_id}", "GET"),
     }
 
 

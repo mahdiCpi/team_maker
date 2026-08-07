@@ -526,16 +526,24 @@ describe("hardening found by the first code review", () => {
     }
   });
 
-  it("replaces the output_exists message with copy the UI can honour", async () => {
+  it("relays output_exists now that the server's own copy is honourable", async () => {
+    // Story 2.2 overrode this code client-side because the server told the user to
+    // "choose a different output path" — a remedy the UI must not offer. Story 2.3
+    // fixed the sentence at its source, so the override is gone and the server's
+    // message is relayed like every other code's. The re-captured fixture is the
+    // evidence that the source really changed.
     stubFetch(409, errorOutputExists);
     const result = await buildTeam("SID");
     if (result.ok) throw new Error("expected failure");
     expect(result.code).toBe("output_exists");
+    expect(JSON.stringify(errorOutputExists)).not.toMatch(
+      /choose a different output path/i
+    );
     expect(result.message).not.toMatch(/choose a different output path/i);
-    expect(result.message).toMatch(/start a new conversation/i);
+    expect(result.message).toMatch(/chosen by the server/i);
   });
 
-  it("still prefers the server's message for every other code", async () => {
+  it("prefers the server's message for every code", async () => {
     stubFetch(502, {
       error: { code: "compose_failed", message: "A very specific server sentence." },
     });

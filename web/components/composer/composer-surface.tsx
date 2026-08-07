@@ -12,11 +12,14 @@ import {
   INITIAL_COMPOSER_STATE,
   composerReducer,
 } from "@/components/composer/composer-state"
+import { KeyCheck } from "@/components/composer/key-check"
 import { SpecEditor } from "@/components/composer/spec-editor"
 import { Transcript } from "@/components/composer/transcript"
 import {
   buildTeam,
   createSession,
+  getKeyCheck,
+  getKeyStatus,
   replaceSpec,
   sendMessage,
   type SpecEditInput,
@@ -56,6 +59,68 @@ export function ComposerSurface() {
 
   const hasSpec = state.spec !== null
   const isFirstTurn = state.sessionId === null
+
+  /**
+   * The provider-level key read (Story 2.3, AC 1).
+   *
+   * On mount, and only once. This is a file read on the server — no LLM, no spend —
+   * so it does not carry the objection that keeps session creation lazy. It is what
+   * lets the no-keys state appear before the user has typed anything, which
+   * `EXPERIENCE.md:87` places on the Composer rather than pre-run.
+   *
+   * The state write happens after `await`, not synchronously in the effect, which
+   * is what keeps `react-hooks/set-state-in-effect` satisfied.
+   */
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const result = await getKeyStatus()
+      if (cancelled) return
+      // A failure is deliberately silent here: not knowing the provider report is
+      // not something to interrupt the user about, and the surface renders nothing
+      // rather than guessing. A team-level check failing does gate, below.
+      if (result.ok) dispatch({ type: "key_status_loaded", status: result.data })
+    })()
+    return () => {
+      cancelled = true
+    }
+    // Re-read on every spec change and on a restart, not once at mount. The reason
+    // is the same one this story gave for re-reading the Key Config server-side: the
+    // user acts on the fix hint, and a value fetched once would keep asserting the
+    // pre-edit truth for the life of the page — the no-keys banner in particular
+    // could never clear without a reload.
+  }, [state.keyCheckEpoch])
+
+  /**
+   * The per-team check (AC 2), re-read on every adopted spec.
+   *
+   * Keyed on `keyCheckEpoch` rather than on the spec object: the server
+   * re-serialises the spec on every turn, so an identity comparison would refetch
+   * forever, and a deep comparison would miss a change the server made silently.
+   * The epoch is bumped by exactly the transitions that change which providers the
+   * team needs (`adoptSession`), and the value captured here is compared in the
+   * reducer, so a check for a spec that has since been replaced is discarded
+   * instead of applied.
+   */
+  React.useEffect(() => {
+    const sessionId = state.sessionId
+    if (!sessionId || !hasSpec) return
+    const epoch = state.keyCheckEpoch
+    let cancelled = false
+    dispatch({ type: "key_check_requested", epoch })
+    void (async () => {
+      const result = await getKeyCheck(sessionId)
+      if (cancelled) return
+      if (result.ok) {
+        dispatch({ type: "key_check_loaded", check: result.data, epoch })
+      } else {
+        dispatch({ type: "key_check_unavailable", failure: result, epoch })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [state.sessionId, state.keyCheckEpoch, hasSpec])
 
   async function submitTurn() {
     const text = input.trim()
@@ -113,11 +178,27 @@ export function ComposerSurface() {
     }
   }
 
-  const blockedReason = actionBlockedReason(state)
+  /**
+   * Two gates, not one.
+   *
+   * `reviewGate` stops even *opening* the review editor: the conversation is gone,
+   * a turn is in flight, there is no spec yet. `buildGate` adds the Story 2.3 key
+   * check, which stops a build but must **not** stop the editor from opening —
+   * that is the one place a user can act on the spine's own advice to "switch this
+   * agent to a model you have" (`EXPERIENCE.md:86`). Gating both together made the
+   * remedy unreachable from the very state that recommends it.
+   */
+  const reviewGate = conversationBlockedReason(state)
+  const buildGate = reviewGate ?? keyBlockedReason(state)
+  const openingReview = state.reviewBeforeBuild && hasSpec
+  // `Build team` opens review when review is on, so it answers to the review gate;
+  // otherwise it builds, and answers to the build gate.
+  const blockedReason = openingReview ? reviewGate : buildGate
+  // `Run it now` always builds, bypassing review — so always the build gate.
   // Passed unconditionally, including the "nothing to build yet" case. Gating it
   // on `hasSpec` made the hint branch that explains a blocked `⌘/Ctrl+Enter`
   // unreachable, so the chord swallowed the keystroke and said nothing.
-  const runNowReason = blockedReason
+  const runNowReason = buildGate
 
   return (
     <div data-slot="composer" className="flex min-h-0 flex-1 flex-col gap-3">
@@ -140,6 +221,11 @@ export function ComposerSurface() {
           {state.build ? <BuildResult result={state.build} /> : null}
         </Transcript>
       )}
+
+      {/* Above the failure alert and outside `ComposerActions`, which only renders
+          once a spec exists — the no-keys state has to be visible before the user
+          has described anything (`EXPERIENCE.md:87`). */}
+      <KeyCheck status={state.keyStatus} check={state.keyCheck} />
 
       {/* Suppressed while the editor is showing the same `fields[]` inline: the
           dialog is over this, so the alert behind it would be invisible and only
@@ -183,7 +269,7 @@ export function ComposerSurface() {
           onBuild={commit}
           onRunNow={() => void runBuild()}
           buildBlockedReason={blockedReason}
-          runNowBlockedReason={blockedReason}
+          runNowBlockedReason={runNowReason}
         />
       ) : null}
 
@@ -193,7 +279,7 @@ export function ComposerSurface() {
         onSend={() => void submitTurn()}
         // Passed only when the action can actually happen, so `⌘/Ctrl+Enter`
         // cannot fire into nothing. The reason is on screen either way.
-        onRunNow={hasSpec && !blockedReason ? () => void runBuild() : undefined}
+        onRunNow={hasSpec && !buildGate ? () => void runBuild() : undefined}
         isFirstTurn={isFirstTurn}
         sendBlockedReason={sendBlockedReason(state)}
         runNowBlockedReason={runNowReason}
@@ -208,6 +294,13 @@ export function ComposerSurface() {
           // The whole failure, so the modal can show a message for every code
           // rather than only distributing `spec_invalid`'s field reasons.
           failure={state.failure}
+          // The key check cannot be seen behind the dialog's backdrop, so the rows
+          // carry it themselves — this is where a role's provider is chosen.
+          keyRoles={state.keyCheck?.roles ?? []}
+          // The fourth build entry point. The *build* gate, not the review one:
+          // the dialog is already open, and its own reasons (saving / unsaved
+          // edits) know nothing about keys.
+          blockedReason={buildGate}
           saving={saving}
           savedNotice={savedNotice}
           onSave={(edit) => void saveSpec(edit)}
@@ -236,8 +329,13 @@ function editorOwnsFailure(state: ReturnType<typeof composerReducer>): boolean {
   return state.editorOpen && state.failure !== null
 }
 
-/** Why `Build team` / `Run it now` cannot proceed, or null when they can. */
-function actionBlockedReason(
+/**
+ * Why nothing can proceed at all — not a build, and not even opening review.
+ *
+ * Every reason here is about the conversation's own state, so none of them can be
+ * fixed from inside the editor.
+ */
+function conversationBlockedReason(
   state: ReturnType<typeof composerReducer>
 ): string | null {
   if (state.expired) {
@@ -262,6 +360,43 @@ function actionBlockedReason(
     return "This team has been built. Start a new conversation to build another — the output location is fixed per conversation."
   }
   return null
+}
+
+/**
+ * Why a *build* cannot proceed on key grounds (Story 2.3, AC 5).
+ *
+ * Kept separate from the reasons above because this one is fixable from inside the
+ * review editor — by switching an agent to a model the user has — so it must not
+ * also close the door to that editor.
+ *
+ * Only a check that actually arrived and actually says `blocked` gates anything.
+ * `keyCheck === null` means "not established" — either still in flight or the read
+ * failed — and blocking on that would strand the user over a condition nobody
+ * verified. UX-DR5 asks for a blocked run on a *missing key*, not on an unanswered
+ * question.
+ */
+function keyBlockedReason(
+  state: ReturnType<typeof composerReducer>
+): string | null {
+  // "Credential missing" and "credential check failed" are different facts, and
+  // neither may silently permit a build.
+  //
+  // The first version returned `null` for everything except a `blocked` check, so
+  // "in flight" and "the read failed" both read as permission. That left the build
+  // open for a round-trip after every turn, and open *forever* if `/api/keys/*`
+  // started failing — with nothing on screen to say so, which `EXPERIENCE.md:104`
+  // bans outright.
+  if (state.keyCheckState === "checking") {
+    return "Checking which models your keys can reach…"
+  }
+  if (state.keyCheckState === "failed") {
+    return "Could not check your key setup, so this build has not been allowed to start. Try again in a moment."
+  }
+  if (!state.keyCheck?.blocked) return null
+  return (
+    state.keyCheck.blocking_reason ??
+    "This team cannot run yet: one of its models has no usable credential."
+  )
 }
 
 /**

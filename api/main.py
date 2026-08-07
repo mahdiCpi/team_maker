@@ -29,6 +29,7 @@ from api.errors import (
     fields_from_error_list,
 )
 from api.routers.compose import router as compose_router
+from api.routers.keys import router as keys_router
 from api.schemas import HealthView
 from api.sessions import SessionRegistry
 from api.state import STATE_ATTR, AppState
@@ -73,6 +74,10 @@ def create_app(*, provider_factory: ProviderFactory | None = None) -> FastAPI:
         # Bridged ONCE, here, and held for the process lifetime. Doing this
         # per-request would race under AC 3's threadpool concurrency — see the
         # long note in `api/deps.py`.
+        # A second, file-only load. Its *names* record what the file itself defined
+        # at boot, which is what later lets a deleted key be told apart from one
+        # that only ever came from the environment (see `api/routers/keys.py`).
+        file_providers = tuple(KeyConfig.from_file(include_env=False).keys)
         bridged = bridge_credentials(key_config)
         logger.info(
             "authoring credentials available for: %s",
@@ -86,6 +91,7 @@ def create_app(*, provider_factory: ProviderFactory | None = None) -> FastAPI:
                 registry=SessionRegistry(),
                 provider_factory=factory,
                 bridged_providers=tuple(bridged),
+                file_providers=file_providers,
             ),
         )
         yield
@@ -102,6 +108,9 @@ def create_app(*, provider_factory: ProviderFactory | None = None) -> FastAPI:
 
     app.include_router(health_router, prefix="/api")
     app.include_router(compose_router, prefix="/api")
+    # The key-status group (Story 2.3). Read-only: AD-9 forbids the browser
+    # touching keys, so the UI's four states come from here.
+    app.include_router(keys_router, prefix="/api")
     _register_error_handlers(app)
     return app
 

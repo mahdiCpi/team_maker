@@ -12,6 +12,8 @@
 import type {
   ApiFailure,
   BuildResultView,
+  KeyCheckView,
+  KeyStatusView,
   SessionView,
   SpecView,
 } from "@/lib/api-types";
@@ -78,7 +80,39 @@ export type ComposerState = {
    * conversational reply, so without this the model question recurred forever.
    */
   askedFollowUps: string[];
+  /**
+   * Provider-level key status (Story 2.3), read once on mount. `null` means "not
+   * known yet" — never "fine": the surface renders nothing rather than claiming a
+   * state it has not been told.
+   */
+  keyStatus: KeyStatusView | null;
+  /**
+   * This team's per-role key check. `null` until a spec exists, and re-read after
+   * every adopted spec, because an edit can change which providers are required.
+   */
+  keyCheck: KeyCheckView | null;
+  /**
+   * Invalidates in-flight key checks, exactly like `saveEpoch` does for saves. A
+   * check issued for an older spec must not overwrite the current one — that is
+   * how a stale "all good" would end up authorising a build of a team whose
+   * provider had since changed.
+   */
+  keyCheckEpoch: number;
+  /**
+   * Whether the key check has an answer, and if not, why not.
+   *
+   * This exists because `keyCheck === null` conflated three conditions — never
+   * asked, in flight, and read failed — and the gate treated all three as
+   * *permitting* a build. So the build was open for a round-trip after every turn,
+   * and open forever if `/api/keys/*` ever 500'd. "Credential missing" and
+   * "credential check failed" are different facts and neither may silently un-gate:
+   * `checking` and `failed` both block, with their own copy.
+   */
+  keyCheckState: KeyCheckState;
 };
+
+/** `idle` = no team to check yet. `ready` = `keyCheck` holds the answer. */
+export type KeyCheckState = "idle" | "checking" | "failed" | "ready";
 
 export type ComposerAction =
   | { type: "turn_requested"; text: string }
@@ -94,7 +128,11 @@ export type ComposerAction =
   | { type: "editor_opened" }
   | { type: "editor_closed" }
   | { type: "failure_dismissed" }
-  | { type: "conversation_restarted" };
+  | { type: "conversation_restarted" }
+  | { type: "key_status_loaded"; status: KeyStatusView }
+  | { type: "key_check_requested"; epoch: number }
+  | { type: "key_check_loaded"; check: KeyCheckView; epoch: number }
+  | { type: "key_check_unavailable"; failure: ApiFailure; epoch: number };
 
 export const INITIAL_COMPOSER_STATE: ComposerState = {
   sessionId: null,
@@ -114,6 +152,10 @@ export const INITIAL_COMPOSER_STATE: ComposerState = {
   saveEpoch: 0,
   specMayBeStale: false,
   askedFollowUps: [],
+  keyStatus: null,
+  keyCheck: null,
+  keyCheckEpoch: 0,
+  keyCheckState: "idle",
 };
 
 function append(
@@ -156,6 +198,17 @@ function adoptSession(state: ComposerState, session: SessionView) {
     turn: session.turn,
     turnsRemaining: session.turns_remaining,
     specRevision: state.specRevision + 1,
+    // A new spec can require different providers, so the previous check no longer
+    // describes this team. Dropped rather than kept: a stale "All models reachable"
+    // beside a team that now routes somewhere else is a false statement, and a
+    // stale *pass* would be one that authorises a build. The epoch bump discards
+    // any check already in flight for the old spec.
+    keyCheck: null,
+    keyCheckEpoch: state.keyCheckEpoch + 1,
+    // Not yet checked. `idle` rather than `checking`: the effect that issues the
+    // request sets that, so the flag and the request cannot disagree. Either way the
+    // gate treats it as "no answer", which now blocks rather than permits.
+    keyCheckState: "idle" as const,
   };
 }
 
@@ -310,6 +363,34 @@ export function composerReducer(
     case "failure_dismissed":
       return { ...state, failure: null };
 
+    case "key_status_loaded":
+      return { ...state, keyStatus: action.status };
+
+    case "key_check_requested":
+      if (action.epoch !== state.keyCheckEpoch) return state;
+      return { ...state, keyCheckState: "checking" };
+
+    case "key_check_loaded":
+      // Same guard as `spec_replaced`: a check issued against a spec that has since
+      // been replaced is discarded rather than applied.
+      if (action.epoch !== state.keyCheckEpoch) return state;
+      return { ...state, keyCheck: action.check, keyCheckState: "ready" };
+
+    case "key_check_unavailable":
+      if (action.epoch !== state.keyCheckEpoch) return state;
+      return {
+        ...state,
+        keyCheck: null,
+        keyCheckState: "failed",
+        // The key check is the first request after every adopted spec, so it is
+        // often the first to learn the session is gone. Every other failure path in
+        // this reducer honours `session_not_found`; this one used to throw the code
+        // away, leaving the conversation looking alive until the user clicked and
+        // ate a 404.
+        expired:
+          action.failure.code === "session_not_found" ? true : state.expired,
+      };
+
     case "conversation_restarted":
       return {
         ...INITIAL_COMPOSER_STATE,
@@ -323,6 +404,16 @@ export function composerReducer(
         specRevision: state.specRevision,
         buildRevision: state.buildRevision,
         saveEpoch: state.saveEpoch + 1,
+        // The provider-level report describes the machine, not the conversation, so
+        // the last known value is carried across rather than blanking the banner
+        // mid-restart. It is *also* re-fetched — see the effect in
+        // `composer-surface.tsx` — because the user may have acted on the very fix
+        // hint the banner gave them, and a value read once at mount would assert the
+        // pre-edit truth for the life of the page. That is precisely the objection
+        // this story raised against the server's boot-time snapshot.
+        keyStatus: state.keyStatus,
+        keyCheckEpoch: state.keyCheckEpoch + 1,
+        keyCheckState: "idle",
       };
   }
 }

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import NewTeamPage, { metadata as newTeamMeta } from "@/app/page";
@@ -26,14 +26,26 @@ describe("the / route", () => {
     expect(() => render(<NewTeamPage />)).not.toThrow();
   });
 
-  it("issues no request on first render", () => {
-    const fetchMock = vi.fn();
+  it("opens no compose session on first render", () => {
+    // Typed parameter, not `async () => …`: an empty parameter list makes
+    // `mock.calls[n][0]` a type error, and the URL is the whole point here.
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      throw new TypeError(`Failed to fetch ${String(url)}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
     try {
       render(<NewTeamPage />);
-      // The Composer waits for the user; it does not open a session on mount,
-      // which would spend an LLM turn on every page load.
-      expect(fetchMock).not.toHaveBeenCalled();
+      // The original assertion was "no request at all". Story 2.3 narrowed it
+      // rather than deleting it, because the reason it existed is intact: the
+      // Composer waits for the user and does not spend an LLM turn on page load.
+      // A key-status read is a file read on the server — no model, no cost — so it
+      // is not the thing this guard was protecting against.
+      const paths = fetchMock.mock.calls.map((call) => String(call[0]));
+      expect(paths.filter((path) => path.startsWith("/api/compose/"))).toEqual([]);
+      // Proof the guard is still looking at something: the mount read did happen,
+      // so an implementation that stopped calling the API entirely cannot pass this
+      // by making the haystack empty.
+      expect(paths).toEqual(["/api/keys/status"]);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -77,8 +89,9 @@ describe("the / route", () => {
       "Running · 2 of 4 tasks",
       // Post-run prompt (2.5)
       "Save this team and its results?",
-      // Key check (2.3) — renders on the Composer, but is 2.3's copy and data
-      "All models reachable.",
+      // The mockup's fabricated key footer (`team-workspace.html:80`). Story 2.3
+      // shipped the real key check, and this is still not it: it is invented data,
+      // refused by 2.1 and 2.2 and not resurrected by 2.3.
       "Keys: anthropic",
     ]) {
       expect(text).not.toContain(borrowed);
@@ -88,13 +101,33 @@ describe("the / route", () => {
     expect(text).toContain("Describe your team.");
   });
 
-  it("fakes none of Story 2.3's key-check states", () => {
-    const { container } = render(<NewTeamPage />);
-    // The seam is left; the states are not invented. Story 2.1 refused the
-    // mockup's `Keys: anthropic ✓ …` footer for the same reason.
-    expect(container.textContent).not.toMatch(
-      /key|anthropic|openai|gemini|openrouter|via OpenRouter/i
-    );
+  it("states nothing about keys until the server has said something", async () => {
+    // Story 2.3 built the key check, so this no longer asserts that the seam is
+    // empty — it asserts the states are *server-derived*. With no usable response the
+    // surface must still say nothing rather than fall back to a cheerful default,
+    // which is how the fabricated `Keys: anthropic ✓ …` footer got into the mockup in
+    // the first place.
+    //
+    // `fetch` is stubbed even though the assertion is about absence: the Composer now
+    // reads `/api/keys/status` on mount, and leaving it unstubbed made this suite
+    // attempt a real request against the jsdom origin. It also has to be *awaited* —
+    // asserting synchronously after `render` passed before any state could arrive, so
+    // it could not have failed either way.
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      throw new TypeError(`Failed to fetch ${String(url)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { container } = render(<NewTeamPage />);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      expect(container.querySelector('[data-slot="key-check"]')).toBeNull();
+      expect(container.textContent).not.toMatch(
+        /key missing|key found|All models reachable|via OpenRouter|✓/i
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("anticipates no Story 2.4/2.5 surface", () => {
@@ -138,15 +171,22 @@ describe("the copy guards hold AFTER a conversation starts, not just before it",
         "Ask a follow-up or refine the goal…",
         "Running · 2 of 4 tasks",
         "Save this team and its results?",
-        "All models reachable.",
+        // Still fabricated data, still not ours (see the pre-conversation guard).
         "Keys: anthropic",
       ]) {
         expect(text).not.toContain(borrowed);
       }
-      // Story 2.3's key-check states are still not faked. `keys` appears only in
-      // the spine's own follow-up question ("the keys you have"), never as a
-      // status.
-      expect(text).not.toMatch(/key (missing|found)|via OpenRouter|✓/i);
+      // Story 2.3's key-check copy is no longer banned here — it is this surface's
+      // own, and the harness answers the key routes with a captured all-good body,
+      // so it legitimately appears. Asserted positively instead, which also proves
+      // the wiring survives a real turn.
+      expect(text).toContain("All models reachable.");
+      // The check-mark glyph stays banned. It belongs to the mockup's fabricated
+      // `Keys: anthropic ✓ · gemini ✓` footer, which 2.1 and 2.2 both refused and
+      // 2.3 did not resurrect — the real states are words, not ticks. An earlier
+      // version of this story deleted this assertion along with 2.3's own copy,
+      // taking a tooth off the guard rather than narrowing it.
+      expect(text).not.toMatch(/✓/);
     } finally {
       vi.unstubAllGlobals();
     }

@@ -406,24 +406,26 @@ describe("AC 8 — nothing internal ever reaches the screen", () => {
   });
 });
 
-describe("output_exists copy is replaced, not relayed", () => {
-  it("drops the server's instruction to choose a different output path", async () => {
+describe("output_exists offers only a remedy this UI can reach", () => {
+  it("never tells the user to choose a different output path", async () => {
     const user = userEvent.setup();
     await failBuild(user, 409, errorOutputExists);
 
     const text = alertNode().textContent ?? "";
-    // The captured server body really does say this — asserted below — and the
-    // hard constraint (Story 2.0 AC 13) forbids this UI from offering any way to
-    // change the path, so relaying the instruction sends the user hunting for a
-    // control that must not exist.
-    expect(JSON.stringify(errorOutputExists)).toMatch(
-      /Choose a different output path/
+    // Story 2.0 AC 13 forbids this UI from offering any way to change the path, so
+    // that instruction would send the user hunting for a control that must not
+    // exist. Story 2.2 suppressed it in the client; Story 2.3 owns error copy and
+    // fixed it at the source, so the *captured server body* no longer contains it.
+    // Asserted on the fixture as well as the screen: the point is that the server
+    // stopped saying it, not that the client keeps hiding it.
+    expect(JSON.stringify(errorOutputExists)).not.toMatch(
+      /choose a different output path/i
     );
     expect(text).not.toMatch(/choose a different output path/i);
-    // Replaced by authored copy that states the same fact and offers only a
-    // remedy the UI can actually reach.
+    // States the same fact, names who owns the destination, and offers the two
+    // remedies that are actually available.
     expect(text).toMatch(/already exists/i);
-    expect(text).toMatch(/start a new conversation/i);
+    expect(text).toMatch(/chosen by the server/i);
   });
 });
 

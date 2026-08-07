@@ -22,6 +22,8 @@ import {
   type ApiResult,
   type BuildResultView,
   type FieldIssue,
+  type KeyCheckView,
+  type KeyStatusView,
   type ProviderRoutingView,
   type RoleView,
   type SessionView,
@@ -29,6 +31,8 @@ import {
   isServerErrorCode,
   parseBuildResponse,
   parseErrorEnvelope,
+  parseKeyCheck,
+  parseKeyStatus,
   parseSessionResponse,
 } from "@/lib/api-types";
 
@@ -55,16 +59,24 @@ export const BUILD_TIMEOUT_MS = 120_000;
 const FALLBACK_MESSAGE: Record<ApiErrorCode, string> = {
   session_not_found:
     "That conversation is no longer available. Start a new one to continue.",
-  turn_cap_reached: "This conversation has reached its limit of turns.",
+  // Both of these said what was wrong and stopped there. `EXPERIENCE.md`'s Voice
+  // section asks for the next step too, and Story 2.3 owns error copy.
+  turn_cap_reached:
+    "This conversation has used all its turns. Build the team as it stands, or start a new conversation.",
   spec_invalid: "Those changes do not produce a valid team specification.",
+  // Names where keys live without ever offering to take one — `EXPERIENCE.md:103`
+  // bans key entry in the UI outright. The server's own message is more specific
+  // (it names the provider and the Key Config entry) and is what normally shows;
+  // this is the fallback for a missing or leak-flagged one.
   authoring_unavailable:
-    "Composing needs a model provider that is currently unavailable.",
+    "Composing needs a model provider with a usable key, and none is available. Keys live in your Key Config file.",
   compose_failed:
     "The team specification could not be created. Retry once; if the problem repeats, stop and report it.",
-  // Replaces the server's copy for this code (see `toFailure`). States the same
-  // fact, then offers only a remedy the UI can actually reach: the destination is
-  // derived from the team name and pinned per conversation, so a differently
-  // named team in a new conversation writes somewhere else.
+  // No longer an override — Story 2.3 fixed the server's own sentence, so this is
+  // just the fallback for a missing or leak-flagged message, like every other row.
+  // It phrases the remedy in this surface's terms, which the server cannot: the
+  // destination is derived from the team name and pinned per conversation, so a
+  // differently named team in a new conversation writes somewhere else.
   output_exists:
     "A directory already exists at the team's output path, so this build stopped rather than overwrite it. The destination is chosen by the server; start a new conversation to build a differently-named team.",
   build_failed:
@@ -230,20 +242,18 @@ function toFailure(payload: unknown): ApiFailure {
   const code: ApiErrorCode = isServerErrorCode(envelope.code)
     ? envelope.code
     : "unknown_error";
-  // Deliberately narrow override, decided at code review. Every other code keeps
-  // the server's authored message, which is more specific than anything this
-  // build could invent. `output_exists` is the exception: its copy instructs the
-  // user to "choose a different output path", and `output_path` is server-owned
-  // and read-only to the browser (Story 2.0 AC 13) — the UI is forbidden to offer
-  // that remedy, so relaying the instruction sends the user looking for a control
-  // that must not exist. The authored fallback states the same fact without it.
-  if (code === OVERRIDDEN_SERVER_COPY) {
-    return failure(code, undefined, envelope.fields);
-  }
+  // Every code now keeps the server's authored message, which is more specific
+  // than anything this build could invent.
+  //
+  // Story 2.2 carried one narrow exception here: `output_exists`, whose server copy
+  // told the user to "choose a different output path" — a remedy the UI is
+  // forbidden to offer, because `output_path` is server-owned and read-only to the
+  // browser (Story 2.0 AC 13). Story 2.3 owns error copy and fixed that sentence at
+  // its source (`api/build.py`), so the client-side override has been removed
+  // rather than left to mask a defect that no longer exists. Two places stating the
+  // same fact is how they drift.
   return failure(code, envelope.message, envelope.fields);
 }
-
-const OVERRIDDEN_SERVER_COPY: ApiErrorCode = "output_exists";
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -342,6 +352,34 @@ export function buildTeam(sessionId: string): Promise<ApiResult<BuildResultView>
       timeoutMs: BUILD_TIMEOUT_MS,
     },
     parseBuildResponse
+  );
+}
+
+/**
+ * A key check is a file read and some catalog arithmetic — no LLM, no network
+ * beyond the proxy — so it gets a short ceiling rather than the compose one. If it
+ * cannot answer quickly the UI is better off saying it does not know than holding
+ * the user for three minutes.
+ */
+export const KEY_CHECK_TIMEOUT_MS = 10_000;
+
+/** Per-provider key status. Sends nothing; AD-9 means it could not send a key. */
+export function getKeyStatus(): Promise<ApiResult<KeyStatusView>> {
+  return request(
+    { path: "/api/keys/status", method: "GET", timeoutMs: KEY_CHECK_TIMEOUT_MS },
+    parseKeyStatus
+  );
+}
+
+/** Whether this conversation's team can actually run, role by role. */
+export function getKeyCheck(sessionId: string): Promise<ApiResult<KeyCheckView>> {
+  return request(
+    {
+      path: `/api/keys/check/${encodeURIComponent(sessionId)}`,
+      method: "GET",
+      timeoutMs: KEY_CHECK_TIMEOUT_MS,
+    },
+    parseKeyCheck
   );
 }
 
