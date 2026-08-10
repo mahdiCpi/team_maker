@@ -285,3 +285,123 @@ def test_shutdown_logs_and_returns_rather_than_hanging_forever(registry, caplog)
     thread.join(timeout=5)
 
 
+# ---------------------------------------------------------------------------
+# Story 2.4 review patches — the states these prove cannot occur, not the
+# happy path. Each is falsifiable: reverting the corresponding line in
+# `api/runs.py` turns exactly one of these red.
+# ---------------------------------------------------------------------------
+
+
+class _EscapedBaseException(BaseException):
+    """A deliberate `BaseException`, mirroring `tests/support/crewai_interception.py`'s
+    `_NetworkEscaped` — which exists in this repo precisely so application code
+    cannot swallow it with `except Exception`."""
+
+
+def test_a_baseexception_still_reaches_a_terminal_status_and_is_not_swallowed(
+    registry, clock, monkeypatch
+):
+    """A record left `running` with `finished_at is None` is skipped by both
+    eviction rules forever, so one escape permanently leaks a record *and*
+    erodes `MAX_STORED_RUNS`. Recording it must not mean swallowing it either:
+    a non-`Exception` still has to kill its thread loudly."""
+    seen: list = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: seen.append(args.exc_type))
+
+    record = registry.start(
+        team_slug="a",
+        team_name="A",
+        tasks=_PLAN,
+        work=_immediate_work(error=_EscapedBaseException("escaped")),
+    )
+    _wait_for_completion(registry, record.run_id)
+
+    stored = registry.get(record.run_id)
+    assert stored.status == STATUS_FAILED
+    assert stored.failure_reason == GENERIC_FAILURE_REASON
+    assert stored.finished_at is not None
+    assert not stored.busy, "a permanently-busy record is never evicted by either rule"
+    assert seen == [_EscapedBaseException], "a non-Exception must still surface on the thread"
+
+    # And, being terminal, it is genuinely evictable rather than immortal.
+    clock.advance(RUN_IDLE_TTL_SECONDS + 1)
+    with pytest.raises(ApiError):
+        registry.get(record.run_id)
+
+
+def test_a_run_whose_thread_cannot_start_leaves_no_ghost_and_frees_the_lock(
+    registry, monkeypatch
+):
+    """`thread.start()` can raise (`RuntimeError: can't start new thread`). The
+    record is already in the registry by then and no thread will ever carry it
+    to a terminal status, so it must be withdrawn — otherwise it reports
+    `running` to every future poll and can never be swept."""
+
+    def _refuse(self):
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", _refuse)
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        registry.start(
+            team_slug="doomed",
+            team_name="Doomed",
+            tasks=_PLAN,
+            work=_immediate_work(result=RunResult("x", [])),
+        )
+    monkeypatch.undo()
+
+    assert registry._records == {}, "the withdrawn run left a ghost record behind"
+
+    # The lock was released, so the registry is still usable.
+    record = registry.start(
+        team_slug="b", team_name="B", tasks=_PLAN, work=_immediate_work(result=RunResult("y", []))
+    )
+    _wait_for_completion(registry, record.run_id)
+    assert registry.get(record.run_id).status == STATUS_COMPLETE
+    assert len(registry._records) == 1
+
+
+def test_get_hands_out_a_snapshot_that_cannot_change_under_the_caller(registry):
+    """The torn read: a route reads `result` then `status` off the record while
+    the run thread writes `status` then `result`, so a poll could return
+    `status="complete"` with `result=null` — and since the client stops polling
+    on a terminal status, that is the final state the user is left with.
+    Returning a copy taken under the lock is what makes that unobservable."""
+    started, release = threading.Event(), threading.Event()
+    record = registry.start(
+        team_slug="a",
+        team_name="A",
+        tasks=_PLAN,
+        work=_blocking_work(started, release, result=RunResult("done", [])),
+    )
+    assert started.wait(timeout=5), "the run never started"
+
+    observed = registry.get(record.run_id)
+    assert observed.status == STATUS_RUNNING
+    assert observed.result is None
+
+    release.set()
+    _wait_for_completion(registry, record.run_id)
+
+    # The object the caller is still holding must not have mutated underneath
+    # it. This is the assertion that goes red if `get` returns the live record.
+    assert observed.status == STATUS_RUNNING
+    assert observed.result is None
+
+    fresh = registry.get(record.run_id)
+    assert fresh.status == STATUS_COMPLETE
+    assert fresh.result is not None
+    assert fresh.finished_at is not None
+
+
+def test_start_hands_out_a_snapshot_not_the_live_record(registry):
+    """`POST /api/runs` renders the record `start()` returns. The run thread is
+    already running by then, so that value must be detached too."""
+    published = registry.start(
+        team_slug="a", team_name="A", tasks=_PLAN, work=_immediate_work(result=RunResult("x", []))
+    )
+    _wait_for_completion(registry, published.run_id)
+
+    assert published.status == STATUS_RUNNING
+    assert published.result is None
+    assert registry.get(published.run_id).status == STATUS_COMPLETE

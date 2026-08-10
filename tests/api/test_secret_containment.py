@@ -154,12 +154,28 @@ def test_the_sweep_actually_reached_every_route(
 def test_the_templating_is_unambiguous():
     """A normaliser that collapses two distinct routes into one template would
     make the assertion above pass while covering less — Story 2.4 adds the
-    first two routes in this app that share a segment count (both four
-    segments under `/runs`) but are not the same route."""
+    first two routes in this app that are the same shape (four path segments,
+    two of them under `/runs`) but are not the same route."""
     assert _template("/api/runs/teams/haiku_team") == "/api/runs/teams/{team_slug}"
     assert _template("/api/runs/some-run-id/transcript") == "/api/runs/{run_id}/transcript"
     assert _template("/api/runs/teams/haiku_team") != _template("/api/runs/some-run-id/transcript")
     assert _template("/api/runs/some-run-id") == "/api/runs/{run_id}"
+
+
+def test_the_one_genuinely_ambiguous_path_templates_the_way_the_router_routes_it():
+    """`/api/runs/teams/transcript` matches *both* branches of `_template`: it
+    is the plan for a team named "Transcript" and, read the other way, the
+    transcript of a run whose id is "teams". The test above pins two paths that
+    were never ambiguous, so it did not actually check the claim its docstring
+    makes — this is the input that does.
+
+    The required answer is the plan route, because that is how Starlette
+    resolves it: `api/routers/run.py` declares `/teams/{team_slug}` first, and
+    `test_the_teams_route_and_the_transcript_route_do_not_collide` builds a
+    real team named "Transcript" and proves it. A normaliser that disagreed
+    with the router would mark a route swept that never was.
+    """
+    assert _template("/api/runs/teams/transcript") == "/api/runs/teams/{team_slug}"
 
 
 def test_the_key_config_the_app_loaded_holds_only_sentinels(make_client):

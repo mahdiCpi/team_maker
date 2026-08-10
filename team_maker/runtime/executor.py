@@ -26,7 +26,20 @@ _SUPPORTED_FRAMEWORK = "crewai"
 
 
 class UnsupportedFrameworkError(Exception):
-    """The package's ``primary_framework`` is not executable by the v1 Runtime."""
+    """The package's ``primary_framework`` is not executable by the v1 Runtime.
+
+    Carries the offending value as ``framework`` so a caller can author its own
+    sentence from the structured field instead of re-rendering ``str(exc)``.
+    ``primary_framework`` is read verbatim from ``team_config.yaml`` with no
+    validation (``loader.py``), so a caller that puts it in an HTTP response
+    needs to sanitise it — which it can only do if it can reach the value.
+    """
+
+    def __init__(self, framework: str) -> None:
+        self.framework = framework
+        super().__init__(
+            f"Only 'crewai' packages can be run in v1 (this package targets '{framework}')."
+        )
 
 
 def check_runnable(team: GeneratedTeam) -> None:
@@ -39,10 +52,7 @@ def check_runnable(team: GeneratedTeam) -> None:
     re-encoding the ``"crewai"`` comparison a second time.
     """
     if team.primary_framework != _SUPPORTED_FRAMEWORK:
-        raise UnsupportedFrameworkError(
-            f"Only 'crewai' packages can be run in v1 (this package targets "
-            f"'{team.primary_framework}')."
-        )
+        raise UnsupportedFrameworkError(team.primary_framework)
 
 
 def run_team_package(

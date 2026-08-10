@@ -18,7 +18,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 
-from api.deps import safe_label
+from api.deps import current_key_config, file_only_key_config, safe_label
 from api.errors import RUN_BLOCKED, TEAM_NOT_FOUND, ApiError
 from api.keystatus import STATUS_UNRECOGNIZED, provider_reports
 from api.output import output_root, slugify_team_name
@@ -43,7 +43,7 @@ from team_maker.runtime.executor import (
     run_team_package,
 )
 from team_maker.runtime.loader import TeamPackageError, load_team_package
-from team_maker.runtime.ordering import topological_sort
+from team_maker.runtime.ordering import TaskDependencyCycleError, topological_sort
 from team_maker.runtime.preflight import (
     InvalidPackageError,
     MissingCredentialsError,
@@ -64,8 +64,19 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 
 
 # ---------------------------------------------------------------------------
-# GET /api/runs/teams/{team_slug} — declared before GET /{run_id}: both are
-# two segments under /runs, so FastAPI resolves them by declaration order.
+# GET /api/runs/teams/{team_slug} — declared first, deliberately.
+#
+# The pair that actually collides is this route and `GET /{run_id}/transcript`:
+# both are two segments under `/runs`, so a team literally named "Transcript"
+# makes `/api/runs/teams/transcript` ambiguous between "the plan for team
+# `transcript`" and "the transcript of run `teams`". Starlette resolves by
+# declaration order, and declaring this one first resolves it correctly.
+#
+# It does *not* collide with `GET /{run_id}`, which is one segment under
+# `/runs` — the story's Dev Notes said otherwise and its Completion Notes
+# corrected the claim, but the disproven reason was left standing in this
+# comment and in `api/main.py`. Both now say what is true, because the next
+# person to reorder these routes will preserve whatever the comment claims.
 # ---------------------------------------------------------------------------
 
 
@@ -86,14 +97,22 @@ def create_run(payload: RunCreateRequest, request: Request) -> RunView:
     state = app_state(request)
     team, path, slug = _load_team_or_404(payload.team_slug)
 
+    # Read once, here, and used for both the gate and the run itself, so the
+    # two cannot disagree. Re-read rather than `state.key_config`'s startup
+    # snapshot: `deps.providers_needing_restart` exists precisely because
+    # *authoring* needs a restart to see a new key and *running* does not, and
+    # a gate that refused a key the key panel reports as present would be the
+    # same availability rule answering twice (Story 2.4 review).
+    key_config = current_key_config()
+
     # AD-9 / AC 7: the same public functions `run_team_package` itself calls,
     # run here synchronously, before the thread is spawned — so no client can
     # reach the engine through a path this gate does not cover. `run_team_package`
     # re-runs the identical checks on the background thread; that redundancy
     # is deliberate and cheap, not a second, drifting copy of the rule.
-    _synchronous_run_gate(team, state.key_config)
+    _synchronous_run_gate(team, key_config)
 
-    ordered_tasks = topological_sort(team.tasks)
+    ordered_tasks = _ordered_tasks(team)
     plan = tuple(
         TaskPlanEntry(name=task.name, agent_role=task.agent_role, dependencies=tuple(task.dependencies))
         for task in ordered_tasks
@@ -104,7 +123,7 @@ def create_run(payload: RunCreateRequest, request: Request) -> RunView:
 
     def work():
         return run_team_package(
-            path, payload.goal, state.key_config, state.execution_engine, documents=documents
+            path, payload.goal, key_config, state.execution_engine, documents=documents
         )
 
     record = state.run_registry.start(
@@ -198,15 +217,46 @@ def _load_team_or_404(team_slug: str) -> tuple[GeneratedTeam, Path, str]:
     return team, path, slug
 
 
+def _ordered_tasks(team: GeneratedTeam) -> list:
+    """Topological order, with the one failure `topological_sort` can raise
+    turned into an authored refusal rather than a 500.
+
+    A package whose tasks depend on each other in a cycle loads cleanly and
+    passes both `check_runnable` and `check_credentials` — neither looks at the
+    graph — so before this the cycle surfaced as an unhandled
+    `TaskDependencyCycleError` on two routes, i.e. `internal_error` for a
+    perfectly diagnosable package problem. It is the same category as AC 7's
+    second `run_blocked` cause (an internally inconsistent package): no key
+    fixes it, and the copy must not suggest one.
+    """
+    try:
+        return topological_sort(team.tasks)
+    except TaskDependencyCycleError as exc:
+        raise ApiError(
+            RUN_BLOCKED,
+            "This team cannot run: its tasks depend on one another in a cycle, "
+            "so there is no order that satisfies them. No API key will change "
+            "that — the package itself needs to be rebuilt.",
+        ) from exc
+
+
 def _team_plan_view(team: GeneratedTeam, state: AppState) -> TeamPlanView:
+    # Two *different* configs, exactly as `api/routers/keys.py` passes them:
+    # the second is the file-only read, and `keystatus.credential_source` uses
+    # the difference between them to tell "the Key Config file supplies this"
+    # apart from "only the environment does" and from "the file used to and no
+    # longer does". Passing the same object twice — as this did — collapses all
+    # three into `key-config`, so the Workspace badge silently dropped the
+    # source note the Composer's badge shows for the same provider.
+    config = current_key_config()
     reports_by_provider = {
         report.name: report
-        for report in provider_reports(state.key_config, state.key_config, state.file_providers)
+        for report in provider_reports(config, file_only_key_config(), state.file_providers)
     }
     return TeamPlanView(
         team_name=team.team_name,
         agents=[_agent_key_view(agent, reports_by_provider) for agent in team.agents],
-        tasks=[_task_plan_view(task) for task in topological_sort(team.tasks)],
+        tasks=[_task_plan_view(task) for task in _ordered_tasks(team)],
     )
 
 
@@ -276,21 +326,32 @@ def _synchronous_run_gate(team: GeneratedTeam, key_config: KeyConfig) -> None:
     try:
         check_runnable(team)
     except UnsupportedFrameworkError as exc:
-        # Authored entirely by `executor.check_runnable` from a static
-        # template plus the package's own (safe-charset) framework name —
-        # not an opaque exception, so `str(exc)` here is that authored
-        # sentence, not a leak.
-        raise ApiError(RUN_BLOCKED, str(exc)) from exc
+        # Authored here from the exception's structured field rather than from
+        # `str(exc)`. The earlier version's justification — that the framework
+        # name is "safe-charset, produced by the compose pipeline" — is not
+        # true of a package on disk: `loader.py` reads `primary_framework`
+        # straight out of `team_config.yaml` with no validation at all, and
+        # nothing stops a hand-edited or corrupt package from putting arbitrary
+        # text there. `safe_label` is the sanitiser this codebase already has
+        # for exactly this ("a provider id containing a newline forges a log
+        # record").
+        raise ApiError(
+            RUN_BLOCKED,
+            f"This team cannot run here: its package targets "
+            f"'{safe_label(exc.framework)}', and this server can only run "
+            f"'crewai' packages.",
+        ) from exc
 
     try:
         check_credentials(team, key_config)
     except InvalidPackageError as exc:
-        # Same reasoning: `DuplicateAgentRoleError` / `InvalidTaskNamesError`
-        # messages are authored entirely by `preflight.py` from a static
-        # template plus role/task names already constrained to a safe
-        # charset by the compose pipeline. No key would fix either; the
-        # message says so.
-        raise ApiError(RUN_BLOCKED, str(exc)) from exc
+        # `DuplicateAgentRoleError` / `InvalidTaskNamesError` are single-line
+        # sentences authored by `preflight.py`, but they interpolate role and
+        # task names read off disk — same exposure as the framework name above,
+        # for the same reason. Sanitised with the same helper, at a length that
+        # fits a sentence rather than a label. No key would fix either of these
+        # and the message does not suggest one.
+        raise ApiError(RUN_BLOCKED, safe_label(str(exc), limit=300)) from exc
     except MissingCredentialsError as exc:
         raise _run_blocked_from_missing_credentials(exc) from exc
 

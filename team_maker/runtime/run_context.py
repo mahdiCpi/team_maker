@@ -46,6 +46,26 @@ from collections.abc import Sequence
 
 from team_maker.domain.models import GeneratedTeam
 
+#: The heading that marks an injected run-context block. Written by
+#: `_run_context_block` and read back by `goal_is_injected` — the two live in
+#: this one module deliberately, so the guard checks the mechanism's own
+#: marker rather than a second, driftable copy of the format.
+_GOAL_HEADING = "--- This run's goal ---"
+
+
+class GoalNotInjectedError(Exception):
+    """An engine was handed a goal the run-context path never wove into the tasks.
+
+    A caller that builds an `ExecutionEngine` and calls `run(team, credentials,
+    goal)` on a team straight out of `load_team_package` gets a run that
+    executes the package's stock task descriptions and silently discards the
+    goal — the exact defect Story 2.4 AC 5 exists to fix, reintroduced one
+    layer down. `ExecutionEngine.run`'s signature is pinned by Story 1.7 AC 7
+    and cannot grow a parameter to make the dependency explicit, so the
+    contract is enforced instead: engines refuse a goal they cannot honour
+    rather than accepting one they will ignore.
+    """
+
 
 @dataclasses.dataclass(frozen=True)
 class RunDocument:
@@ -73,8 +93,52 @@ def augment_team_for_run(
     return dataclasses.replace(team, tasks=new_tasks)
 
 
+def goal_is_injected(team: GeneratedTeam, goal: str) -> bool:
+    """Whether *goal* has actually been woven into *team*'s task descriptions.
+
+    True when every task carries both this module's own heading (proving the
+    run-context path ran at all) and the goal text itself (proving it was
+    *this* goal). Checking both is what makes the guard robust: the heading
+    alone would pass a team augmented with a different goal, and the goal text
+    alone could coincide with a package's stock wording for a very short goal.
+
+    Two cases are satisfied vacuously, and deliberately:
+
+    * **A goal that is blank once stripped.** There is nothing that could be
+      silently ignored, so there is nothing to refuse. `api/schemas.py` already
+      rejects a blank goal at the edge; the CLI does not, and failing a CLI run
+      that never had a goal to lose would be a new refusal, not a fixed defect.
+    * **A team with no tasks.** No description exists to carry the goal, so no
+      agent can be handed one — the run has a different problem, and reporting
+      this one would misname it.
+    """
+    if not goal.strip():
+        return True
+    return all(
+        _GOAL_HEADING in task.description and goal in task.description for task in team.tasks
+    )
+
+
+def require_goal_injected(team: GeneratedTeam, goal: str) -> None:
+    """Raise `GoalNotInjectedError` unless *goal* reached *team*'s descriptions.
+
+    Called by an engine before it starts work. `run_team_package` satisfies
+    this by construction — it calls `augment_team_for_run` before reaching the
+    engine — so the only callers this can fire for are ones that bypassed the
+    Runtime's single run-context path.
+    """
+    if goal_is_injected(team, goal):
+        return
+    raise GoalNotInjectedError(
+        "This engine was given a goal that is not present in the team's task "
+        "descriptions, so running would silently discard it. Build the runnable "
+        "team with `run_context.augment_team_for_run(team, goal, documents=...)` "
+        "first — `runtime.executor.run_team_package` already does."
+    )
+
+
 def _run_context_block(goal: str, documents: Sequence[RunDocument]) -> str:
-    lines = ["", "", "--- This run's goal ---", goal]
+    lines = ["", "", _GOAL_HEADING, goal]
     for document in documents:
         lines += ["", f'--- Attached document: "{document.name}" ---', document.text]
     return "\n".join(lines)

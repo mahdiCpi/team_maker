@@ -26,15 +26,28 @@ const STATUS_LABEL: Record<string, string> = {
  * those, never a per-task update this surface does not have.
  */
 export function RunStatus({ run }: { run: RunView | null }) {
-  if (!run) return null
-
-  const label = STATUS_LABEL[run.status] ?? run.status
-  const announcement =
-    run.status === "running"
+  const announcement = !run
+    ? ""
+    : run.status === "running"
       ? `Run started. ${run.tasks.length} ${run.tasks.length === 1 ? "task" : "tasks"}.`
       : run.status === "complete"
         ? "Run complete."
         : `Run failed. ${run.failure_reason ?? ""}`.trim()
+
+  // The live region is rendered even with no run, and outside the card below.
+  // A live region must already be in the accessibility tree when its content
+  // changes; inserting the region and its first text in the same commit is the
+  // standard reason an announcement is dropped, and it meant a screen-reader
+  // user was told a run had *finished* without ever being told it started.
+  const liveRegion = (
+    <span role="status" aria-live="polite" className="sr-only">
+      {announcement}
+    </span>
+  )
+
+  if (!run) return liveRegion
+
+  const label = STATUS_LABEL[run.status] ?? run.status
 
   return (
     <div
@@ -63,9 +76,7 @@ export function RunStatus({ run }: { run: RunView | null }) {
           {run.failure_reason}
         </span>
       ) : null}
-      <span role="status" aria-live="polite" className="sr-only">
-        {announcement}
-      </span>
+      {liveRegion}
     </div>
   )
 }

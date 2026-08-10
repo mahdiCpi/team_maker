@@ -26,6 +26,10 @@ from team_maker.domain.models import GeneratedTeam  # noqa: E402
 from team_maker.keyconfig import KeyConfig  # noqa: E402
 from team_maker.runtime.preflight import check_credentials  # noqa: E402
 from team_maker.runtime.results import TaskResult  # noqa: E402
+from team_maker.runtime.run_context import (  # noqa: E402
+    GoalNotInjectedError,
+    augment_team_for_run,
+)
 from tests.support.team_factories import agent_spec as _agent  # noqa: E402
 from tests.support.team_factories import generated_team as _team  # noqa: E402
 from tests.support.team_factories import task_spec as _task  # noqa: E402
@@ -36,6 +40,20 @@ _ANTHROPIC_KEYS = KeyConfig(keys={"anthropic": SecretStr("sk-test-key")})
 def _creds(team: GeneratedTeam, key_config: KeyConfig) -> dict[str, ResolvedCredential]:
     """Resolve through the real pre-run gate, exactly as production does."""
     return check_credentials(team, key_config)
+
+
+def _runnable(team: GeneratedTeam, goal: str) -> GeneratedTeam:
+    """The team in the shape the engine actually receives it in production.
+
+    `run_team_package` weaves the run's goal into every task description
+    (`run_context.augment_team_for_run`) before any engine is reached, and the
+    engine refuses a team where that has not happened (Story 2.4 review,
+    decision 2 - a goal an engine cannot honour is refused, never silently
+    discarded). These tests previously called `run()` with a team straight from
+    the factories, which is a shape the Runtime never produces; they now build
+    the production shape, so what they exercise is what ships.
+    """
+    return augment_team_for_run(team, goal)
 
 
 class _FakeTaskOutput:
@@ -64,7 +82,7 @@ def test_builds_agent_with_explicit_per_agent_credentials(monkeypatch):
         monkeypatch, captured, _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("design output")])
     )
 
-    result = CrewAIExecutionEngine().run(team, _creds(team, _ANTHROPIC_KEYS), "ship it")
+    result = CrewAIExecutionEngine().run(_runnable(team, "ship it"), _creds(team, _ANTHROPIC_KEYS), "ship it")
 
     crew = captured[0]
     assert crew.process == Process.sequential
@@ -96,7 +114,7 @@ def test_engine_uses_the_credential_it_is_handed_and_never_resolves_its_own(monk
         )
     }
 
-    CrewAIExecutionEngine().run(team, handed, "goal")
+    CrewAIExecutionEngine().run(_runnable(team, "goal"), handed, "goal")
 
     [agent_obj] = captured[0].agents
     # The AgentSpec says anthropic/claude-sonnet-4-6; the credential says
@@ -119,7 +137,7 @@ def test_openrouter_credential_reaches_crewai_in_gateway_form(monkeypatch):
     )
     key_config = KeyConfig(keys={"openrouter": SecretStr("sk-or-test")})
 
-    CrewAIExecutionEngine().run(team, _creds(team, key_config), "goal")
+    CrewAIExecutionEngine().run(_runnable(team, "goal"), _creds(team, key_config), "goal")
 
     [agent_obj] = captured[0].agents
     assert agent_obj.llm.provider == "openrouter"
@@ -138,7 +156,7 @@ def test_ollama_agent_gets_base_url_not_an_api_key(monkeypatch):
         monkeypatch, captured, _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("x")])
     )
 
-    CrewAIExecutionEngine().run(team, _creds(team, key_config), "goal")
+    CrewAIExecutionEngine().run(_runnable(team, "goal"), _creds(team, key_config), "goal")
 
     [agent_obj] = captured[0].agents
     assert agent_obj.llm.provider == "ollama"
@@ -168,7 +186,7 @@ def test_ollama_agent_uses_package_specified_base_url_when_present(monkeypatch):
         monkeypatch, captured, _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("x")])
     )
 
-    CrewAIExecutionEngine().run(team, _creds(team, key_config), "goal")
+    CrewAIExecutionEngine().run(_runnable(team, "goal"), _creds(team, key_config), "goal")
 
     [agent_obj] = captured[0].agents
     assert "ollama:11434" in agent_obj.llm.base_url
@@ -189,11 +207,16 @@ def test_downstream_task_receives_upstream_task_as_context(monkeypatch):
         _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("a"), _FakeTaskOutput("b")]),
     )
 
-    result = CrewAIExecutionEngine().run(team, _creds(team, _ANTHROPIC_KEYS), "goal")
+    result = CrewAIExecutionEngine().run(_runnable(team, "goal"), _creds(team, _ANTHROPIC_KEYS), "goal")
 
     crew = captured[0]
     # topologically sorted: architecture_design (no deps) before backend_implementation
-    assert [t.description for t in crew.tasks] == ["do architecture_design", "do backend_implementation"]
+    # `description` now carries the appended run-context block, so compare the
+    # authored first line; the claim under test is the ordering, not the text.
+    assert [t.description.splitlines()[0] for t in crew.tasks] == [
+        "do architecture_design",
+        "do backend_implementation",
+    ]
     assert crew.tasks[1].context == [crew.tasks[0]]
     assert [tr.name for tr in result.task_results] == ["architecture_design", "backend_implementation"]
 
@@ -205,7 +228,7 @@ def test_task_with_no_dependencies_has_no_context(monkeypatch):
         monkeypatch, captured, _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("x")])
     )
 
-    CrewAIExecutionEngine().run(team, _creds(team, _ANTHROPIC_KEYS), "goal")
+    CrewAIExecutionEngine().run(_runnable(team, "goal"), _creds(team, _ANTHROPIC_KEYS), "goal")
 
     assert captured[0].tasks[0].context is None
 
@@ -220,7 +243,7 @@ def test_orchestrator_agent_selects_hierarchical_process_with_manager(monkeypatc
         monkeypatch, captured, _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("x")])
     )
 
-    CrewAIExecutionEngine().run(team, _creds(team, _ANTHROPIC_KEYS), "goal")
+    CrewAIExecutionEngine().run(_runnable(team, "goal"), _creds(team, _ANTHROPIC_KEYS), "goal")
 
     crew = captured[0]
     assert crew.process == Process.hierarchical
@@ -249,9 +272,61 @@ def test_kickoff_receives_no_interpolation_inputs(monkeypatch):
 
     monkeypatch.setattr(Crew, "kickoff", _fake_kickoff)
 
-    CrewAIExecutionEngine().run(team, _creds(team, _ANTHROPIC_KEYS), "a very specific goal")
+    CrewAIExecutionEngine().run(_runnable(team, "a very specific goal"), _creds(team, _ANTHROPIC_KEYS), "a very specific goal")
 
     assert received == [None]
+
+
+def test_a_direct_unaugmented_engine_call_is_refused_before_crewai_starts(monkeypatch):
+    """Story 2.4 review, decision 2.
+
+    `ExecutionEngine.run`'s signature is pinned by Story 1.7 AC 7, so `goal`
+    cannot be removed even though this adapter never reads it — the goal
+    reaches the model through the task descriptions instead. That made `goal` a
+    load-bearing argument an engine would accept and silently discard if a
+    caller bypassed `run_team_package`. The engine now refuses instead.
+
+    Two things are asserted, not one: that it raises, and that `Crew.kickoff`
+    was never reached — a guard that fires *after* execution starts would have
+    already spent money and is not the guard this test claims to prove.
+    """
+    team = _team([_agent("architect")], [_task("design", "architect")])
+    kickoffs: list = []
+
+    def _fake_kickoff(self, inputs=None):
+        kickoffs.append(inputs)
+        return _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("x")])
+
+    monkeypatch.setattr(Crew, "kickoff", _fake_kickoff)
+
+    with pytest.raises(GoalNotInjectedError, match="augment_team_for_run"):
+        # `team` straight from the factories — never through the run-context
+        # path. This is exactly the call shape every test in this file used
+        # before the guard existed.
+        CrewAIExecutionEngine().run(team, _creds(team, _ANTHROPIC_KEYS), "a goal nobody wove in")
+
+    assert kickoffs == [], "the guard must fire before any crewai execution, not after"
+
+
+def test_the_same_call_succeeds_once_the_run_context_path_has_run(monkeypatch):
+    """The passing half of the guard, on the identical inputs — so the test
+    above cannot be satisfied by an engine that refuses everything."""
+    team = _team([_agent("architect")], [_task("design", "architect")])
+    kickoffs: list = []
+
+    def _fake_kickoff(self, inputs=None):
+        kickoffs.append(inputs)
+        return _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("x")])
+
+    monkeypatch.setattr(Crew, "kickoff", _fake_kickoff)
+
+    goal = "a goal nobody wove in"
+    result = CrewAIExecutionEngine().run(
+        _runnable(team, goal), _creds(team, _ANTHROPIC_KEYS), goal
+    )
+
+    assert kickoffs == [None]
+    assert result.final_output == "final"
 
 
 def test_task_output_count_mismatch_raises_clear_error_instead_of_silent_truncation(monkeypatch):
@@ -267,4 +342,4 @@ def test_task_output_count_mismatch_raises_clear_error_instead_of_silent_truncat
     )
 
     with pytest.raises(RuntimeError, match="task output"):
-        CrewAIExecutionEngine().run(team, _creds(team, _ANTHROPIC_KEYS), "goal")
+        CrewAIExecutionEngine().run(_runnable(team, "goal"), _creds(team, _ANTHROPIC_KEYS), "goal")

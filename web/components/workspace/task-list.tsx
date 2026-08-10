@@ -4,14 +4,19 @@ import type { AgentKeyView, RunView, TaskPlanView } from "@/lib/api-types"
  * Agent key badges plus the task plan, one row per task in topological order
  * (Story 2.4 AC 1 / AC 13, UX-DR6).
  *
- * Only two task states are ever rendered — `Queued` and `Done` — because
- * that is all the server ever reports: `run_team_package` returns a batch
- * result with no per-task status (AD-13, v1), so a row cannot honestly show
- * anything between "not started" and "the run completed and here is its
- * output". Every task becomes `Done` together, on `run.status === "complete"`
- * — the engine either returns a result for every submitted task or raises
- * (`CrewAIExecutionEngine.run`'s count-mismatch guard), so there is no
- * partially-done state to represent.
+ * Three task states are rendered, and each is something the server actually
+ * tells us: `Queued`, `Done`, and `Unknown`. `run_team_package` returns a
+ * batch result with no per-task status (AD-13, v1), so a row can never show
+ * progress *during* a run — but it can distinguish the three run-level
+ * outcomes. On `complete` the engine has returned a result for every submitted
+ * task or raised (`CrewAIExecutionEngine.run`'s count-mismatch guard), so all
+ * rows are `Done` together.
+ *
+ * On `failed`, the honest answer is `Unknown`: the run consumed real time and
+ * real spend, some tasks very likely ran, and the server discards a failed
+ * run's partial transcript (`deferred-work.md:101`) — so we know that we do
+ * not know. Rendering `Queued` beside a run-level "Failed", as this did,
+ * asserts that nothing was attempted, which is a claim no data supports.
  *
  * Per-task output expansion uses the native `<details>`/`<summary>` — no
  * `accordion` or `collapsible` is installed, and none is needed for this.
@@ -28,6 +33,7 @@ export function TaskList({
   const agentByRole = new Map(agents.map((agent) => [agent.role, agent]))
   const outputByName = new Map((run?.result?.task_results ?? []).map((r) => [r.name, r]))
   const done = run?.status === "complete"
+  const rowStatus = done ? "Done" : run?.status === "failed" ? "Unknown" : "Queued"
 
   return (
     <div data-slot="task-list-panel" className="flex flex-col gap-3">
@@ -58,7 +64,7 @@ export function TaskList({
         {tasks.map((task) => {
           const agent = agentByRole.get(task.agent_role)
           const output = outputByName.get(task.name)
-          const status = done ? "Done" : "Queued"
+          const status = rowStatus
           return (
             <li
               key={task.name}

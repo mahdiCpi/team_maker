@@ -136,8 +136,10 @@ def create_app(
     # touching keys, so the UI's four states come from here.
     app.include_router(keys_router, prefix="/api")
     # The run group (Story 2.4). `run_router` declares `/teams/{team_slug}`
-    # before `/{run_id}` internally — both are two segments under `/runs`, so
-    # FastAPI/Starlette resolve them by declaration order.
+    # first internally, because it genuinely collides with
+    # `/{run_id}/transcript` — both are two segments under `/runs` — and
+    # Starlette resolves by declaration order. (It does not collide with
+    # `/{run_id}`, which is one segment; see the comment in `routers/run.py`.)
     app.include_router(run_router, prefix="/api")
     _register_error_handlers(app)
     return app

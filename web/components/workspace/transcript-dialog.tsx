@@ -38,10 +38,15 @@ export function TranscriptDialog({
   open,
   onOpenChange,
   transcript,
+  loadFailed = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   transcript: TranscriptView | null
+  /** The transcript GET failed. Kept distinct from every other empty state:
+   *  "we could not fetch it" and "the server says there is nothing" are
+   *  different facts, and only one of them is the server's claim. */
+  loadFailed?: boolean
 }) {
   const entries = transcript
     ? [...transcript.entries].sort((a, b) => a.sequence - b.sequence)
@@ -55,7 +60,18 @@ export function TranscriptDialog({
           <DialogDescription>Every agent message and handoff, in order.</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh]">
-          {!transcript || !transcript.available ? (
+          {loadFailed ? (
+            // Before this branch existed, a failed fetch fell through to the
+            // "nothing available yet" copy below — telling the user the server
+            // had said something it never said, about a transcript that exists.
+            <p
+              data-slot="workspace-transcript-load-failed"
+              role="alert"
+              className="text-sm text-destructive"
+            >
+              The transcript could not be loaded. Close this and open it again to retry.
+            </p>
+          ) : !transcript || !transcript.available ? (
             // Covers both "still running" and "failed before any entry was
             // captured" (`deferred-work.md:101`) — an honest "nothing yet",
             // never a blank panel.

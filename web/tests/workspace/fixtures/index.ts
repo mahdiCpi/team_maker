@@ -142,3 +142,11 @@ export const errorRunInProgress = {
       "Another run is already in progress. Wait for it to finish before starting another — this server runs one at a time.",
   },
 };
+
+export const errorRunNotFound = {
+  error: {
+    code: "run_not_found",
+    message:
+      "That run is no longer available. It may have finished long enough ago to be cleared. Start a new run to see fresh results.",
+  },
+};

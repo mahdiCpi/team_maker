@@ -15,7 +15,13 @@ from pydantic import SecretStr
 from team_maker.keyconfig import KeyConfig
 from team_maker.pipeline.runner import PipelineRunner
 from team_maker.runtime.executor import run_team_package
-from team_maker.runtime.run_context import RunDocument, augment_team_for_run
+from team_maker.runtime.run_context import (
+    GoalNotInjectedError,
+    RunDocument,
+    augment_team_for_run,
+    goal_is_injected,
+    require_goal_injected,
+)
 from tests.support.team_factories import agent_spec, generated_team, task_spec
 
 
@@ -166,3 +172,76 @@ def test_goal_reaches_an_actual_prompt_a_task_was_run_with(monkeypatch, minimal_
         for call in calls
         for message in call.messages
     ), "the goal text never appeared in any message handed to an LLM"
+
+
+# ---------------------------------------------------------------------------
+# The goal-injection guard (Story 2.4 review, decision 2)
+#
+# `ExecutionEngine.run(team, credentials, goal)` keeps its pinned signature
+# (Story 1.7 AC 7) but never reads `goal` — the goal reaches the model through
+# the task descriptions. These prove the predicate that keeps that from meaning
+# "a load-bearing argument an engine accepts and silently discards".
+# ---------------------------------------------------------------------------
+
+
+def test_an_augmented_team_satisfies_the_guard():
+    team = _team_with_two_tasks()
+
+    augmented = augment_team_for_run(team, "ship it")
+
+    assert goal_is_injected(augmented, "ship it")
+    require_goal_injected(augmented, "ship it")  # must not raise
+
+
+def test_a_team_straight_from_the_loader_fails_the_guard():
+    """The falsification: without this, the test above would pass against a
+    predicate that returns `True` unconditionally."""
+    team = _team_with_two_tasks()
+
+    assert not goal_is_injected(team, "ship it")
+    with pytest.raises(GoalNotInjectedError, match="augment_team_for_run"):
+        require_goal_injected(team, "ship it")
+
+
+def test_a_team_augmented_with_a_different_goal_fails_the_guard():
+    """The heading alone is not enough. A team carrying *some* run context but
+    not *this* run's goal is exactly the shape a reused or cached team object
+    would have, and it must not pass."""
+    augmented = augment_team_for_run(_team_with_two_tasks(), "the goal it was built with")
+
+    assert not goal_is_injected(augmented, "a completely different goal")
+
+
+def test_the_guard_checks_every_task_not_merely_the_first():
+    """A partial injection is the failure mode that would silently degrade the
+    very defect AC 5 exists to fix, so one untouched task must fail the whole
+    check."""
+    import dataclasses
+
+    augmented = augment_team_for_run(_team_with_two_tasks(), "ship it")
+    original = _team_with_two_tasks()
+    half = dataclasses.replace(
+        augmented, tasks=[augmented.tasks[0], original.tasks[1]]
+    )
+
+    assert len(half.tasks) == 2, "a vacuous pass: the fixture must have two tasks"
+    assert not goal_is_injected(half, "ship it")
+
+
+def test_a_blank_goal_is_satisfied_vacuously_and_deliberately():
+    """There is nothing an engine could silently ignore, so refusing would be a
+    new refusal rather than a fixed defect. `api/schemas.py` rejects a blank
+    goal at the HTTP edge; the CLI has never required one."""
+    team = _team_with_two_tasks()
+
+    assert goal_is_injected(team, "")
+    assert goal_is_injected(team, "   \n\t ")
+    require_goal_injected(team, "")  # must not raise
+
+
+def test_a_team_with_no_tasks_is_satisfied_vacuously():
+    """No description exists to carry the goal, so no agent can be handed one.
+    The run has a different problem and this guard must not misname it."""
+    team = generated_team([agent_spec("writer")], [])
+
+    assert goal_is_injected(team, "ship it")

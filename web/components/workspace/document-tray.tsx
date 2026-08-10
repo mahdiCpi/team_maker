@@ -3,7 +3,11 @@
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
-import { MAX_DOCUMENTS, MAX_DOCUMENT_TEXT_LENGTH } from "@/lib/api-types"
+import {
+  MAX_DOCUMENTS,
+  MAX_DOCUMENT_TEXT_LENGTH,
+  MAX_TOTAL_DOCUMENT_TEXT_LENGTH,
+} from "@/lib/api-types"
 import { cn } from "@/lib/utils"
 import type { AttachedDocument } from "@/components/workspace/workspace-state"
 
@@ -34,19 +38,33 @@ export function DocumentTray({
   error: string | null
   /** Non-null means attaching cannot proceed right now, and says why. */
   blockedReason: string | null
-  onAttach: (document: AttachedDocument) => void
+  onAttach: (document: { name: string; text: string }) => void
   onAttachFailed: (reason: string) => void
-  onRemove: (name: string) => void
+  /** By `id`, not by name — two files can share a basename, and removing by
+   *  name deleted every document that shared one. */
+  onRemove: (id: string) => void
 }) {
   const [dragOver, setDragOver] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement | null>(null)
 
   async function readFiles(files: FileList | File[]) {
     if (blockedReason) return
+    // Counted locally, not read off `documents` each pass. `documents` is a
+    // prop captured by this render's closure and `onAttach` only dispatches, so
+    // it does not change while this loop runs: checking `documents.length`
+    // inside the loop compared every file against the count from *before* the
+    // first one, and one multi-file drop sailed past the cap entirely.
+    let count = documents.length
+    let total = documents.reduce((sum, document) => sum + document.text.length, 0)
+
     for (const file of Array.from(files)) {
-      if (documents.length >= MAX_DOCUMENTS) {
-        onAttachFailed(`You can attach at most ${MAX_DOCUMENTS} documents.`)
-        return
+      if (count >= MAX_DOCUMENTS) {
+        // `break`, not `return`: the message below is about the remaining
+        // files as a group, and silently dropping them was its own defect.
+        onAttachFailed(
+          `You can attach at most ${MAX_DOCUMENTS} documents, so the rest were not attached.`
+        )
+        break
       }
       let text: string
       try {
@@ -63,13 +81,31 @@ export function DocumentTray({
         onAttachFailed(`"${file.name}" does not look like a text file.`)
         continue
       }
+      if (text.length === 0) {
+        // The server requires `min_length=1` per document, so an empty file
+        // attached here would fail the whole run request later — a refusal at
+        // Run time for something knowable at attach time.
+        onAttachFailed(`"${file.name}" is empty.`)
+        continue
+      }
       if (text.length > MAX_DOCUMENT_TEXT_LENGTH) {
         onAttachFailed(
           `"${file.name}" is too long (${text.length.toLocaleString()} characters; the limit is ${MAX_DOCUMENT_TEXT_LENGTH.toLocaleString()}).`
         )
         continue
       }
+      if (total + text.length > MAX_TOTAL_DOCUMENT_TEXT_LENGTH) {
+        // The total bound was checked only by `validateRunInput`, i.e. at Run
+        // time, so five individually-legal files could sit in the tray looking
+        // accepted and then block the run.
+        onAttachFailed(
+          `"${file.name}" would push the attached documents past ${MAX_TOTAL_DOCUMENT_TEXT_LENGTH.toLocaleString()} characters in total.`
+        )
+        continue
+      }
       onAttach({ name: file.name, text })
+      count += 1
+      total += text.length
     }
   }
 
@@ -133,7 +169,7 @@ export function DocumentTray({
         <ul data-slot="workspace-document-list" className="flex flex-col gap-1">
           {documents.map((document) => (
             <li
-              key={document.name}
+              key={document.id}
               data-slot="workspace-document-item"
               className="flex items-center justify-between gap-2 text-xs"
             >
@@ -142,7 +178,8 @@ export function DocumentTray({
                 type="button"
                 size="sm"
                 variant="ghost"
-                onClick={() => onRemove(document.name)}
+                aria-label={`Remove ${document.name}`}
+                onClick={() => onRemove(document.id)}
               >
                 Remove
               </Button>

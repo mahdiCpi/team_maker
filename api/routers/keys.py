@@ -37,6 +37,7 @@ import logging
 
 from fastapi import APIRouter, Request
 
+from api.deps import current_key_config, file_only_key_config
 from api.keystatus import (
     any_key_present,
     blocking_reason,
@@ -122,13 +123,18 @@ def key_check(session_id: str, request: Request) -> KeyCheckView:
 
 
 def _fresh_config() -> KeyConfig:
-    """Re-read the Key Config so a post-startup edit is visible. Never raises."""
-    return KeyConfig.from_file()
+    """Re-read the Key Config so a post-startup edit is visible. Never raises.
+
+    Delegates to `deps.current_key_config` so this route and the Workspace's
+    per-agent badges (`api/routers/run.py`) cannot read keys differently — the
+    Story 2.4 review found exactly that drift.
+    """
+    return current_key_config()
 
 
 def _file_only_config() -> KeyConfig:
     """The same read without the environment fallback, for source attribution."""
-    return KeyConfig.from_file(include_env=False)
+    return file_only_key_config()
 
 
 def _provider_views(

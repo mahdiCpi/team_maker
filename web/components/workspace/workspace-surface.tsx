@@ -20,6 +20,7 @@ import { TranscriptDialog } from "@/components/workspace/transcript-dialog"
 import {
   INITIAL_WORKSPACE_STATE,
   currentTurn,
+  isRunInFlight,
   workspaceReducer,
   type ChatTurn,
 } from "@/components/workspace/workspace-state"
@@ -62,13 +63,20 @@ export function WorkspaceSurface({ teamSlug }: { teamSlug: string }) {
     }
   }, [teamSlug])
 
+  // A ref *and* a state value, deliberately. The ref is the guard: `useState`
+  // updates on re-render, so two clicks dispatched before React re-renders
+  // would both read `submitting === false` and both POST. The state value
+  // exists only so the blocked reason can be rendered.
+  const submittingRef = React.useRef(false)
+  const [submitting, setSubmitting] = React.useState(false)
+
   const turn = currentTurn(state)
-  const running = turn?.run.status === "running"
+  const running = isRunInFlight(state)
   // Read as primitives before the effect below, so its dependency array
   // names exactly what it uses — no `turn` object identity to reason about,
   // and no `eslint-disable` (2.3 measured that one it wrote was itself
   // reported as unnecessary).
-  const pollingRunId = running ? turn.runId : null
+  const pollingRunId = running ? (turn?.runId ?? null) : null
   const pollEpoch = state.pollEpoch
 
   // Poll while the current run is in flight. The epoch is captured before
@@ -83,9 +91,19 @@ export function WorkspaceSurface({ teamSlug }: { teamSlug: string }) {
       void (async () => {
         const result = await getRun(pollingRunId)
         if (cancelled) return
-        // A transient poll failure is not surfaced as an error state — the
-        // next tick tries again, and the last known run state is kept.
-        if (result.ok) dispatch({ type: "run_updated", run: result.data, epoch: pollEpoch })
+        if (result.ok) {
+          dispatch({ type: "run_updated", run: result.data, epoch: pollEpoch })
+        } else if (result.code === "run_not_found") {
+          // The one poll failure that is permanent, not transient: the record
+          // was evicted (30-minute idle TTL) or the server restarted, so every
+          // future tick can only 404 too. Treating it as retryable left the tab
+          // polling forever and the `Run` control blocked on "a run is already
+          // in progress" — a state only a page reload escaped.
+          dispatch({ type: "run_lost", runId: pollingRunId, message: result.message })
+        }
+        // Anything else is genuinely transient (a timeout, a dropped
+        // connection, a 5xx): the next tick retries and the last known run
+        // state is kept.
       })()
     }, RUN_POLL_INTERVAL_MS)
     return () => {
@@ -98,46 +116,77 @@ export function WorkspaceSurface({ teamSlug }: { teamSlug: string }) {
   // a separate GET (1.7 / this story's own AC 14), not inlined into every
   // poll response, so the Workspace does not pay for it until it exists.
   const transcriptRunId = turn?.run.transcript_available ? turn.runId : null
+  // Read as primitives so the dependency array names exactly what it uses.
+  // `transcriptAttempt` is bumped on every dialog open, which is what makes a
+  // failed load retry when the user does what the failure copy tells them to;
+  // `transcriptLoaded` stops that from refetching one already in hand.
+  const transcriptLoaded = state.transcript !== null
+  const transcriptAttempt = state.transcriptAttempt
 
   React.useEffect(() => {
-    if (!transcriptRunId) return
+    if (!transcriptRunId || transcriptLoaded) return
     let cancelled = false
     void (async () => {
       const result = await getRunTranscript(transcriptRunId)
       if (cancelled) return
       if (result.ok) dispatch({ type: "transcript_loaded", transcript: result.data })
+      // Swallowing this left the dialog saying "No transcript is available for
+      // this run yet" — a claim the server never made, about a transcript that
+      // exists and is thirty minutes from eviction.
+      else dispatch({ type: "transcript_load_failed" })
     })()
     return () => {
       cancelled = true
     }
-  }, [transcriptRunId])
+  }, [transcriptRunId, transcriptLoaded, transcriptAttempt])
 
   async function submitGoal() {
     const text = goal.trim()
     if (text.length === 0) return
-    const documents = state.documents
-    dispatch({ type: "run_requested" })
-    const result = await createRun({ team_slug: teamSlug, goal: text, documents })
-    if (result.ok) {
-      setGoal("")
-      dispatch({
-        type: "run_started",
-        runId: result.data.run_id,
+    // `running` only becomes true once `createRun` resolves, and the server's
+    // synchronous gate (a package load plus a credential check) means that is
+    // not instant. Without this, a double-click or a double Enter sent two
+    // POSTs: the server serialised them correctly, and the client then showed
+    // the second one's `run_in_progress` as a red alert over the user's own
+    // perfectly healthy run.
+    if (submittingRef.current) return
+    submittingRef.current = true
+    setSubmitting(true)
+    try {
+      const documents = state.documents
+      dispatch({ type: "run_requested" })
+      const result = await createRun({
+        team_slug: teamSlug,
         goal: text,
-        run: result.data,
+        documents: documents.map(({ name, text: body }) => ({ name, text: body })),
       })
-    } else {
-      dispatch({ type: "run_request_failed", failure: result })
+      if (result.ok) {
+        setGoal("")
+        dispatch({
+          type: "run_started",
+          runId: result.data.run_id,
+          goal: text,
+          run: result.data,
+          sentDocumentIds: documents.map((document) => document.id),
+        })
+      } else {
+        dispatch({ type: "run_request_failed", failure: result })
+      }
+    } finally {
+      submittingRef.current = false
+      setSubmitting(false)
     }
   }
 
   const sendBlockedReason = running
     ? "A run is already in progress. Wait for it to finish before starting another."
-    : state.plan === null
-      ? state.planFailed
-        ? "Could not load this team. Reload the page to try again."
-        : "Loading this team…"
-      : null
+    : submitting
+      ? "Starting the run…"
+      : state.plan === null
+        ? state.planFailed
+          ? "Could not load this team. Reload the page to try again."
+          : "Loading this team…"
+        : null
 
   return (
     <div data-slot="workspace" className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
@@ -174,7 +223,23 @@ export function WorkspaceSurface({ teamSlug }: { teamSlug: string }) {
           </p>
         ) : null}
 
-        {turn ? <RunStatus run={turn.run} /> : null}
+        {state.runLost ? (
+          <p
+            data-slot="workspace-run-lost"
+            role="alert"
+            className="text-sm text-destructive"
+          >
+            {state.runLost.message}
+          </p>
+        ) : null}
+
+        {/* Rendered unconditionally, not gated on `turn`. A live region has to
+            exist in the accessibility tree *before* its content changes, or the
+            first announcement is dropped — which is why a screen-reader user
+            used to be told a run had finished without ever being told it had
+            started. `RunStatus` renders the region always and the visible card
+            only when there is a run. */}
+        <RunStatus run={turn?.run ?? null} />
 
         <DocumentTray
           documents={state.documents}
@@ -184,7 +249,7 @@ export function WorkspaceSurface({ teamSlug }: { teamSlug: string }) {
           }
           onAttach={(document) => dispatch({ type: "document_attached", document })}
           onAttachFailed={(reason) => dispatch({ type: "document_attach_failed", reason })}
-          onRemove={(name) => dispatch({ type: "document_removed", name })}
+          onRemove={(id) => dispatch({ type: "document_removed", id })}
         />
 
         <GoalInput
@@ -227,6 +292,7 @@ export function WorkspaceSurface({ teamSlug }: { teamSlug: string }) {
           dispatch({ type: open ? "transcript_dialog_opened" : "transcript_dialog_closed" })
         }
         transcript={state.transcript}
+        loadFailed={state.transcriptFailed}
       />
     </div>
   )

@@ -40,14 +40,20 @@ export function GoalInput({
 }) {
   const empty = value.trim().length === 0
   const overLong = value.length > MAX_GOAL_LENGTH
+  // An empty goal is a blocked state like any other, and it needs its own
+  // sentence: the button was `aria-disabled` for it while `aria-describedby`
+  // pointed at "Enter sends. Shift+Enter adds a line." — a hint, not a reason.
+  // `EXPERIENCE.md:104` bans a blocked control that does not say why.
   const blocked =
     sendBlockedReason ??
     (overLong
       ? `That is ${value.length.toLocaleString()} characters. Shorten it to ${MAX_GOAL_LENGTH.toLocaleString()} or fewer to send.`
-      : null)
+      : empty
+        ? "Describe what you want this team to do, then press Run."
+        : null)
 
   function trySend() {
-    if (!blocked && !empty) onSend()
+    if (!blocked) onSend()
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -81,7 +87,7 @@ export function GoalInput({
         <Button
           type="button"
           onClick={trySend}
-          aria-disabled={blocked !== null || empty}
+          aria-disabled={blocked !== null}
           aria-describedby={SEND_HINT_ID}
           data-slot="workspace-run"
         >

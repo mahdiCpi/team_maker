@@ -25,6 +25,7 @@ from team_maker.domain.models import AgentSpec, GeneratedTeam, ResolvedCredentia
 from team_maker.ports.execution_engine import ExecutionEngine
 from team_maker.runtime.ordering import topological_sort
 from team_maker.runtime.results import RunResult, TaskResult
+from team_maker.runtime.run_context import require_goal_injected
 
 
 class CrewAIExecutionEngine(ExecutionEngine):
@@ -36,6 +37,16 @@ class CrewAIExecutionEngine(ExecutionEngine):
         credentials: dict[str, ResolvedCredential],
         goal: str,
     ) -> RunResult:
+        # Before anything is built, and before any spend: refuse a goal this
+        # engine cannot honour. `goal` is not read anywhere below — the run's
+        # goal reaches the model through every task's `description`, woven in
+        # by `run_context.augment_team_for_run` upstream — so an unaugmented
+        # team would execute the package's stock descriptions and discard the
+        # user's goal in silence. `ExecutionEngine.run`'s signature is pinned
+        # by Story 1.7 AC 7 and cannot express that dependency in types, so it
+        # is enforced here instead (Story 2.4 review, decision 2).
+        require_goal_injected(team, goal)
+
         agents_by_role = {
             agent.role: self._build_agent(agent, credentials[agent.role])
             for agent in team.agents
@@ -88,9 +99,10 @@ class CrewAIExecutionEngine(ExecutionEngine):
             # goal or document can contain. Omitting `inputs=` disables that
             # interpolation entirely, so literal braces survive as plain
             # text. `goal` stays a parameter of this method only because
-            # `ExecutionEngine.run`'s signature is pinned (Story 1.7 AC 7,
-            # for the v2 streaming retrofit) — it is intentionally unused
-            # below.
+            # `ExecutionEngine.run`'s signature is pinned (Story 1.7 AC 7, for
+            # the v2 streaming retrofit); it is not read here, and the guard at
+            # the top of this method is what stops that from meaning "silently
+            # discarded".
             output = crew.kickoff()
         transcript = recorder.entries()
 

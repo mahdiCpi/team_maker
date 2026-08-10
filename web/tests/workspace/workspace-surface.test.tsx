@@ -8,6 +8,7 @@ import { createRunFetchQueue, type RunFetchQueue } from "./harness";
 import {
   errorRunBlocked,
   errorRunInProgress,
+  errorRunNotFound,
   runComplete,
   runFailed,
   runRunning,
@@ -344,4 +345,187 @@ describe("blocked controls carry aria-disabled and a linked reason, never `disab
     expect(reasonId).toBeTruthy();
     expect(document.getElementById(reasonId as string)?.textContent?.length).toBeGreaterThan(0);
   });
+});
+
+
+// ---------------------------------------------------------------------------
+// Story 2.4 review patches. Each of these fails if the corresponding line in
+// `components/workspace/` is reverted.
+// ---------------------------------------------------------------------------
+
+async function startARun(user: ReturnType<typeof userEvent.setup>, goal = "ship it") {
+  queue.queueCreateRun(200, runRunning);
+  await user.type(screen.getByRole("textbox", { name: "Describe the goal for this run" }), goal);
+  await user.click(screen.getByRole("button", { name: "Run" }));
+  await screen.findByText(goal);
+}
+
+describe("a run whose record has gone", () => {
+  it(
+    "stops polling, says so, and releases the Run control",
+    async () => {
+      const user = userEvent.setup();
+      await renderWorkspace();
+      await startARun(user);
+
+      // `run_not_found` is permanent, not transient: the record was evicted or
+      // the server restarted, so every later tick can only 404 too.
+      queue.queueGetRun(404, errorRunNotFound);
+
+      await waitFor(
+        () => {
+          expect(document.querySelector('[data-slot="workspace-run-lost"]')).toBeInTheDocument();
+        },
+        { timeout: 5000 }
+      );
+
+      const pollsWhenLost = queue.requests.filter((r) => /^\/api\/runs\/[^/]+$/.test(r.url)).length;
+      // Nothing further is queued: another tick would hit "unexpected request",
+      // so this proves polling stopped rather than merely not being seen yet.
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      expect(
+        queue.requests.filter((r) => /^\/api\/runs\/[^/]+$/.test(r.url)).length
+      ).toBe(pollsWhenLost);
+
+      // And the user is not locked out: the Run control no longer claims a run
+      // is in progress.
+      const hint = document.querySelector('[data-slot="workspace-goal-hint"]');
+      expect(hint?.textContent).not.toMatch(/already in progress/i);
+    },
+    15000
+  );
+});
+
+describe("double submit", () => {
+  it("sends exactly one POST when Run is clicked twice before the first resolves", async () => {
+    const user = userEvent.setup();
+    await renderWorkspace();
+    await user.type(
+      screen.getByRole("textbox", { name: "Describe the goal for this run" }),
+      "ship it"
+    );
+    queue.queueCreateRun(200, runRunning);
+
+    // Two synchronous DOM clicks, so both handlers run before React re-renders
+    // — the case a `useState` flag cannot catch. Only one `createRun` is
+    // queued, so a second POST would also raise "unexpected request".
+    const button = screen.getByRole("button", { name: "Run" });
+    button.click();
+    button.click();
+
+    await screen.findByText("ship it");
+    expect(queue.requests.filter((r) => r.url === "/api/runs" && r.method === "POST")).toHaveLength(
+      1
+    );
+    expect(
+      document.querySelector('[data-slot="workspace-run-request-failure"]')
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("blocked controls always say why", () => {
+  it("gives the empty goal its own reason, not the keyboard hint", async () => {
+    await renderWorkspace();
+
+    const button = screen.getByRole("button", { name: "Run" });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    const hintId = button.getAttribute("aria-describedby");
+    const hint = document.getElementById(hintId as string);
+    // The assertion that matters: a *reason*, not "Enter sends. Shift+Enter
+    // adds a line." — which is a hint and was what this pointed at.
+    expect(hint?.textContent).not.toMatch(/Shift\+Enter/);
+    expect(hint?.textContent).toMatch(/Describe what you want this team to do/);
+  });
+});
+
+describe("the live region", () => {
+  it("is in the accessibility tree before the first run exists", async () => {
+    await renderWorkspace();
+
+    // A live region inserted together with its first content is not announced.
+    // It must already be mounted, and empty, before a run starts.
+    const region = screen.getByRole("status");
+    expect(region).toBeInTheDocument();
+    expect(region.textContent).toBe("");
+  });
+
+  it(
+    "carries the run-started announcement once a run begins",
+    async () => {
+      const user = userEvent.setup();
+      await renderWorkspace();
+      await startARun(user);
+
+      await waitFor(() => {
+        expect(screen.getByRole("status").textContent).toMatch(/Run started\. 1 task\./);
+      });
+    },
+    10000
+  );
+});
+
+describe("a failed run's task rows", () => {
+  it(
+    "read Unknown, never Queued — the run did not leave them untouched",
+    async () => {
+      const user = userEvent.setup();
+      await renderWorkspace();
+      await startARun(user);
+
+      queue.queueGetRun(200, runFailed);
+      await waitFor(
+        () => {
+          expect(
+            document.querySelector('[data-slot="run-status"]')?.getAttribute("data-status")
+          ).toBe("failed");
+        },
+        { timeout: 5000 }
+      );
+
+      const statuses = Array.from(
+        document.querySelectorAll('[data-slot="task-status"]')
+      ).map((node) => node.textContent);
+      expect(statuses.length).toBeGreaterThan(0);
+      expect(statuses).not.toContain("Queued");
+      expect(statuses.every((status) => status === "Unknown")).toBe(true);
+    },
+    10000
+  );
+});
+
+describe("a transcript that could not be fetched", () => {
+  it(
+    "says the fetch failed, never that the server reported nothing",
+    async () => {
+      const user = userEvent.setup();
+      await renderWorkspace();
+      await startARun(user);
+
+      // The run completes with `transcript_available: true`, so the surface
+      // fetches the transcript eagerly — and that fetch fails.
+      queue.queueTranscript(500, { error: { code: "internal_error", message: "boom" } });
+      queue.queueGetRun(200, runComplete);
+      await waitFor(
+        () => {
+          expect(
+            document.querySelector('[data-slot="run-status"]')?.getAttribute("data-status")
+          ).toBe("complete");
+        },
+        { timeout: 5000 }
+      );
+
+      await user.click(screen.getByRole("button", { name: "View transcript" }));
+
+      await waitFor(() => {
+        expect(
+          document.querySelector('[data-slot="workspace-transcript-load-failed"]')
+        ).toBeInTheDocument();
+      });
+      // The claim the server never made must not be shown.
+      expect(
+        document.querySelector('[data-slot="workspace-transcript-unavailable"]')
+      ).not.toBeInTheDocument();
+    },
+    15000
+  );
 });

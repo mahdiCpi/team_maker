@@ -145,6 +145,31 @@ def authoring_unsupported(choice: AuthoringChoice) -> ApiError:
     )
 
 
+def current_key_config() -> KeyConfig:
+    """Re-read the Key Config so a post-startup edit is visible. Never raises.
+
+    Lives here rather than in a router because more than one surface needs it
+    and they must not drift: the key panel and the Workspace's per-agent badges
+    are the same availability rule projected twice, and the Story 2.4 review
+    found them disagreeing because the run path read a startup snapshot while
+    the key routes re-read. `providers_needing_restart` below is the reason
+    this is safe — *authoring* needs a restart to see a new key, running does
+    not.
+    """
+    return KeyConfig.from_file()
+
+
+def file_only_key_config() -> KeyConfig:
+    """The same read without the environment fallback, for source attribution.
+
+    Passing `current_key_config()` in this slot is not a harmless shortcut: it
+    makes `keystatus.credential_source` answer `key-config` for every provider
+    that has a key from any source, which silently disables both the
+    "key found in the environment" note and the startup-leftover warning.
+    """
+    return KeyConfig.from_file(include_env=False)
+
+
 def safe_label(value: str, *, limit: int = 64) -> str:
     """A client-supplied string that is safe to put in a log line or a message.
 

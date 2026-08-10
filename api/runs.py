@@ -29,6 +29,7 @@ been running — mirroring `SessionRegistry`'s `busy` guard, which exists so
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import threading
 import time
@@ -104,8 +105,24 @@ class RunRecord:
         return self.status == STATUS_RUNNING
 
 
+def _snapshot(record: RunRecord) -> RunRecord:
+    """A detached copy of *record*, for handing outside the registry's lock.
+
+    Callers must only ever be given one of these: every mutable field on a
+    `RunRecord` is written by the run's own thread, so a caller holding the
+    live object reads a moving target field by field. Taken while `_guard` is
+    held, this copy is internally consistent by construction.
+    """
+    return dataclasses.replace(record)
+
+
 class RunRegistry:
-    """Thread-safe. Every public method is safe from the threadpool."""
+    """Thread-safe, and so are the records it hands out.
+
+    Every public method is safe to call from the threadpool, and every record
+    returned is a `_snapshot` — a caller can never observe a partially
+    published terminal state.
+    """
 
     def __init__(
         self,
@@ -142,6 +159,14 @@ class RunRegistry:
         beyond the dependency-free `RunResult` type, so it stays agnostic of
         how a run is actually performed (AD-6/AD-8).
         """
+        # Built before the lock is taken so nothing between `acquire()` and the
+        # `try` can raise and strand it.
+        record = RunRecord(
+            run_id=uuid.uuid4().hex,
+            team_slug=team_slug,
+            team_name=team_name,
+            tasks=tuple(tasks),
+        )
         if not self._run_lock.acquire(blocking=False):
             raise ApiError(
                 RUN_IN_PROGRESS,
@@ -149,12 +174,6 @@ class RunRegistry:
                 "before starting another — this server runs one at a time.",
             )
         try:
-            record = RunRecord(
-                run_id=uuid.uuid4().hex,
-                team_slug=team_slug,
-                team_name=team_name,
-                tasks=tuple(tasks),
-            )
             with self._guard:
                 self._evict_idle_locked()
                 self._evict_overflow_locked()
@@ -170,11 +189,24 @@ class RunRegistry:
                 daemon=True,
             )
             self._in_flight_thread = thread
+            # Snapshotted before the thread can touch the record, so the
+            # response to `POST /api/runs` cannot observe a half-published
+            # terminal state (see `get`). A freshly built record is
+            # definitionally `running` with no result, which is exactly what
+            # AC 1 says this route returns.
+            published = _snapshot(record)
             thread.start()
         except BaseException:
+            # The record is in `_records` but no thread will ever carry it to a
+            # terminal status, so `busy` would stay True forever — and both
+            # eviction rules skip a busy record, so it would never be swept and
+            # would count against `MAX_STORED_RUNS` permanently. Remove it.
+            with self._guard:
+                self._records.pop(record.run_id, None)
+            self._in_flight_thread = None
             self._run_lock.release()
             raise
-        return record
+        return published
 
     def get(self, run_id: str) -> RunRecord:
         """Look up a run, or raise the AC 4 clean 404.
@@ -182,6 +214,16 @@ class RunRegistry:
         Idle records are swept on every lookup, exactly as
         `SessionRegistry.get` does — so an evicted `run_id` is
         indistinguishable from one that never existed, which is the point.
+
+        **Returns a snapshot, never the live record.** The run thread mutates
+        `status`/`result`/`failure_reason`/`finished_at` under `_guard`, and a
+        caller that read those fields off the live object would be reading them
+        one at a time with no lock: it could see `status == "complete"` while
+        `result` was still `None`, because the reader's field order is the
+        reverse of the writer's. The client stops polling on a terminal status,
+        so that torn pair is not a transient glitch — it is the final state the
+        user is left with. Copying under the guard is what makes "thread-safe"
+        in this class's own docstring true of the values as well as the dict.
         """
         with self._guard:
             self._evict_idle_locked()
@@ -193,7 +235,7 @@ class RunRegistry:
                     "long enough ago to be cleared. Start a new run to see "
                     "fresh results.",
                 )
-            return entry
+            return _snapshot(entry)
 
     def shutdown(self, *, join_timeout: float = 2.0) -> None:
         """Give an in-flight run a bounded chance to finish, then let go.
@@ -221,19 +263,36 @@ class RunRegistry:
     # -- internals; callers already hold `self._guard` unless noted ---------
 
     def _execute(self, record: RunRecord, work: Callable[[], RunResult]) -> None:
+        # `BaseException`, not `Exception`, and for the same reason `start`
+        # above uses it: anything that escapes `work()` without being recorded
+        # leaves this record `running` with `finished_at is None` forever, and
+        # both eviction rules skip a busy record — so a single escape is a
+        # permanent leak that also defeats `MAX_STORED_RUNS`. This is not
+        # hypothetical: `tests/support/crewai_interception.py` raises a
+        # deliberate `BaseException` subclass precisely so application code
+        # cannot swallow it, and `SystemExit` from library code is the same
+        # shape. A non-`Exception` is re-raised once recorded, so the thread
+        # still dies loudly rather than being quietly downgraded.
         try:
             result = work()
-        except Exception as exc:
+        except BaseException as exc:
             logger.exception("run %s failed", record.run_id, exc_info=exc)
             with self._guard:
-                record.status = STATUS_FAILED
                 record.failure_reason = GENERIC_FAILURE_REASON
                 record.finished_at = self._clock()
+                record.status = STATUS_FAILED
+            if not isinstance(exc, Exception):
+                raise
         else:
             with self._guard:
-                record.status = STATUS_COMPLETE
+                # `status` is assigned *last*, after the fields a terminal
+                # status promises are already in place. Readers go through
+                # `get`, which copies under this same lock, so ordering is
+                # belt-and-braces — but it keeps the invariant true for any
+                # future reader that does not.
                 record.result = result
                 record.finished_at = self._clock()
+                record.status = STATUS_COMPLETE
         finally:
             self._run_lock.release()
 
