@@ -4,7 +4,9 @@ baseline_commit: 0fd5348
 
 # Story 2.4: Team Workspace — chat, documents, run, results
 
-Status: review
+Status: in-progress
+
+> **Not `done`, deliberately.** The code review's patches are all applied and verified, but five of six review layers died on an infrastructure fault and **AC 1–16 never received an acceptance audit**. See `### Review Findings` → "Still open before Story 2.4 can be marked done".
 
 ## Story
 
@@ -489,6 +491,108 @@ Two known E2E harness defects (`web/tests/composer/e2e-live-check.mjs`) that bot
 5. **`EXPERIENCE.md:87` versus `:129`** — *"You'll need at least one model key to run"* is false for a keyless local `ollama` team, which `:129` explicitly supports. Raised by 2.3 and still open; it now affects a real run gate, not just a banner.
 6. **Is this story too large for one pass?** It adds a run group, a document mechanism, a server-side gate, run serialisation, a run registry, a whole new surface and a transcript view. The natural split is the **transcript view** (AC 14), which has no UX spec, no upstream FR in the PRD, and no Capability Map row — it could be its own story without blocking anything. The full scope is specified here as the epic defines it; splitting is a product call, not the dev agent's.
 
+### Review Findings
+
+Code review of `0fd5348..dee91aa` (2026-08-09), and the fixes applied on top of it.
+
+**Review coverage is partial and Story 2.4 is NOT fully reviewed.** Of six planned review layers, five terminated early on an infrastructure fault (API credit exhaustion) — Edge Case Hunter, Acceptance Auditor, and three deep-dive specialists (concurrency/lifecycle, security/containment, frontend/tests). Only the context-free adversarial layer completed. Every finding below was independently verified against the working tree before being recorded, and four of that layer's claims were dismissed as false on verification. **No acceptance audit against AC 1–16 was performed.** The absence of AC findings here is not evidence of AC conformance, and this story must not be marked `done` on the strength of these patches alone — the failed layers, above all the acceptance audit, have to be rerun first.
+
+#### Decision — resolved
+
+- [x] **[Review][Decision] `CrewAIExecutionEngine.run` accepts `goal` and unconditionally discards it.** **Chosen: option 2 — keep the pinned interface, add a hard Runtime-side guard.** Story 1.7 AC 7 pins `ExecutionEngine.run(team, credentials, goal)` for the v2 streaming retrofit, so the parameter cannot be removed; but a load-bearing argument that an engine accepts and silently ignores is defect class 12, and the goal only reaches the model because `run_team_package` pre-applies `augment_team_for_run`. The contract is now enforced rather than documented: `run_context.require_goal_injected(team, goal)` raises `GoalNotInjectedError` as the first statement of `CrewAIExecutionEngine.run`, before any crewai object is built and before any spend. It reuses the injection mechanism's own marker rather than introducing a second goal-propagation path — `_GOAL_HEADING` is written and read back in the one module. `inputs=` was not restored, the signature did not change, and the Story 1.7 streaming contract is untouched. All ten pre-existing direct-engine calls in `tests/unit/adapters/test_crewai_execution_engine.py` were building a team shape the Runtime never produces; they now build the production shape via `_runnable()`.
+
+#### Patches — all 16 applied, each with a falsified regression test
+
+Every patch below was proven by reverting the fix and watching the named test go red first; the falsification table is in the Post-Review Notes.
+
+- [x] [Review][Patch] A run record could become permanently `running`, defeating `MAX_STORED_RUNS` [api/runs.py]
+- [x] [Review][Patch] `GET /api/runs/{run_id}` could serialise a torn record — terminal status with a null result [api/runs.py, api/routers/run.py]
+- [x] [Review][Patch] `provider_reports` was passed `key_config` in the `file_config` slot, so Workspace badges lost credential provenance the Composer shows [api/routers/run.py]
+- [x] [Review][Patch] `TaskDependencyCycleError` escaped the synchronous gate — a cyclic package was a 500, not `run_blocked` [api/routers/run.py]
+- [x] [Review][Patch] Polling never stopped on `run_not_found`, permanently locking the user out of starting a new run [web/components/workspace/workspace-surface.tsx]
+- [x] [Review][Patch] `MAX_DOCUMENTS` was tested against a stale closure prop — one multi-file drop bypassed it entirely [web/components/workspace/document-tray.tsx]
+- [x] [Review][Patch] Documents were identified by filename — duplicate React keys, and removing one removed both [web/components/workspace/workspace-state.ts, web/components/workspace/document-tray.tsx]
+- [x] [Review][Patch] `run_started` cleared documents attached while the POST was in flight — never sent, silently lost [web/components/workspace/workspace-state.ts]
+- [x] [Review][Patch] A failed transcript fetch rendered as "No transcript is available", a claim the server never made [web/components/workspace/workspace-surface.tsx, web/components/workspace/transcript-dialog.tsx]
+- [x] [Review][Patch] `str(exc)` carried unvalidated `primary_framework` from `team_config.yaml` into a response body without `safe_label` [api/routers/run.py, team_maker/runtime/executor.py]
+- [x] [Review][Patch] Both route-ordering comments still stated the reason the Completion Notes claim was corrected [api/main.py, api/routers/run.py]
+- [x] [Review][Patch] The Run button was `aria-disabled` with a hint, not a reason, when the goal is empty [web/components/workspace/goal-input.tsx]
+- [x] [Review][Patch] `test_the_templating_is_unambiguous` never passed the one genuinely ambiguous path [tests/api/test_secret_containment.py]
+- [x] [Review][Patch] The `aria-live` region mounted together with its first content, so "Run started" was typically never announced [web/components/workspace/run-status.tsx]
+- [x] [Review][Patch] A failed run rendered every task row as `Queued`, asserting nothing was attempted [web/components/workspace/task-list.tsx]
+- [x] [Review][Patch] No double-submit guard on Run — a second click surfaced `run_in_progress` over the user's own healthy run [web/components/workspace/workspace-surface.tsx]
+
+#### Deferred — 10, left in `deferred-work.md` and not opportunistically fixed
+
+- [x] [Review][Defer] The "process-wide" lock is per-`RunRegistry` instance [api/runs.py] — deferred, holds in production (one app per process); the docstring overstates enforcement
+- [x] [Review][Defer] The `pollEpoch` reducer guard is unreachable [web/components/workspace/workspace-state.ts] — deferred, harmless redundancy
+- [x] [Review][Defer] `test_documents_are_never_written_to_disk` runs against a fake engine [tests/api/test_run_documents.py] — deferred, the only component that could write is stubbed out
+- [x] [Review][Defer] The harness's "loud on unexpected request" property is swallowed by the client under test [web/tests/workspace/harness.tsx] — deferred, unverified by this review
+- [x] [Review][Defer] `logger.exception` can log attached document text if a provider error echoes the prompt [api/runs.py] — deferred, contradicts the "never logged" claim in `api/schemas.py`
+- [x] [Review][Defer] Lifespan shutdown is not in a `try/finally`; `_in_flight_thread` is not cleared on success [api/main.py, api/runs.py] — deferred, low impact (it *is* now cleared on a failed start, which the ghost-record patch required)
+- [x] [Review][Defer] The Workspace link does not URL-encode its path segment [web/components/composer/build-result.tsx] — deferred, bounded by the slug charset in practice
+- [x] [Review][Defer] `RunView.tasks` is read only for a count; `TaskList` renders the mount-time plan [web/components/workspace/workspace-surface.tsx] — deferred, the snapshot invariant is transmitted but not consumed
+- [x] [Review][Defer] Document or goal text can spoof the injected run-context delimiter [team_maker/runtime/run_context.py] — deferred, inherent to in-context injection
+- [x] [Review][Defer] `test_the_policy_constants_are_named_not_magic` is tautological and does not assert `MAX_STORED_RUNS` [tests/api/test_run_registry.py] — deferred, low-value test
+
+#### Dismissed on verification — 4, still dismissed
+
+`_resolve_team_path` comparing a resolved path against an unresolved root — false: `output_root()` returns `Path(configured).expanduser().resolve()` (`api/output.py:52`), so both sides are resolved. `assert thread.join(timeout=5) is None` as a test that cannot fail — the tautology is real but the following `assert not thread.is_alive()` does the work. The unused `run_id` parameter in `_wait_for_completion` — trivial. The unused module `logger` in `api/routers/run.py` — matches house precedent exactly (`compose.py` and `keys.py` each have zero `logger.` call sites).
+
+#### Verified and correct, before and after the patches
+
+`.get_secret_value()` is at exactly two call sites, both in `api/deps.py`, the third grep hit being an explanatory comment — AC 10's invariant holds. The document total bound is enforced server-side by a `model_validator(mode="after")`, not merely per-field. The blank-goal validator strips before checking. `SIGNAL_CONSUMER_WHITELIST` has exactly one entry and the test title was renamed. Slug re-slugging plus the `output_root()` containment check are both present and correctly ordered before any filesystem read. Client-side bound constants match the server's (8 000 / 5 / 50 000 / 100 000).
+
+## Post-Review Notes (2026-08-09)
+
+### Falsifications — every new guard watched go red first
+
+Each fix was reverted in isolation, the named test run, and the file restored. All fourteen went red; none was a guard that cannot fail.
+
+| Reverted | Test that went red |
+|---|---|
+| `except BaseException` → `except Exception` in `_execute` | `test_a_baseexception_still_reaches_a_terminal_status_and_is_not_swallowed` |
+| Removed the record withdrawal on a failed `thread.start()` | `test_a_run_whose_thread_cannot_start_leaves_no_ghost_and_frees_the_lock` |
+| `get()` returns the live record instead of `_snapshot` | `test_get_hands_out_a_snapshot_that_cannot_change_under_the_caller` |
+| `start()` returns the live record instead of `_snapshot` | `test_start_hands_out_a_snapshot_not_the_live_record` |
+| Same `KeyConfig` in both `provider_reports` slots | `test_the_plan_badge_reports_the_same_credential_source_as_the_key_panel` |
+| Startup snapshot instead of a fresh read | `test_a_key_added_after_startup_is_visible_to_the_plan_route` |
+| Cycle escapes `_ordered_tasks` | `test_a_task_dependency_cycle_is_run_blocked_not_a_500_on_post` |
+| `safe_label` removed from the framework name | `test_an_unvalidated_framework_name_is_sanitised_before_it_reaches_the_client` |
+| `run_not_found` treated as transient | `workspace-surface.test.tsx` |
+| `isRunInFlight` ignores `runLost` | `workspace-state.test.ts` |
+| Document cap read off the stale prop | `document-tray.test.tsx` |
+| Remove-by-name instead of by id | `document-tray.test.tsx` |
+| `run_started` clears every document | `workspace-state.test.ts` |
+| Transcript failure swallowed / empty-goal reason removed / live region gated / failed rows read `Queued` / double-submit guard removed | `workspace-surface.test.tsx` (five separate reverts, each red) |
+
+The goal-injection guard was falsified in both directions: `test_a_direct_unaugmented_engine_call_is_refused_before_crewai_starts` proves it fires and that `Crew.kickoff` is never reached, and `test_the_team_run_team_package_hands_the_engine_satisfies_the_goal_guard` plus `test_the_goal_guard_would_fire_on_the_package_as_loaded` prove it does not fire on the supported path and does fire on the loader's own output.
+
+### Measured results after the patches
+
+| Check | Before (dee91aa) | After |
+|---|---|---|
+| `pytest -q` | 635 passed, 7 skipped | **655 passed, 7 skipped** |
+| `pytest tests/conformance/` | 14 passed (not skipped) | **14 passed, not skipped** |
+| `ruff check api/` | 0 | **0** |
+| `ruff check team_maker/` | 9 | **9** (unchanged, none in a file this review touched) |
+| `ruff check tests/` | 29 | **29** (unchanged) |
+| `npx vitest run` | 422 tests, 25 files | **439 tests, 26 files** |
+| `npm run lint` | clean | **clean** |
+| `npx tsc --noEmit` | clean | **clean** |
+| `npm run build` | succeeds | **succeeds**, `/teams/[slug]` still listed dynamic (`ƒ`) |
+
+`grep -rn get_secret_value api/` still returns three lines and exactly **two call sites**, both in `api/deps.py`.
+
+### Out-of-scope boundaries, re-proved after the patches
+
+`git diff --stat` is empty for `web/next.config.ts`, `web/package.json`, `web/app/settings/page.tsx`, `web/components/ui/`, `team_maker/generators/`, `team_maker/templates/` and `team_maker/codegen/`. No dependency was added. `components/ui/popover.tsx` still has zero consumers.
+
+### Still open before Story 2.4 can be marked done
+
+1. **Rerun the five review layers that failed on credit exhaustion** — the full AC 1–16 acceptance audit above all, then concurrency, security, frontend and edge-case. Any new credible finding is to be verified by hand and classified with the same discipline before the story closes.
+2. The ten deferred items are recorded in `deferred-work.md` and are not blockers, but the acceptance audit may reclassify some of them.
+
 ## Dev Agent Record
 
 ### Agent Model Used
@@ -731,3 +835,4 @@ Conclusion: `crew.kickoff(inputs=...)` runs crewai's own `{token}` interpolation
 |---|---|
 | 2026-08-09 | Story created from `epics.md:335,381-393`, baseline `0fd5348`. Status `ready-for-dev`. |
 | 2026-08-09 | Branched `story_2_4` from `story_2_3`'s tip rather than `epic_2` (which has not yet been fast-forwarded with 2.3's two commits) — a strict superset, corrected and declared rather than followed past. Implemented all 8 tasks: the run-context seam (`team_maker/runtime/run_context.py`) injecting the goal and attached documents into every task's description, with the crewai `inputs=` interpolation mechanism removed after measuring that it raises on an unmatched brace; the run registry (`api/runs.py`) with a process-wide concurrency lock, bounded idle-evicted records, and a bounded-join shutdown; the four `run` routes (`api/routers/run.py`) with a synchronous pre-run gate authoring three distinct `run_blocked` sentences; the Team Workspace surface (`web/app/teams/[slug]/page.tsx` + `web/components/workspace/`), reusing the Composer's `Transcript`/`MessageBubble` unforked and confining the `--signal` accent to one new component. Two real bugs were caught by the tests before being called done: a client-supplied team slug was echoed back unslugified, and a run-request failure was unreachable in the DOM because it was nested inside a conditionally-rendered branch. `web/lib/api-types.ts` and `web/lib/api-client.ts`, pushed to 801 and 599 lines respectively by this story's additions, were split into packages rather than flagged and left, unlike every prior oversized-file entry in `deferred-work.md`. Corrected three claims in the story's own Dev Notes (a mislabelled frozen dataclass, a wrong stated reason for a correct route-ordering instruction, and an off-by-one field count) rather than following them silently. Python `572 → 635 passed, 7 skipped`; web `390 → 422 tests, 22 → 25 files`. `ruff check api/` stayed at 0; `team_maker/` and `tests/` stayed at their pre-existing 9 and 29, both unrelated to this story's files. Status `review`. |
+| 2026-08-09 | Code review of `0fd5348..dee91aa`, and its fixes. **Coverage was partial**: five of six review layers (edge-case, acceptance-audit, concurrency, security, frontend) terminated early on API credit exhaustion, so **AC 1–16 received no acceptance audit** and the story moves to `in-progress`, not `done`. The one layer that completed produced 26 findings; each was verified by hand, four were dismissed as false (most notably a claimed resolved-vs-unresolved path comparison — `output_root()` does resolve), 16 were patched and 10 deferred. The decision-needed finding — `CrewAIExecutionEngine.run` accepting a `goal` it unconditionally discards — was resolved by **keeping the Story 1.7 AC 7 signature and adding a hard Runtime-side guard**: `run_context.require_goal_injected` raises before any crewai object is built, reusing the injection mechanism's own marker rather than adding a second goal-propagation path. Four defects were genuinely serious: a run record that could be left permanently `running` by a `BaseException` or a failed `thread.start()` (defeating `MAX_STORED_RUNS`, since both eviction rules skip a busy record); a torn read where `_run_view` read `result` then `status` while the run thread wrote `status` then `result`, so a poll could return `status="complete"` with `result=null` — terminal, because the client stops polling on a terminal status; `provider_reports` being passed the same `KeyConfig` in both the `config` and `file_config` slots, which collapsed every credential source to `key-config` and silently dropped the environment and startup-leftover notes the Composer shows for the same provider; and a poll `run_not_found` treated as transient, which left the tab polling every two seconds forever and the `Run` button permanently blocked. Every fix has a regression test that was watched go red against the reverted code — fourteen falsifications, all red. Python `635 → 655 passed, 7 skipped`; web `422 → 439 tests, 25 → 26 files`; `ruff check api/` stayed 0, `team_maker/` and `tests/` stayed at their pre-existing 9 and 29; lint, `tsc --noEmit` and `next build` all clean; `tests/conformance/` did not skip. No dependency added and no out-of-scope file touched. |
