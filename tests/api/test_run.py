@@ -1,0 +1,442 @@
+"""The four run routes (Story 2.4 AC 1, 2, 3, 4, 7, 8, 9, 10).
+
+Fully offline: `FakeExecutionEngine`/`BlockingExecutionEngine`
+(`tests/support/fake_execution_engine.py`) stand in for a real crewai run, so
+nothing here proves the real Anthropic/OpenAI/Ollama/crewai path works
+(CLAUDE.md test transparency) — that is `tests/conformance/`'s job and a
+manual live check (Completion Notes).
+
+Every Team Package here is real: built on disk by `PipelineRunner`, exactly
+as a Composer build would produce it — only the LLM *execution* is faked.
+"""
+from __future__ import annotations
+
+import yaml
+
+from team_maker.runtime.results import RunResult, TaskResult, TranscriptEntry
+from tests.api.containment import assert_envelope, assert_no_exception_leak
+from tests.api.runroutes import build_team, poll_until_terminal, run_body
+from tests.support.fake_execution_engine import BlockingExecutionEngine, FakeExecutionEngine
+
+# ---------------------------------------------------------------------------
+# GET /api/runs/teams/{team_slug}
+# ---------------------------------------------------------------------------
+
+
+def test_team_plan_returns_agents_and_tasks_in_topological_order(make_client, tmp_path):
+    slug = build_team(
+        tmp_path,
+        team_name="Plan Team",
+        roles=None,  # the runroutes default: one "architect" role
+    )
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    response = harness.client.get(f"/api/runs/teams/{slug}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["team_name"] == "Plan Team"
+    assert len(body["agents"]) == 1
+    agent = body["agents"][0]
+    assert agent["role"] == "architect"
+    assert agent["provider"] == "anthropic"
+    assert set(agent) == {"role", "provider", "model", "status", "detail", "usable", "fix_hint"}
+    assert len(body["tasks"]) >= 1
+    for task in body["tasks"]:
+        assert set(task) == {"name", "agent_role", "dependencies"}
+
+
+def test_team_plan_agent_badge_reflects_missing_credential(make_client, tmp_path, write_key_config):
+    slug = build_team(tmp_path, team_name="Keyless Check Team")
+    write_key_config({})  # no anthropic key at all
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    body = harness.client.get(f"/api/runs/teams/{slug}").json()
+
+    agent = body["agents"][0]
+    assert agent["usable"] is False
+    assert agent["fix_hint"] is not None
+    assert "ANTHROPIC_API_KEY" in agent["fix_hint"]
+
+
+def test_team_plan_unknown_slug_is_team_not_found(make_client):
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    response = harness.client.get("/api/runs/teams/no-such-team")
+
+    assert response.status_code == 404
+    error = assert_envelope(response, "team_not_found")
+    assert_no_exception_leak(error["message"])
+
+
+def test_the_teams_route_and_the_transcript_route_do_not_collide(make_client, tmp_path):
+    """Both `/api/runs/teams/{team_slug}` and `/api/runs/{run_id}/transcript`
+    are two path segments under `/runs` — a team literally named "Transcript"
+    makes `/api/runs/teams/transcript` ambiguous with "the transcript of a run
+    whose id is 'teams'" unless the teams route is declared first."""
+    slug = build_team(tmp_path, team_name="Transcript")
+    assert slug == "transcript"
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    response = harness.client.get("/api/runs/teams/transcript")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "agents" in body and "tasks" in body  # TeamPlanView, not TranscriptView
+
+
+# ---------------------------------------------------------------------------
+# POST /api/runs
+# ---------------------------------------------------------------------------
+
+
+def test_post_run_returns_running_immediately_with_a_run_id(make_client, tmp_path):
+    slug = build_team(tmp_path, team_name="Immediate Team")
+    engine = BlockingExecutionEngine()
+    harness = make_client(execution_engine=engine)
+
+    response = harness.client.post("/api/runs", json=run_body(slug))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "running"
+    assert body["run_id"]
+    assert body["team_slug"] == slug
+    assert body["result"] is None
+    assert body["transcript_available"] is False
+    assert body["failure_reason"] is None
+    # The goal is never echoed back (AD-11).
+    assert "goal" not in body
+    engine.release.set()
+
+
+def test_post_run_unknown_team_slug_is_team_not_found(make_client):
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    response = harness.client.post("/api/runs", json=run_body("no-such-team"))
+
+    assert response.status_code == 404
+    assert_envelope(response, "team_not_found")
+
+
+def test_post_run_reslugs_the_client_supplied_slug_never_trusts_it(make_client, tmp_path):
+    slug = build_team(tmp_path, team_name="Re Slug Team")
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    # The client sends the unslugified team name; the server must re-derive
+    # the same slug rather than trusting this value as a path segment.
+    response = harness.client.post("/api/runs", json=run_body("Re Slug Team"))
+
+    assert response.status_code == 200
+    assert response.json()["team_slug"] == slug
+
+
+def test_post_run_traversal_attempt_resolves_inside_output_root_or_404s(make_client, tmp_path):
+    build_team(tmp_path, team_name="Escape Target")
+
+    harness = make_client(execution_engine=FakeExecutionEngine())
+    response = harness.client.post("/api/runs", json=run_body("../../../etc/passwd"))
+
+    # Re-slugified to a safe segment that does not exist as a package —
+    # never a 500, never a path echoed back.
+    assert response.status_code == 404
+    error = assert_envelope(response, "team_not_found")
+    assert "/" not in error["message"] and "\\" not in error["message"]
+
+
+def test_post_run_blank_goal_is_spec_invalid(make_client, tmp_path):
+    slug = build_team(tmp_path, team_name="Blank Goal Team")
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    response = harness.client.post("/api/runs", json=run_body(slug, goal="   "))
+
+    assert response.status_code == 422
+    assert_envelope(response, "spec_invalid")
+
+
+def test_post_run_missing_credentials_is_run_blocked_naming_the_provider(
+    make_client, tmp_path, write_key_config
+):
+    slug = build_team(tmp_path, team_name="No Key Team")
+    write_key_config({})  # anthropic key absent
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    response = harness.client.post("/api/runs", json=run_body(slug))
+
+    assert response.status_code == 409
+    error = assert_envelope(response, "run_blocked")
+    assert "anthropic" in error["message"]
+    assert "ANTHROPIC_API_KEY" in error["message"]
+    assert_no_exception_leak(error["message"])
+
+
+def test_post_run_unsupported_framework_is_run_blocked(make_client, tmp_path):
+    from team_maker.pipeline.runner import PipelineRunner
+    from team_maker.schema.request import RoleDefinition, TeamCreationRequest
+
+    request = TeamCreationRequest(
+        team_name="LangGraph Team",
+        purpose="A team targeting a non-crewai framework, for this test.",
+        output_path=str(tmp_path / "langgraph_team"),
+        framework="langgraph",
+        desired_roles=[
+            RoleDefinition(name="architect", description="Designs system architecture.")
+        ],
+    )
+    PipelineRunner().run(request)
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    response = harness.client.post("/api/runs", json=run_body("langgraph_team"))
+
+    assert response.status_code == 409
+    error = assert_envelope(response, "run_blocked")
+    assert "crewai" in error["message"]
+    assert_no_exception_leak(error["message"])
+
+
+def _write_hand_edited_package(tmp_path, slug: str, *, team_agents: list[str], team_tasks: list[str]) -> str:
+    """A minimal Team Package written directly as YAML — bypassing
+    `PipelineRunner`'s validation entirely — so an internally inconsistent
+    package (duplicate roles, duplicate task names) can exist on disk at all.
+    `schema/request.py` enforces uniqueness at compose time; only a
+    hand-edited or third-party package can violate it, which is exactly what
+    `preflight.py`'s `InvalidPackageError` subclasses exist to catch.
+    """
+    root = tmp_path / slug
+    (root / "agents").mkdir(parents=True)
+    (root / "tasks").mkdir(parents=True)
+    (root / "agents" / "writer.yaml").write_text(
+        yaml.safe_dump({"role": "writer", "description": "Writes."}), encoding="utf-8"
+    )
+    (root / "tasks" / "draft.yaml").write_text(
+        yaml.safe_dump({"name": "draft", "description": "Draft it.", "agent_role": "writer"}),
+        encoding="utf-8",
+    )
+    (root / "team_config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "team_name": "Broken Team",
+                "purpose": "test",
+                "agents": team_agents,
+                "tasks": team_tasks,
+                "primary_framework": "crewai",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (root / "routing_config.yaml").write_text(
+        yaml.safe_dump({"routing": {"writer": {"provider": "anthropic", "model": "claude-sonnet-4-6"}}}),
+        encoding="utf-8",
+    )
+    return slug
+
+
+def test_post_run_duplicate_agent_roles_is_run_blocked_and_names_no_key_fix(make_client, tmp_path):
+    slug = _write_hand_edited_package(
+        tmp_path, "dup_roles", team_agents=["writer", "writer"], team_tasks=["draft"]
+    )
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    response = harness.client.post("/api/runs", json=run_body(slug))
+
+    assert response.status_code == 409
+    error = assert_envelope(response, "run_blocked")
+    assert "more than once" in error["message"]
+    # This defect's own message must never suggest a key fixes it.
+    assert "API_KEY" not in error["message"]
+    assert_no_exception_leak(error["message"])
+
+
+def test_post_run_duplicate_task_names_is_run_blocked(make_client, tmp_path):
+    slug = _write_hand_edited_package(
+        tmp_path, "dup_tasks", team_agents=["writer"], team_tasks=["draft", "draft"]
+    )
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    response = harness.client.post("/api/runs", json=run_body(slug))
+
+    assert response.status_code == 409
+    error = assert_envelope(response, "run_blocked")
+    assert "more than once" in error["message"]
+
+
+def test_post_run_while_one_is_in_flight_is_run_in_progress(make_client, tmp_path):
+    slug = build_team(tmp_path, team_name="Concurrent Team")
+    engine = BlockingExecutionEngine()
+    harness = make_client(execution_engine=engine)
+
+    first = harness.client.post("/api/runs", json=run_body(slug))
+    assert first.status_code == 200
+    assert engine.entered.wait(timeout=2), "the fake engine's run() was never entered"
+
+    second = harness.client.post("/api/runs", json=run_body(slug))
+
+    assert second.status_code == 409
+    assert_envelope(second, "run_in_progress")
+
+    engine.release.set()
+    poll_until_terminal(harness.client, first.json()["run_id"])
+
+
+def test_the_lock_releases_after_completion_so_a_new_run_can_start_over_http(make_client, tmp_path):
+    slug = build_team(tmp_path, team_name="Sequential Team")
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    first = harness.client.post("/api/runs", json=run_body(slug))
+    poll_until_terminal(harness.client, first.json()["run_id"])
+
+    second = harness.client.post("/api/runs", json=run_body(slug))
+
+    assert second.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/runs/{run_id}
+# ---------------------------------------------------------------------------
+
+
+def test_get_run_unknown_id_is_run_not_found(make_client):
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    response = harness.client.get("/api/runs/no-such-run")
+
+    assert response.status_code == 404
+    assert_envelope(response, "run_not_found")
+
+
+def test_run_transitions_from_running_to_complete_with_task_results(make_client, tmp_path):
+    slug = build_team(tmp_path, team_name="Complete Team")
+    result = RunResult(
+        final_output="the final output",
+        task_results=[TaskResult(name="draft", agent_role="writer", output="the draft")],
+    )
+    harness = make_client(execution_engine=FakeExecutionEngine(result=result))
+
+    created = harness.client.post("/api/runs", json=run_body(slug))
+    body = poll_until_terminal(harness.client, created.json()["run_id"])
+
+    assert body["status"] == "complete"
+    assert body["result"]["final_output"] == "the final output"
+    assert body["result"]["task_results"] == [
+        {"name": "draft", "agent_role": "writer", "output": "the draft"}
+    ]
+    assert body["transcript_available"] is True
+    assert body["failure_reason"] is None
+    # The task plan is present both before and after completion, same shape.
+    assert body["tasks"]
+
+
+def test_run_transitions_from_running_to_failed_with_an_authored_reason(make_client, tmp_path):
+    slug = build_team(tmp_path, team_name="Failing Team")
+    harness = make_client(
+        execution_engine=FakeExecutionEngine(error=RuntimeError("sk-ant-SECRET-DO-NOT-LEAK"))
+    )
+
+    created = harness.client.post("/api/runs", json=run_body(slug))
+    body = poll_until_terminal(harness.client, created.json()["run_id"])
+
+    assert body["status"] == "failed"
+    assert body["result"] is None
+    assert body["transcript_available"] is False
+    assert body["failure_reason"]
+    assert "sk-ant-SECRET-DO-NOT-LEAK" not in body["failure_reason"]
+    assert_no_exception_leak(body["failure_reason"])
+
+
+# ---------------------------------------------------------------------------
+# GET /api/runs/{run_id}/transcript
+# ---------------------------------------------------------------------------
+
+
+def test_transcript_unknown_run_is_run_not_found(make_client):
+    harness = make_client(execution_engine=FakeExecutionEngine())
+
+    response = harness.client.get("/api/runs/no-such-run/transcript")
+
+    assert response.status_code == 404
+    assert_envelope(response, "run_not_found")
+
+
+def test_transcript_is_unavailable_while_the_run_is_still_in_flight(make_client, tmp_path):
+    slug = build_team(tmp_path, team_name="Still Running Team")
+    engine = BlockingExecutionEngine()
+    harness = make_client(execution_engine=engine)
+
+    created = harness.client.post("/api/runs", json=run_body(slug))
+    assert engine.entered.wait(timeout=2)
+
+    response = harness.client.get(f"/api/runs/{created.json()['run_id']}/transcript")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is False
+    assert body["entries"] == []
+
+    engine.release.set()
+    poll_until_terminal(harness.client, created.json()["run_id"])
+
+
+def test_transcript_is_unavailable_after_a_failed_run(make_client, tmp_path):
+    slug = build_team(tmp_path, team_name="Failed Transcript Team")
+    harness = make_client(execution_engine=FakeExecutionEngine(error=RuntimeError("boom")))
+
+    created = harness.client.post("/api/runs", json=run_body(slug))
+    poll_until_terminal(harness.client, created.json()["run_id"])
+
+    response = harness.client.get(f"/api/runs/{created.json()['run_id']}/transcript")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is False
+    assert body["entries"] == []
+
+
+def test_transcript_entries_are_sorted_by_sparse_non_contiguous_sequence(make_client, tmp_path):
+    slug = build_team(tmp_path, team_name="Sequenced Team")
+    result = RunResult(
+        final_output="final",
+        task_results=[],
+        transcript=[
+            TranscriptEntry(sequence=13, kind="agent_message", agent_role="writer", task_name="draft", content="third"),
+            TranscriptEntry(sequence=2, kind="task_started", agent_role="writer", task_name="draft", content="first"),
+            TranscriptEntry(sequence=7, kind="agent_action", agent_role="writer", task_name="draft", content="second"),
+        ],
+    )
+    harness = make_client(execution_engine=FakeExecutionEngine(result=result))
+
+    created = harness.client.post("/api/runs", json=run_body(slug))
+    poll_until_terminal(harness.client, created.json()["run_id"])
+
+    body = harness.client.get(f"/api/runs/{created.json()['run_id']}/transcript").json()
+
+    assert body["available"] is True
+    assert [entry["sequence"] for entry in body["entries"]] == [2, 7, 13]
+    assert [entry["content"] for entry in body["entries"]] == ["first", "second", "third"]
+
+
+def test_transcript_delegation_entry_carries_both_ends(make_client, tmp_path):
+    slug = build_team(tmp_path, team_name="Delegation Team")
+    result = RunResult(
+        final_output="final",
+        task_results=[],
+        transcript=[
+            TranscriptEntry(
+                sequence=1,
+                kind="delegation",
+                agent_role="coordinator",
+                task_name="draft",
+                content="please help",
+                target_role="writer",
+            )
+        ],
+    )
+    harness = make_client(execution_engine=FakeExecutionEngine(result=result))
+
+    created = harness.client.post("/api/runs", json=run_body(slug))
+    poll_until_terminal(harness.client, created.json()["run_id"])
+
+    body = harness.client.get(f"/api/runs/{created.json()['run_id']}/transcript").json()
+
+    entry = body["entries"][0]
+    assert entry["agent_role"] == "coordinator"
+    assert entry["target_role"] == "writer"

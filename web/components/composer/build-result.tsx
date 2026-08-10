@@ -1,4 +1,7 @@
+import Link from "next/link"
+
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -9,12 +12,21 @@ import {
 import type { BuildResultView } from "@/lib/api-types"
 
 /**
- * The build outcome, reported **on this surface** (AC 5).
+ * The build outcome, reported **on this surface** (AC 5), plus a link to the
+ * Team Workspace (Story 2.4).
  *
- * `EXPERIENCE.md:186` describes the team landing in My Teams and the user being
- * dropped into its workspace. Neither surface exists until Stories 2.5 and 2.4,
- * so navigating there would send the user somewhere that cannot show any of
- * this. The outcome is reported inline instead, and the destination is not faked.
+ * `EXPERIENCE.md:186` describes the team landing in My Teams and the user
+ * being dropped into its workspace. My Teams still does not exist (Story
+ * 2.5), but the Workspace now does — so this sentence, true until Story 2.4,
+ * is corrected rather than left standing: the outcome is still reported
+ * inline (My Teams remains the missing piece), and the Workspace is reached
+ * by a **link the user clicks**, never an automatic redirect. Story 2.2
+ * deliberately asserts `router.push` is never called from this surface, and
+ * auto-navigating would destroy the conversation that produced the team.
+ *
+ * The slug is derived from `output_path`'s final path segment — the same
+ * value the server computed via `slugify_team_name` when it chose that path
+ * (`api/output.py`), so no second slugification rule is invented here.
  *
  * `model_substitutions` is rendered unconditionally when non-empty and stated in
  * plain language: `normalize_team_routings` can silently swap a chosen model for
@@ -27,6 +39,7 @@ import type { BuildResultView } from "@/lib/api-types"
  */
 export function BuildResult({ result }: { result: BuildResultView }) {
   const { validation } = result
+  const slug = slugFromOutputPath(result.output_path)
 
   return (
     <Card data-slot="build-result" className="mb-3">
@@ -53,6 +66,18 @@ export function BuildResult({ result }: { result: BuildResultView }) {
             team_maker.
           </p>
         </div>
+
+        {slug ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="self-start"
+            render={<Link href={`/teams/${slug}`} data-slot="build-result-workspace-link" />}
+          >
+            Open in workspace
+          </Button>
+        ) : null}
 
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Validation</span>
@@ -117,6 +142,14 @@ export function BuildResult({ result }: { result: BuildResultView }) {
       </CardContent>
     </Card>
   )
+}
+
+/** The final path segment, tolerating both `/` and `\` — `output_path` is an
+ *  absolute path on the *server's* filesystem, whose separator depends on
+ *  the server's OS, not the browser's. */
+function slugFromOutputPath(outputPath: string): string | null {
+  const segments = outputPath.split(/[\\/]/).filter((segment) => segment.length > 0)
+  return segments.length > 0 ? segments[segments.length - 1] : null
 }
 
 function IssueList({

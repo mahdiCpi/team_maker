@@ -229,19 +229,29 @@ def test_orchestrator_agent_selects_hierarchical_process_with_manager(monkeypatc
     assert [a.role for a in crew.agents] == ["engineer"]
 
 
-def test_goal_is_passed_through_kickoff_inputs(monkeypatch):
+def test_kickoff_receives_no_interpolation_inputs(monkeypatch):
+    """Story 2.4 AC 5 superseded this test's original claim (that the goal
+    reached the run via `kickoff(inputs={"goal": ...})`). Measured against the
+    installed crewai: that mechanism raises `ValueError` the moment a pasted
+    goal or document contains an unmatched brace, since crewai runs its own
+    `{token}` template interpolation over every task description whenever
+    `inputs=` is passed at all. The goal now reaches the run by being woven
+    directly into each task's description before the engine is ever called
+    (`team_maker/runtime/run_context.py`), so this test's remaining job is to
+    prove the engine performs no interpolation of its own — `kickoff()` is
+    called with no `inputs=` kwarg, of any shape, ever."""
     team = _team([_agent("architect")], [_task("design", "architect")])
-    captured_inputs = {}
+    received: list = []
 
     def _fake_kickoff(self, inputs=None):
-        captured_inputs.update(inputs or {})
+        received.append(inputs)
         return _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("x")])
 
     monkeypatch.setattr(Crew, "kickoff", _fake_kickoff)
 
     CrewAIExecutionEngine().run(team, _creds(team, _ANTHROPIC_KEYS), "a very specific goal")
 
-    assert captured_inputs == {"goal": "a very specific goal"}
+    assert received == [None]
 
 
 def test_task_output_count_mismatch_raises_clear_error_instead_of_silent_truncation(monkeypatch):

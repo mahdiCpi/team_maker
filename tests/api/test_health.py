@@ -37,6 +37,13 @@ def test_authored_routes_are_exactly_the_ac2_set(make_client):
         # first consumer. Both are GET: AD-9 means no endpoint here accepts a key.
         ("/api/keys/status", "GET"),
         ("/api/keys/check/{session_id}", "GET"),
+        # The run group, added by Story 2.4 (`epics.md:335`). Declaration order
+        # matters: `/teams/{team_slug}` is registered before `/{run_id}` so the
+        # parameterised route cannot swallow it.
+        ("/api/runs/teams/{team_slug}", "GET"),
+        ("/api/runs", "POST"),
+        ("/api/runs/{run_id}", "GET"),
+        ("/api/runs/{run_id}/transcript", "GET"),
     }
 
 

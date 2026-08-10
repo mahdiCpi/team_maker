@@ -77,7 +77,21 @@ class CrewAIExecutionEngine(ExecutionEngine):
         # in a hierarchical crew — which would contradict `task_results`.
         task_owners = {spec.name: spec.agent_role for spec in ordered_tasks}
         with TranscriptRecorder(task_owners) as recorder:
-            output = crew.kickoff(inputs={"goal": goal})
+            # No `inputs=` (Story 2.4 AC 5): the goal already lives in every
+            # task's `description` by the time this method runs
+            # (`run_context.augment_team_for_run`, called from
+            # `executor.run_team_package` before the engine is ever reached).
+            # Measured against the installed crewai: passing `inputs=` here
+            # runs crewai's own `{token}` template interpolation over every
+            # description, and an unrelated, unmatched brace in user-typed
+            # text raises `ValueError` — exactly the shape of text a pasted
+            # goal or document can contain. Omitting `inputs=` disables that
+            # interpolation entirely, so literal braces survive as plain
+            # text. `goal` stays a parameter of this method only because
+            # `ExecutionEngine.run`'s signature is pinned (Story 1.7 AC 7,
+            # for the v2 streaming retrofit) — it is intentionally unused
+            # below.
+            output = crew.kickoff()
         transcript = recorder.entries()
 
         if len(output.tasks_output) != len(ordered_tasks):

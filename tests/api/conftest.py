@@ -163,6 +163,7 @@ def make_client() -> Iterator[Callable[..., Harness]]:
         provider: Any = None,
         factory: Callable[[ProviderConfig], Any] | None = None,
         raise_server_exceptions: bool = True,
+        execution_engine: Any = None,
     ) -> Harness:
         fake = provider if provider is not None else FakeLLMProvider(list(responses or []))
         harness = Harness(client=None, provider=fake)  # type: ignore[arg-type]
@@ -174,7 +175,7 @@ def make_client() -> Iterator[Callable[..., Harness]]:
             return fake
 
         client = TestClient(
-            create_app(provider_factory=recording_factory),
+            create_app(provider_factory=recording_factory, execution_engine=execution_engine),
             raise_server_exceptions=raise_server_exceptions,
         )
         client.__enter__()  # runs the lifespan; torn down below

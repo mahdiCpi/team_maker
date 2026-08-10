@@ -20,6 +20,7 @@ from team_maker.ports.execution_engine import ExecutionEngine
 from team_maker.runtime.executor import UnsupportedFrameworkError, run_team_package
 from team_maker.runtime.preflight import MissingCredentialsError
 from team_maker.runtime.results import RunResult
+from team_maker.runtime.run_context import RunDocument
 from team_maker.schema.request import RoleDefinition, TeamCreationRequest
 
 # The default routing for a request that names no models (project-context:
@@ -104,6 +105,39 @@ def test_missing_credentials_abort_before_the_engine_is_ever_called(minimal_requ
     assert engine.calls == []
     assert "anthropic" in str(exc_info.value)
     assert "ANTHROPIC_API_KEY" in str(exc_info.value)
+
+
+def test_documents_reach_the_engine_via_the_augmented_team(minimal_request):
+    """Story 2.4 AC 5/6: `documents` is plumbed through to the team the engine
+    receives, by way of `run_context.augment_team_for_run` — not passed to
+    the engine as a separate argument, since `ExecutionEngine.run`'s
+    signature does not change (Story 1.7 AC 7)."""
+    build = PipelineRunner().run(minimal_request)
+    engine = _FakeEngine()
+
+    run_team_package(
+        build.output_path,
+        "ship it",
+        _DEFAULT_KEYS,
+        engine=engine,
+        documents=[RunDocument(name="brief.txt", text="Ship a v1 by Friday.")],
+    )
+
+    called_team, _, _ = engine.calls[0]
+    assert all("brief.txt" in task.description for task in called_team.tasks)
+    assert all("Ship a v1 by Friday." in task.description for task in called_team.tasks)
+
+
+def test_documents_default_to_empty_for_every_existing_caller(minimal_request):
+    """Every pre-2.4 caller omits `documents` entirely; the augmented team's
+    task descriptions must still gain no document section."""
+    build = PipelineRunner().run(minimal_request)
+    engine = _FakeEngine()
+
+    run_team_package(build.output_path, "ship it", _DEFAULT_KEYS, engine=engine)
+
+    called_team, _, _ = engine.calls[0]
+    assert all("Attached document" not in task.description for task in called_team.tasks)
 
 
 def test_framework_check_runs_before_the_credential_gate(tmp_path):

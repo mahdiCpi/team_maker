@@ -34,6 +34,28 @@ BUILD_FAILED = "build_failed"
 # that cannot get it needs an answer that is neither a hang nor a 500.
 SESSION_BUSY = "session_busy"
 
+# Added by Story 2.4 (the `run` group, `epics.md:335`). Not in AC 2's original
+# table: a run names a Team Package by slug rather than a session, so a slug
+# that resolves to nothing needs its own code — `session_not_found` names a
+# conversation, and a run is not one.
+TEAM_NOT_FOUND = "team_not_found"
+# Added by Story 2.4. Not in AC 2's original table: AD-9's pre-run gate now
+# runs synchronously over HTTP, and a run that cannot start (bad credentials,
+# an internally inconsistent package, or an unrunnable framework) needs an
+# answer distinct from `run_in_progress` — the three causes share this code
+# but never its copy (see `api/routers/run.py`).
+RUN_BLOCKED = "run_blocked"
+# Added by Story 2.4. Not in AC 2's original table: runs are serialised
+# process-wide (`deferred-work.md:102`'s concurrent-transcript corruption),
+# so a second run request needs an answer that is neither a queue nor a hang.
+RUN_IN_PROGRESS = "run_in_progress"
+# Added by Story 2.4. Not in AC 2's original table: the run registry evicts
+# completed runs on a bounded TTL (mirroring `session_not_found`), so an
+# unknown or evicted `run_id` is a normal outcome, not an anomaly, and needs
+# its own code — a run is not a conversation, so `session_not_found` is wrong
+# for it in both name and precedent.
+RUN_NOT_FOUND = "run_not_found"
+
 # --- Framework-level codes ---------------------------------------------------
 # Not raisable by any authored route: these exist so that a 404 on an unknown
 # path, a 405, or a fault escaping the handlers still answers with the envelope
@@ -58,6 +80,10 @@ STATUS_BY_CODE: dict[str, int] = {
     OUTPUT_EXISTS: 409,
     BUILD_FAILED: 500,
     SESSION_BUSY: 409,
+    TEAM_NOT_FOUND: 404,
+    RUN_BLOCKED: 409,
+    RUN_IN_PROGRESS: 409,
+    RUN_NOT_FOUND: 404,
     NOT_FOUND: 404,
     METHOD_NOT_ALLOWED: 405,
     INTERNAL_ERROR: 500,

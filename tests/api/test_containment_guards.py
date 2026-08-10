@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import pytest
 
+from team_maker.runtime.results import RunResult, TaskResult, TranscriptEntry
 from tests.api.conftest import SENTINEL_VALUES
 from tests.api.containment import (
     assert_envelope,
     assert_no_exception_leak,
     assert_no_sentinels,
 )
+from tests.api.runroutes import build_team, poll_until_terminal, run_body
+from tests.support.fake_execution_engine import FakeExecutionEngine
 
 
 class _FakeResponse:
@@ -116,3 +119,33 @@ def test_sentinel_guard_catches_a_credential_from_a_real_response(
     assert response.status_code == 422
     with pytest.raises(AssertionError, match="credential value reached the client"):
         assert_no_sentinels(response.text, SENTINEL_VALUES)
+
+
+def test_sentinel_guard_catches_a_credential_planted_in_a_run_result(make_client, tmp_path):
+    """Story 2.4 AC 10: a run response carries raw LLM output, which no other
+    route in `api/` does. A fake engine plants a sentinel in every field that
+    actually renders — `final_output`, a `task_results[].output`, and a
+    `transcript[].content` — proving the sweep genuinely reaches all three,
+    not just the ones that happen to be easy to check."""
+    slug = build_team(tmp_path, team_name="Sentinel Result Team")
+    sentinel = SENTINEL_VALUES[0]
+    result = RunResult(
+        final_output=f"the final output, oh and by the way: {sentinel}",
+        task_results=[TaskResult(name="draft", agent_role="architect", output=sentinel)],
+        transcript=[
+            TranscriptEntry(
+                sequence=1, kind="agent_message", agent_role="architect", task_name="draft", content=sentinel
+            )
+        ],
+    )
+    harness = make_client(execution_engine=FakeExecutionEngine(result=result))
+
+    created = harness.client.post("/api/runs", json=run_body(slug))
+    body = poll_until_terminal(harness.client, created.json()["run_id"])
+    transcript = harness.client.get(f"/api/runs/{created.json()['run_id']}/transcript")
+
+    assert sentinel in body["result"]["final_output"]
+    assert sentinel in body["result"]["task_results"][0]["output"]
+    assert sentinel in transcript.json()["entries"][0]["content"]
+    with pytest.raises(AssertionError, match="credential value reached the client"):
+        assert_no_sentinels(str(body) + transcript.text, SENTINEL_VALUES)

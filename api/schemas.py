@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # `extra="forbid"` is a security control, not tidiness: it is what makes a
 # request carrying an API key a rejection rather than a silently ignored field
@@ -252,3 +252,144 @@ class KeyCheckView(BaseModel):
     load_warnings: list[str]
     any_key_present: bool
     needs_restart_to_author: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Run (Story 2.4). Documents are transient — never persisted, never logged,
+# and dropped from a run record once the run completes (AD-11 / AC 6).
+# ---------------------------------------------------------------------------
+
+# Bounds are a decision, not a discovery: no NFR constrains them anywhere in
+# this project (`epics.md:70-77` names seven, none about latency or size).
+# Generous enough that no legitimate goal or document is rejected, small
+# enough that neither becomes a spend amplifier on a run with no timeout.
+_MAX_DOCUMENTS = 5
+_MAX_DOCUMENT_TEXT = 50_000
+_MAX_TOTAL_DOCUMENT_TEXT = 100_000
+
+
+class RunDocumentInput(BaseModel):
+    model_config = _STRICT
+
+    name: str = Field(..., min_length=1, max_length=_MAX_NAME)
+    text: str = Field(..., min_length=1, max_length=_MAX_DOCUMENT_TEXT)
+
+
+class RunCreateRequest(BaseModel):
+    model_config = _STRICT
+
+    team_slug: str = Field(..., min_length=1, max_length=_MAX_NAME)
+    goal: str = Field(..., min_length=1, max_length=_MAX_PROMPT)
+    documents: list[RunDocumentInput] = Field(default_factory=list, max_length=_MAX_DOCUMENTS)
+
+    @field_validator("goal")
+    @classmethod
+    def _goal_must_not_be_blank(cls, value: str) -> str:
+        # `min_length=1` on the raw string is not enough: a whitespace-only
+        # goal passes it and would start a run toward nothing
+        # (`deferred-work.md:77` — this is the first surface that enforces a
+        # non-empty goal at all). The stripped value is what is stored, so a
+        # leading/trailing-whitespace goal is not echoed back with it intact.
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("The goal cannot be blank.")
+        return stripped
+
+    @model_validator(mode="after")
+    def _documents_total_within_bound(self) -> "RunCreateRequest":
+        total = sum(len(document.text) for document in self.documents)
+        if total > _MAX_TOTAL_DOCUMENT_TEXT:
+            raise ValueError(
+                f"Attached documents total {total} characters; the limit is "
+                f"{_MAX_TOTAL_DOCUMENT_TEXT} across all of them."
+            )
+        return self
+
+
+class AgentKeyView(BaseModel):
+    """One agent's provider availability — the same fields, from the same
+    source (`keystatus.provider_reports` / `fix_hint_for`), as the Composer's
+    badges. See `api/routers/run.py` for why this is not a client-side join
+    against `GET /api/keys/status`."""
+
+    role: str
+    provider: str
+    model: str
+    status: str
+    detail: str
+    usable: bool
+    fix_hint: str | None
+
+
+class TaskPlanView(BaseModel):
+    """One task's place in a team's plan, in topological order.
+
+    Shared, unchanged, between `TeamPlanView` and `RunView` (Story 2.4 AC 1 /
+    AC 4) so the Workspace renders one task list before a run starts and
+    while/after it runs.
+    """
+
+    name: str
+    agent_role: str
+    dependencies: list[str]
+
+
+class TeamPlanView(BaseModel):
+    """`GET /api/runs/teams/{team_slug}` — the runnable view of a built package."""
+
+    status: Literal["complete"] = "complete"
+    team_name: str
+    agents: list[AgentKeyView]
+    tasks: list[TaskPlanView]
+
+
+class TaskOutputView(BaseModel):
+    name: str
+    agent_role: str
+    output: str
+
+
+class RunResultView(BaseModel):
+    final_output: str
+    task_results: list[TaskOutputView]
+
+
+class RunView(BaseModel):
+    """`POST /api/runs`, `GET /api/runs/{run_id}` — a run's current state.
+
+    The goal and the attached documents are never echoed back: they are
+    transient to the run, not a durable record of it (AD-11).
+    """
+
+    status: Literal["running", "complete", "failed"]
+    run_id: str
+    team_slug: str
+    team_name: str
+    tasks: list[TaskPlanView]
+    result: RunResultView | None
+    transcript_available: bool
+    failure_reason: str | None
+
+
+class TranscriptEntryView(BaseModel):
+    sequence: int
+    kind: str
+    agent_role: str
+    task_name: str
+    content: str
+    target_role: str | None
+
+
+class TranscriptView(BaseModel):
+    """`GET /api/runs/{run_id}/transcript`.
+
+    Carries no `status` discriminator, unlike every other view above —
+    deliberately: this shape never varies over the life of one resource the
+    way `RunView` does. `available` carries the only variation that matters:
+    `False` means "nothing to show yet" (still running, or failed before any
+    entry was captured — `deferred-work.md:101`), which must never be
+    conflated with `entries == []` meaning "the agents said nothing".
+    """
+
+    available: bool
+    entries: list[TranscriptEntryView]

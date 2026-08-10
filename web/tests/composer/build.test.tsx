@@ -385,10 +385,16 @@ describe("AC 5 — the build outcome", () => {
     await buildWith(user, build);
 
     const panel = buildPanel() as HTMLElement;
-    expect(panel.querySelector('[data-slot="build-output-path"]')?.tagName).toBe("P");
-    expect(panel.querySelector("a")).toBeNull();
-    expect(panel.querySelector("input")).toBeNull();
-    expect(panel.querySelector("button")).toBeNull();
+    const pathNode = panel.querySelector('[data-slot="build-output-path"]');
+    expect(pathNode?.tagName).toBe("P");
+    // Scoped to output_path's own container, not the whole panel: Story 2.4
+    // added a legitimate "Open in workspace" link elsewhere in this card,
+    // and this guard's job is output_path specifically, never having been
+    // about the panel containing no control at all.
+    const container = pathNode?.parentElement as HTMLElement;
+    expect(container.querySelector("a")).toBeNull();
+    expect(container.querySelector("input")).toBeNull();
+    expect(container.querySelector("button")).toBeNull();
     // And nothing on the surface ever sends it back.
     expect(
       queue.requests.some((r) => JSON.stringify(r.body ?? {}).includes("output_path"))
@@ -408,12 +414,23 @@ describe("AC 5 — the build outcome", () => {
     expect(rows[0].textContent).toContain("openai/gpt-4o-mini");
   });
 
-  it("does not navigate to a surface that cannot show the outcome", async () => {
+  it("does not automatically navigate to the Workspace", async () => {
+    // Renamed: this test's title asserted "does not navigate to a surface
+    // that cannot show the outcome", which went false the moment the
+    // Workspace shipped (Story 2.4) — a test title is a testable assertion
+    // (defect class 5). What it still guards is that reaching the Workspace
+    // is a link the user clicks, never an automatic redirect: Story 2.2
+    // already proved `router.push` is never called from this surface, and
+    // auto-navigating away would destroy the conversation that produced the
+    // team.
     const user = userEvent.setup();
     await buildWith(user, build);
-    // My Teams (2.5) and the Workspace (2.4) do not exist yet.
+    // My Teams (2.5) still does not exist.
     expect(pushMock).not.toHaveBeenCalled();
-    expect(document.body.textContent).not.toMatch(/My Teams|workspace/i);
+    expect(document.body.textContent).not.toMatch(/My Teams/i);
+    // "workspace" is now legitimate: the build result links to it.
+    expect(document.body.textContent).toMatch(/workspace/i);
+    expect(screen.getByRole("link", { name: "Open in workspace" })).toBeInTheDocument();
   });
 
   it("keeps the conversation alive after a build", async () => {

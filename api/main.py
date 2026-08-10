@@ -30,10 +30,13 @@ from api.errors import (
 )
 from api.routers.compose import router as compose_router
 from api.routers.keys import router as keys_router
+from api.routers.run import router as run_router
+from api.runs import RunRegistry
 from api.schemas import HealthView
 from api.sessions import SessionRegistry
 from api.state import STATE_ATTR, AppState
 from team_maker.keyconfig import KeyConfig
+from team_maker.ports.execution_engine import ExecutionEngine
 
 logger = logging.getLogger("api")
 
@@ -55,13 +58,23 @@ async def health() -> HealthView:
     return HealthView()
 
 
-def create_app(*, provider_factory: ProviderFactory | None = None) -> FastAPI:
+def create_app(
+    *,
+    provider_factory: ProviderFactory | None = None,
+    execution_engine: ExecutionEngine | None = None,
+) -> FastAPI:
     """Build the application.
 
     `provider_factory` exists so tests can inject a fake `LLMProvider` and stay
     fully offline (AC 9). Production leaves it `None` and gets
     `create_provider`, so AD-8 holds — every LLM reaches the system through the
     one port's factory.
+
+    `execution_engine` is Story 2.4's second injection seam, with the same
+    rationale: production leaves it `None`, and `run_team_package` falls back
+    to its own lazy `CrewAIExecutionEngine` default, so AD-6 holds. Tests
+    inject a fake so `tests/api/` can exercise the run routes without a real
+    crewai run and real spend.
     """
     factory = provider_factory or default_provider_factory()
 
@@ -83,6 +96,7 @@ def create_app(*, provider_factory: ProviderFactory | None = None) -> FastAPI:
             "authoring credentials available for: %s",
             ", ".join(bridged) if bridged else "(none)",
         )
+        run_registry = RunRegistry()
         setattr(
             app.state,
             STATE_ATTR,
@@ -91,10 +105,20 @@ def create_app(*, provider_factory: ProviderFactory | None = None) -> FastAPI:
                 registry=SessionRegistry(),
                 provider_factory=factory,
                 bridged_providers=tuple(bridged),
+                run_registry=run_registry,
+                execution_engine=execution_engine,
                 file_providers=file_providers,
             ),
         )
         yield
+        # Story 2.4: the first thing in this process that can outlive the app.
+        # A run has no timeout, so joining without a bound would hang an
+        # ordinary restart for as long as an LLM-driven run cares to take;
+        # `shutdown()` gives it a short bounded wait, then logs and lets the
+        # daemon thread be terminated with the process rather than blocking
+        # forever. See `api/runs.py:RunRegistry.shutdown` for the full
+        # rationale.
+        run_registry.shutdown()
 
     app = FastAPI(
         title="team_maker API",
@@ -111,6 +135,10 @@ def create_app(*, provider_factory: ProviderFactory | None = None) -> FastAPI:
     # The key-status group (Story 2.3). Read-only: AD-9 forbids the browser
     # touching keys, so the UI's four states come from here.
     app.include_router(keys_router, prefix="/api")
+    # The run group (Story 2.4). `run_router` declares `/teams/{team_slug}`
+    # before `/{run_id}` internally — both are two segments under `/runs`, so
+    # FastAPI/Starlette resolve them by declaration order.
+    app.include_router(run_router, prefix="/api")
     _register_error_handlers(app)
     return app
 
@@ -206,19 +234,24 @@ def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
 
 
 def _warn_on_multiple_workers() -> None:
-    """Compose sessions live in an in-process dict (AC 7).
+    """Compose sessions AND run state live in an in-process dict (AC 7; Story 2.4 AC 4).
 
     A second worker gets its own empty registry, so half of all requests would
-    answer `session_not_found` for a session that is very much alive in the
-    other process. That is a silent, intermittent failure, so it gets a loud
-    startup warning.
+    answer `session_not_found` for a session — or, since Story 2.4,
+    `run_not_found` for a run — that is very much alive in the other process.
+    Worse for a run: the process-wide lock that serialises runs
+    (`api/runs.py`) is also per-worker, so a second worker does not merely
+    lose track of a run, it lets two runs execute concurrently and corrupt
+    each other's transcripts (`deferred-work.md:102`). That is a silent,
+    intermittent failure, so it gets a loud startup warning.
     """
     configured = os.environ.get("WEB_CONCURRENCY")
     if configured and configured.strip() != "1":
         logger.warning(
-            "WEB_CONCURRENCY=%s but compose sessions are held in-process: with more "
-            "than one worker, sessions will appear to vanish at random. Run a single "
-            "worker (see `make api-serve`).",
+            "WEB_CONCURRENCY=%s but compose sessions and run state are held "
+            "in-process: with more than one worker, sessions and runs will appear to "
+            "vanish at random, and concurrent runs will corrupt each other's "
+            "transcripts. Run a single worker (see `make api-serve`).",
             configured,
         )
     # `uvicorn --workers 4` and `gunicorn -w 4` set no environment variable at
@@ -228,9 +261,10 @@ def _warn_on_multiple_workers() -> None:
     argv_workers = _workers_from_argv()
     if argv_workers is not None and argv_workers != 1:
         logger.warning(
-            "started with %d workers, but compose sessions are held in-process: "
-            "sessions will appear to vanish at random. Run a single worker "
-            "(see `make api-serve`).",
+            "started with %d workers, but compose sessions and run state are held "
+            "in-process: sessions and runs will appear to vanish at random, and "
+            "concurrent runs will corrupt each other's transcripts. Run a single "
+            "worker (see `make api-serve`).",
             argv_workers,
         )
 
