@@ -39,6 +39,17 @@ def _template(path: str) -> str:
         return "/api/runs/{run_id}/transcript"
     if len(parts) == 3 and parts[:2] == ["api", "runs"]:
         return "/api/runs/{run_id}"
+    # Teams routes (Story 2-5)
+    if len(parts) == 4 and parts[:2] == ["api", "teams"] and parts[3] == "record-run":
+        return "/api/teams/{team_name}/record-run"
+    if len(parts) == 3 and parts[:2] == ["api", "teams"] and parts[2] not in [
+        "save",
+        "rename",
+        "recent",
+        "browse",
+        "delete",
+    ]:
+        return "/api/teams/{team_name}"
     return path
 
 
@@ -106,6 +117,21 @@ def _exercise_every_route(client, tmp_path, spec_payload) -> list:
         client.post("/api/runs", json={"team_slug": "unknown-team", "goal": "ship it"}),
         client.get("/api/runs/unknown-run-id"),
         client.get("/api/runs/unknown-run-id/transcript"),
+        # Teams routes (Story 2-5)
+        client.get("/api/teams"),
+        client.get("/api/teams/browse"),
+        client.get("/api/teams/recent"),
+        client.get("/api/teams/NonExistent"),
+        client.delete("/api/teams/NonExistent"),
+        # Need to exercise POST /api/teams/save and PUT /api/teams/rename
+        # but these require valid payloads. For now, just hit them to ensure
+        # they're registered (they'll return validation errors but that's fine).
+        client.post("/api/teams/save", json={"team_name": "x", "team_package_path": "/nonexistent"}),
+        client.put("/api/teams/rename", json={"old_name": "x", "new_name": "y"}),
+        # Added by the Story 2.5 code review (D1/D2/D3).
+        client.delete("/api/teams/delete", params={"team_name": "NonExistent"}),
+        client.post("/api/teams/recent", json={"team_name": "Sweep Recent Team"}),
+        client.post("/api/teams/NonExistent/record-run", json={}),
     ]
     return responses
 

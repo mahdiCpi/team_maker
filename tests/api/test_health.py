@@ -44,6 +44,22 @@ def test_authored_routes_are_exactly_the_ac2_set(make_client):
         ("/api/runs", "POST"),
         ("/api/runs/{run_id}", "GET"),
         ("/api/runs/{run_id}/transcript", "GET"),
+        # The teams group, added by Story 2.5 (Named teams — save, browse, rename, delete).
+        ("/api/teams", "GET"),
+        ("/api/teams/browse", "GET"),
+        ("/api/teams/save", "POST"),
+        ("/api/teams/rename", "PUT"),
+        ("/api/teams/recent", "GET"),
+        ("/api/teams/recent", "POST"),
+        # `/delete` is the literal path the story's Technical Requirements
+        # table documents; `/{team_name}` DELETE does the same thing
+        # RESTfully (code review D1).
+        ("/api/teams/delete", "DELETE"),
+        ("/api/teams/{team_name}", "GET"),
+        ("/api/teams/{team_name}", "DELETE"),
+        # Lets Story 2-4's re-run flow keep last_run_at/run_count honest
+        # (code review D3).
+        ("/api/teams/{team_name}/record-run", "POST"),
     }
 
 

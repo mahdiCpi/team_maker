@@ -393,3 +393,73 @@ class TranscriptView(BaseModel):
 
     available: bool
     entries: list[TranscriptEntryView]
+
+
+# ---------------------------------------------------------------------------
+# Teams (Story 2-5: Named teams — save, browse, rename, delete)
+# ---------------------------------------------------------------------------
+
+
+class TeamView(BaseModel):
+    """Metadata for a single saved team."""
+
+    name: str
+    created_at: str
+    last_run_at: str | None = None
+    run_count: int = 0
+
+
+class TeamListView(BaseModel):
+    """List of all saved teams with metadata."""
+
+    teams: list[TeamView]
+
+
+class TeamSaveRequest(BaseModel):
+    """Request body for POST /api/teams/save."""
+
+    model_config = _STRICT
+
+    team_name: str = Field(..., min_length=2, max_length=_MAX_NAME)
+    team_package_path: str = Field(..., min_length=1, max_length=_MAX_PROMPT)
+    run_results: dict[str, Any] | None = Field(None)
+
+
+class TeamSaveResponse(BaseModel):
+    """Response from POST /api/teams/save."""
+
+    name: str
+    created_at: str
+    storage_path: str
+    message: str
+
+
+class MessageView(BaseModel):
+    """Simple message response."""
+
+    message: str
+
+
+class TeamRenameRequest(BaseModel):
+    """Request body for PUT /api/teams/rename."""
+
+    model_config = _STRICT
+
+    old_name: str = Field(..., min_length=2, max_length=_MAX_NAME)
+    new_name: str = Field(..., min_length=2, max_length=_MAX_NAME)
+
+
+class TeamRecentRequest(BaseModel):
+    """Request body for POST /api/teams/recent."""
+
+    model_config = _STRICT
+
+    team_name: str = Field(..., min_length=2, max_length=_MAX_NAME)
+
+
+class TeamRecordRunRequest(BaseModel):
+    """Request body for POST /api/teams/{team_name}/record-run."""
+
+    model_config = _STRICT
+
+    run_results: dict[str, Any] | None = Field(None)

@@ -31,6 +31,7 @@ from api.errors import (
 from api.routers.compose import router as compose_router
 from api.routers.keys import router as keys_router
 from api.routers.run import router as run_router
+from api.routers.teams import router as teams_router
 from api.runs import RunRegistry
 from api.schemas import HealthView
 from api.sessions import SessionRegistry
@@ -141,6 +142,8 @@ def create_app(
     # Starlette resolves by declaration order. (It does not collide with
     # `/{run_id}`, which is one segment; see the comment in `routers/run.py`.)
     app.include_router(run_router, prefix="/api")
+    # The teams group (Story 2-5): save, browse, rename, delete teams
+    app.include_router(teams_router, prefix="/api")
     _register_error_handlers(app)
     return app
 

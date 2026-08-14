@@ -269,3 +269,8 @@ the next architectural work item, ahead of new Epic 1 features.
 - **`RunView.tasks` is still transmitted for a reason nothing consumes** — `TaskList` renders the mount-time plan and only `RunStatus` reads `run.tasks`, for a count.
 - **Attached document text can still spoof the run-context delimiters** injected by `run_context._run_context_block`. Inherent to in-context injection rather than a defect in the implementation, and worth one sentence beside the existing acknowledgement that document text can reach the transcript.
 - **`test_the_policy_constants_are_named_not_magic` asserts nothing that can fail** and does not assert `MAX_STORED_RUNS` — the constant the ghost-record finding showed could be exceeded.
+
+## Deferred from: code review of story-2.5 (2026-08-12)
+
+- **`RESERVED_TEAM_NAMES` (`starter`, `example`, `demo`, `template`, `sample`) is a hardcoded guess at Epic 3's starter-team names.** Epic 3 has not started, so there is nothing real to reconcile against yet — whoever ships Epic 3's actual starter teams should revisit this set (and, per a related patch applied in this same review, make sure it also still covers the teams router's own static path segments: `recent`, `browse`, `save`, `rename`). [api/routers/teams.py:111-119]
+- **No authentication/authorization exists anywhere on the teams API surface** (save/browse/rename/delete/recent). Consistent with the rest of the `api/` layer's existing local-only design (AD-11: no external services, single local process) — not introduced by this story, and not addressed here.
