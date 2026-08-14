@@ -58,6 +58,16 @@ describe.each(ROUTES)("$name page", ({ name, Page, meta, action }) => {
     });
   });
 
+  // Story 2.7 AC 3/AC 4 — a real, visible `<h1 id="page-heading">` naming the
+  // surface, distinct from `EmptyTitle` (still a `<div>`, not a heading),
+  // and the target `RouteFocusAnnouncer` focuses on navigation.
+  it("renders a visible page heading distinct from EmptyTitle", () => {
+    render(<Page />);
+    const heading = screen.getByRole("heading", { level: 1, name });
+    expect(heading).toHaveAttribute("id", "page-heading");
+    expect(heading).not.toHaveClass("sr-only");
+  });
+
   it("renders exactly one plain description sentence", async () => {
     const { container } = render(<Page />);
     await waitFor(() => {

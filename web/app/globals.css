@@ -98,9 +98,9 @@
      binding Signal Teal to --accent would turn every hover/focus/active
      surface in the app bright teal (AC 7). The accent defaults are pinned by
      value in tests/theme/signal-token.test.ts. */
-  --primary: #0E8C82;
+  --primary: #0D857B;
   --primary-foreground: #FFFFFF;
-  --ring: #0E8C82;
+  --ring: #0D857B;
   --signal: #2DD4BF;
   --signal-foreground: #04100E;
 

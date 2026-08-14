@@ -1,4 +1,13 @@
+import { toHaveNoViolations } from "jest-axe";
+import { expect } from "vitest";
 import "@testing-library/jest-dom/vitest";
+
+// `jest-axe`'s `toHaveNoViolations` export is already the matcher-map shape
+// `expect.extend` wants (`{ toHaveNoViolations: fn }`) — passing it directly,
+// not re-wrapped in `{ toHaveNoViolations }`, which double-nests it and
+// leaves `expect(...).toHaveNoViolations` bound to an object instead of a
+// function.
+expect.extend(toHaveNoViolations);
 
 /**
  * jsdom implements no `matchMedia` at all (the property is absent, not

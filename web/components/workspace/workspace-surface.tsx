@@ -190,6 +190,13 @@ export function WorkspaceSurface({ teamSlug }: { teamSlug: string }) {
 
   return (
     <div data-slot="workspace" className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
+      <h1
+        id="page-heading"
+        tabIndex={-1}
+        className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+      >
+        Team Workspace
+      </h1>
       <div className="flex min-h-0 flex-1 flex-col gap-3 md:basis-2/3">
         {state.turns.length === 0 ? (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 text-center">

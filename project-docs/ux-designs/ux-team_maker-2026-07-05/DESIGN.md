@@ -11,11 +11,11 @@ colors:
   # All unlisted tokens inherit from shadcn (background, foreground, muted,
   # muted-foreground, popover, card, border, input, destructive, and their
   # -foreground pairs). Swapping the theme later = change primary/accent here only.
-  primary: '#0E8C82'
+  primary: '#0D857B'
   primary-foreground: '#FFFFFF'
   accent: '#2DD4BF'
   accent-foreground: '#04100E'
-  ring: '#0E8C82'
+  ring: '#0D857B'
   primary-dark: '#17B3A6'
   primary-foreground-dark: '#04100E'
   accent-dark: '#2DD4BF'
@@ -74,7 +74,7 @@ Two brand-layer colors plus shadcn defaults for everything else. **All color is 
 semantic tokens** (shadcn CSS variables) so re-theming is a single-place change — a hard product
 requirement (the final Coinpela palette isn't locked yet).
 
-- **Primary Teal (`#0E8C82` light / `#17B3A6` dark)** — brand color. Primary buttons, active nav,
+- **Primary Teal (`#0D857B` light / `#17B3A6` dark)** — brand color. Primary buttons, active nav,
   links, selected states. Replaces shadcn's default `primary`.
 - **Signal Teal (`#2DD4BF`)** — accent. Reserved for **"live / running / now"**: the pulse on a
   running team, the active task in a run. Not for chrome, not decorative.

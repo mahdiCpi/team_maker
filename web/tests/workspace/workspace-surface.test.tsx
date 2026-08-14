@@ -529,3 +529,32 @@ describe("a transcript that could not be fetched", () => {
     15000
   );
 });
+
+describe("the page heading (Story 2.7 AC 3)", () => {
+  it("renders a visible 'Team Workspace' heading before any run starts", async () => {
+    await renderWorkspace();
+    const heading = screen.getByRole("heading", { level: 1, name: "Team Workspace" });
+    expect(heading).toHaveAttribute("id", "page-heading");
+    expect(heading).not.toHaveClass("sr-only");
+  });
+
+  it("keeps the heading once a run is in progress", async () => {
+    const user = userEvent.setup();
+    await renderWorkspace();
+    queue.queueCreateRun(200, runRunning);
+    await user.type(
+      screen.getByRole("textbox", { name: "Describe the goal for this run" }),
+      "ship it"
+    );
+    await user.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-slot="run-status"]')?.getAttribute("data-status")).toBe(
+        "running"
+      );
+    });
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Team Workspace" })
+    ).toBeInTheDocument();
+  });
+});

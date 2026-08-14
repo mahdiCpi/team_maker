@@ -134,6 +134,16 @@ describe("the / route", () => {
     const { container } = render(<NewTeamPage />);
     expect(container.textContent).not.toMatch(/My Teams|workspace|Adapt with/i);
   });
+
+  // Story 2.7 AC 3 — a real, visible `<h1 id="page-heading">` naming the
+  // surface, present even in the empty state where `EmptyTitle` shows the
+  // Composer's own "Describe your team." sentence instead of the route name.
+  it("renders a visible 'New Team' page heading distinct from EmptyTitle", () => {
+    render(<NewTeamPage />);
+    const heading = screen.getByRole("heading", { level: 1, name: "New Team" });
+    expect(heading).toHaveAttribute("id", "page-heading");
+    expect(heading).not.toHaveClass("sr-only");
+  });
 });
 
 describe("the copy guards hold AFTER a conversation starts, not just before it", () => {
@@ -165,6 +175,13 @@ describe("the copy guards hold AFTER a conversation starts, not just before it",
       // Proof the haystack is real and post-turn.
       expect(text).toMatch(/researcher/);
       expect(text).toMatch(/Run it now/);
+
+      // Story 2.7 AC 3 — the page heading persists once the empty state is
+      // replaced by the transcript; it must not have been rendered only
+      // inside the now-gone `EmptyState` branch.
+      expect(
+        screen.getByRole("heading", { level: 1, name: "New Team" })
+      ).toBeInTheDocument();
 
       for (const borrowed of [
         "No teams yet. Describe one, or start from a template.",

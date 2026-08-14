@@ -64,25 +64,29 @@ export function AppSidebar() {
       <SidebarContent>
         {/* SidebarGroup supplies the horizontal padding that aligns menu rows
             with the header and footer; SidebarContent has none of its own. */}
-        <SidebarGroup>
-          <SidebarMenu>
-            {NAV_DESTINATIONS.map((item) => (
-              <NavItem
-                key={item.href}
-                item={item}
-                isActive={pathname === item.href}
-              />
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
+        <nav aria-label="Primary">
+          <SidebarGroup>
+            <SidebarMenu>
+              {NAV_DESTINATIONS.map((item) => (
+                <NavItem
+                  key={item.href}
+                  item={item}
+                  isActive={pathname === item.href}
+                />
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        </nav>
       </SidebarContent>
       <SidebarFooter>
-        <SidebarMenu>
-          <NavItem
-            item={SETTINGS_DESTINATION}
-            isActive={pathname === SETTINGS_DESTINATION.href}
-          />
-        </SidebarMenu>
+        <nav aria-label="Settings">
+          <SidebarMenu>
+            <NavItem
+              item={SETTINGS_DESTINATION}
+              isActive={pathname === SETTINGS_DESTINATION.href}
+            />
+          </SidebarMenu>
+        </nav>
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

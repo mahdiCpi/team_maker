@@ -10,11 +10,20 @@ export const metadata: Metadata = {
 
 export default function SettingsPage() {
   return (
-    <EmptyState title="Settings" description="Configure providers and view key status.">
-      <div className="space-y-6">
-        <ThemeToggle />
-        <SettingsSurface />
-      </div>
-    </EmptyState>
+    <>
+      <h1
+        id="page-heading"
+        tabIndex={-1}
+        className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+      >
+        Settings
+      </h1>
+      <EmptyState title="Settings" description="Configure providers and view key status.">
+        <div className="space-y-6">
+          <ThemeToggle />
+          <SettingsSurface />
+        </div>
+      </EmptyState>
+    </>
   );
 }

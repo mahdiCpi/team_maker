@@ -10,11 +10,20 @@ export const metadata: Metadata = {
 
 export default function StarterTeamsPage() {
   return (
-    <EmptyState
-      title="Starter Teams"
-      description="No starter teams yet. team_maker will offer ready-made templates here."
-    >
-      <Button render={<Link href="/" />}>New Team</Button>
-    </EmptyState>
+    <>
+      <h1
+        id="page-heading"
+        tabIndex={-1}
+        className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+      >
+        Starter Teams
+      </h1>
+      <EmptyState
+        title="Starter Teams"
+        description="No starter teams yet. team_maker will offer ready-made templates here."
+      >
+        <Button render={<Link href="/" />}>New Team</Button>
+      </EmptyState>
+    </>
   );
 }

@@ -1,9 +1,23 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { TranscriptDialog } from "@/components/workspace/transcript-dialog";
 
 import { transcriptAvailable, transcriptUnavailable } from "./fixtures";
+
+/** `TranscriptDialog` is controlled, and Base UI's `onOpenChange` is called
+ *  with `(open, eventDetails)`, not a bare boolean — mirroring
+ *  `tests/composer/keyboard.test.tsx`'s "AC 6 — Esc exits the review editor"
+ *  precedent, this asserts the dialog actually disappears from the
+ *  accessibility tree rather than the exact shape of the callback's args. */
+function ControlledTranscriptDialog() {
+  const [open, setOpen] = React.useState(true);
+  return (
+    <TranscriptDialog open={open} onOpenChange={setOpen} transcript={transcriptAvailable} />
+  );
+}
 
 describe("TranscriptDialog", () => {
   it("shows an honest 'nothing yet' state, not a blank panel, when unavailable", () => {
@@ -58,5 +72,22 @@ describe("TranscriptDialog", () => {
     );
 
     expect(screen.getByText("The agents recorded nothing for this run.")).toBeInTheDocument();
+  });
+
+  describe("AC 5 — Esc closes the dialog", () => {
+    it("closes the transcript dialog when Escape is pressed", async () => {
+      const user = userEvent.setup();
+
+      render(<ControlledTranscriptDialog />);
+
+      // Dialog should be open
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      // Press Escape
+      await user.keyboard("{Escape}");
+
+      // Dialog should be closed
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
   });
 });

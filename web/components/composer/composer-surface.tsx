@@ -202,6 +202,13 @@ export function ComposerSurface() {
 
   return (
     <div data-slot="composer" className="flex min-h-0 flex-1 flex-col gap-3">
+      <h1
+        id="page-heading"
+        tabIndex={-1}
+        className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+      >
+        New Team
+      </h1>
       {state.transcript.length === 0 ? (
         <div className="flex min-h-0 flex-1 flex-col justify-center">
           <EmptyState

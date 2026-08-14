@@ -10,11 +10,20 @@ export const metadata: Metadata = {
 
 export default function MyTeamsPage() {
   return (
-    <EmptyState
-      title="My Teams"
-      description="No teams yet. Describe one, or start from a template."
-    >
-      <Button render={<Link href="/" />}>New Team</Button>
-    </EmptyState>
+    <>
+      <h1
+        id="page-heading"
+        tabIndex={-1}
+        className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+      >
+        My Teams
+      </h1>
+      <EmptyState
+        title="My Teams"
+        description="No teams yet. Describe one, or start from a template."
+      >
+        <Button render={<Link href="/" />}>New Team</Button>
+      </EmptyState>
+    </>
   );
 }

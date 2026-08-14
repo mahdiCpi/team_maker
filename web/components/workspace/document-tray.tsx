@@ -147,6 +147,7 @@ export function DocumentTray({
           type="file"
           accept="text/plain,.txt,.md,.csv,.json,text/*"
           multiple
+          aria-label="Attach a document"
           className="sr-only"
           tabIndex={-1}
           onChange={(event) => {
