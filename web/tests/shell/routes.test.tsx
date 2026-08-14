@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import MyTeamsPage from "@/app/my-teams/page";
@@ -11,6 +11,16 @@ import { metadata as starterTeamsMeta } from "@/app/starter-teams/page";
 vi.mock("next-themes", () => ({
   useTheme: () => ({ theme: "system", setTheme: vi.fn() }),
 }));
+
+// Mock the API client for Settings page tests. The fixture import is dynamic
+// because `vi.mock` factories are hoisted above top-level imports — a static
+// import referenced here would hit the TDZ before it's initialized.
+vi.mock("@/lib/api-client/keys", async () => {
+  const { mockKeyStatus } = await import("../settings/fixtures");
+  return {
+    getKeyStatus: vi.fn().mockResolvedValue({ ok: true, data: mockKeyStatus }),
+  };
+});
 
 /**
  * AC 3 (Story 2.1) — every destination routes to a real page rendering an empty
@@ -36,19 +46,26 @@ const ROUTES = [
 ];
 
 describe.each(ROUTES)("$name page", ({ name, Page, meta, action }) => {
-  it("renders its heading", () => {
+  // Settings renders an async surface on mount (Story 2.6); awaiting here keeps
+  // its resolved fetch from setting state after the test body has returned, which
+  // would otherwise trip an act() warning for this route only.
+  it("renders its heading", async () => {
     const { container } = render(<Page />);
-    expect(
-      container.querySelector('[data-slot="empty-title"]')?.textContent
-    ).toBe(name);
+    await waitFor(() => {
+      expect(
+        container.querySelector('[data-slot="empty-title"]')?.textContent
+      ).toBe(name);
+    });
   });
 
-  it("renders exactly one plain description sentence", () => {
+  it("renders exactly one plain description sentence", async () => {
     const { container } = render(<Page />);
-    const description = container.querySelector(
-      '[data-slot="empty-description"]'
-    );
-    expect(description?.textContent?.trim().length).toBeGreaterThan(0);
+    await waitFor(() => {
+      const description = container.querySelector(
+        '[data-slot="empty-description"]'
+      );
+      expect(description?.textContent?.trim().length).toBeGreaterThan(0);
+    });
   });
 
   it("declares a distinct document title", () => {
@@ -82,12 +99,20 @@ describe("route copy", () => {
   });
 });
 
-describe("Settings page scope (AC 13)", () => {
-  it("ships the theme control and nothing key-related", () => {
-    const { container } = render(<SettingsPage />);
+describe("Settings page scope (Story 2.6, supersedes AC 13)", () => {
+  it("ships the theme control and per-provider key status content", async () => {
+    render(<SettingsPage />);
     expect(screen.getByRole("group", { name: "Theme" })).toBeInTheDocument();
-    expect(container.textContent).not.toMatch(
-      /key|anthropic|openai|gemini|openrouter/i
-    );
+
+    // Wait for the async SettingsSurface to load and render
+    await waitFor(() => {
+      // Now assert that key-related content DOES render (inversion of the previous test)
+      expect(screen.getByText("Key Config Path")).toBeInTheDocument()
+      expect(screen.getByText("/path/to/key-config.yaml")).toBeInTheDocument()
+      expect(screen.getByText("Provider Key Status")).toBeInTheDocument()
+      expect(screen.getByText("anthropic")).toBeInTheDocument()
+      expect(screen.getByText("openrouter")).toBeInTheDocument()
+      expect(screen.getAllByText("key found")).toHaveLength(2)
+    })
   });
 });
