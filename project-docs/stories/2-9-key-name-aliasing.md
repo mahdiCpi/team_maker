@@ -4,7 +4,7 @@ baseline_commit: e1337fb5be5fd4faeef030e9bf6855dcc6ea9d1b
 
 # Story 2.9: Recognize common alternate key names without a key-entry UI
 
-Status: review
+Status: done
 
 ## Story
 
@@ -104,6 +104,15 @@ their canonical provider, in addition to the canonical name — never instead of
     are distinguished, not conflated.
   - [x] Run `pytest -q`; record the before/after pass count in Completion Notes.
 
+### Review Findings
+
+- [x] [Review][Decision] AC1's claim that "environment variable" aliasing works was false — `KeyConfig.from_file`'s `include_env` fallback loop never consulted `env_to_provider()`'s mapping or `p.env_var_aliases`; it only checked `os.environ.get(p.env_var)` (the canonical name). Resolved: **fix the code** (option 1) — `include_env` fallback now checks `(p.env_var, *p.env_var_aliases)` in order, canonical first, first match wins; two new tests added (`test_env_var_alias_used_as_fallback_when_no_file`, `test_env_var_canonical_takes_priority_over_alias`). [team_maker/keyconfig.py:102-114] — fixed
+- [x] [Review][Patch] `test_google_api_key_alone_no_longer_recognized`'s name contradicted its own body — it asserts `cfg.has("google") is True` (the key IS recognized as an alias), while the name said "no longer recognized." [tests/unit/adapters/test_provider_availability.py:75] — fixed: renamed to `test_google_status_stays_unsupported_by_runtime_regardless_of_key_name`, docstring notes the rename.
+- [x] [Review][Patch] `README.md`'s troubleshooting note was stale for the exact example it gave — it said a `GOOGLE_API_KEY` entry produces an "unrecognized key" warning, no longer true now that it's a recognized alias. [README.md:395-398] — fixed: wording updated, provider table row annotated with the alias.
+- [x] [Review][Patch] No test exercised AC2's actual scenario (both `GOOGLE_API_KEY` and `GOOGLE_AI_API_KEY` present in the same file) — behavior was correct by inspection (unconditional last-line-wins, unchanged) but untested for the alias case specifically. [tests/unit/test_keyconfig.py] — fixed: added `test_later_line_wins_between_alias_and_canonical_google_key`, both orderings.
+- [x] [Review][Patch] Neither new/updated test verified the actual stored secret value (e.g. `cfg.keys["google"].get_secret_value()`) when resolved via the alias — both stopped at the boolean `.has()` check. [tests/unit/test_keyconfig.py:166-173, tests/unit/adapters/test_provider_availability.py:91-97] — fixed: both tests now assert `.get_secret_value()`.
+- [x] [Review][Defer] `env_to_provider()`'s alias registration (like the pre-existing name/env_var registration) uses unconditional last-write-wins with no collision detection across providers — a future alias colliding with another provider's canonical name/env_var/alias would silently mis-route with no warning. [team_maker/adapters/providers/registry.py:141-151] — deferred, pre-existing (the same last-write-wins shape already existed for `name`/`env_var`; this diff only extends it to a third field, and no actual collision exists today given AC4's single-evidenced-alias scope).
+
 ## Dev Notes
 
 ### Why this is a parsing change, not a UI change
@@ -158,6 +167,10 @@ provider name" invariant (AD-8) intact — the loop in `env_to_provider()` doesn
 - `team_maker/adapters/providers/registry.py` - Added `env_var_aliases` field to Provider dataclass, added alias to google provider, extended `env_to_provider()` to register aliases
 - `tests/unit/test_keyconfig.py` - Added `test_google_api_key_alias_is_recognized` test
 - `tests/unit/adapters/test_provider_availability.py` - Updated `test_google_api_key_alone_no_longer_recognized` docstring and assertions
+- `team_maker/keyconfig.py` - **(code review fix)** `include_env` fallback loop now also checks `p.env_var_aliases`, not just the canonical `p.env_var`
+- `tests/unit/test_keyconfig.py` - **(code review fix)** added `test_env_var_alias_used_as_fallback_when_no_file`, `test_env_var_canonical_takes_priority_over_alias`, `test_later_line_wins_between_alias_and_canonical_google_key`; strengthened `test_google_api_key_alias_is_recognized` to assert `.get_secret_value()`
+- `tests/unit/adapters/test_provider_availability.py` - **(code review fix)** renamed `test_google_api_key_alone_no_longer_recognized` to `test_google_status_stays_unsupported_by_runtime_regardless_of_key_name`; added `.get_secret_value()` assertion
+- `README.md` - **(code review fix)** updated the provider table and troubleshooting note — `GOOGLE_API_KEY` is no longer described as unrecognized
 
 ### Change Log
 
@@ -166,6 +179,7 @@ provider name" invariant (AD-8) intact — the loop in `env_to_provider()` doesn
 - Extended `env_to_provider()` to register each alias (uppercased) -> provider name
 - Added test `test_google_api_key_alias_is_recognized` in test_keyconfig.py
 - Updated `test_google_api_key_alone_no_longer_recognized` docstring and added `.has("google")` assertion
+- **Code review fix pass:** `include_env` fallback in `keyconfig.py` now checks `p.env_var_aliases` too (was file-only); renamed the contradictory test; updated stale `README.md` troubleshooting note; added tests for AC2's dup-line-with-alias scenario and for asserting the real secret value through the alias
 
 ### Completion Notes List
 
@@ -175,3 +189,17 @@ provider name" invariant (AD-8) intact — the loop in `env_to_provider()` doesn
 - Implementation follows the "no branching on provider name" invariant (AD-8) - aliases are registered generically in env_to_provider()
 - keyconfig.py required no changes - already uses env_to_provider() mapping
 - Only google provider has an alias added (as per AC 4 - exactly one evidenced entry)
+
+**Code review fix pass (2026-08-15)**: 1 `decision-needed` + 4 `patch` findings applied — see Review
+Findings above for the full list. The headline finding: the completion note above
+("keyconfig.py required no changes") was **incorrect** for the `include_env=True` path — the
+`include_env` fallback loop is a second, independent code path from the file-parsing loop, and it
+never went through `env_to_provider()`'s mapping, so a `GOOGLE_API_KEY` process environment
+variable (as opposed to a Key Config file line) was not recognized, contradicting AC1's explicit
+claim. Resolved by fixing the code (user's choice) rather than the spec text.
+- `pytest -q tests/unit/test_keyconfig.py tests/unit/adapters/test_provider_availability.py`: 28
+  passed (before fix pass: 25 passed)
+- `pytest -q` (full suite): 682 passed, 7 skipped (before fix pass: 681 passed, 7 skipped)
+- Remaining `env_to_provider()` last-write-wins collision-detection gap deferred — see
+  `project-docs/stories/deferred-work.md`, pre-existing pattern extended (not introduced) by this
+  story, no actual collision exists today.

@@ -68,3 +68,16 @@ The goal is meaningful separation and discoverability, not directory creation fo
 
 - Split large files by meaningful responsibility, not merely to satisfy a line-count limit.
  
+ ## Branch Organization Rules
+
+Ensure the `develop` branch is up to date before starting. Then follow these rules:
+
+1. Use consistent branch names:
+   - Epics: `epic_<number>` — e.g. `epic_2`.
+   - Stories: `story_<epic-number>_<story-number>` — e.g. `story_1_3` (story 3 of epic 1).
+2. Each epic has its own branch.
+3. Each story is branched from its epic.
+4. Once a story is accepted, merge it into its epic branch. Then, create the next story branch on the remote, and then checkout. 
+5. Once an epic is verified working, merge it into `develop`.
+6. After reviewing a branch, commit and push it to the remote repo.
+7. Create every branch on the remote (not just locally) so the repo's network graph stays clean and readable.

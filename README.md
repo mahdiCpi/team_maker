@@ -62,7 +62,7 @@ Key names must match the provider catalog exactly. A typo is reported as a warni
 |----------|----------|
 | `anthropic` | `ANTHROPIC_API_KEY` |
 | `openai` | `OPENAI_API_KEY` |
-| `google` | `GOOGLE_AI_API_KEY` |
+| `google` | `GOOGLE_AI_API_KEY` (alias: `GOOGLE_API_KEY`) |
 | `groq` | `GROQ_API_KEY` |
 | `xai` | `XAI_API_KEY` |
 | `openrouter` | `OPENROUTER_API_KEY` |
@@ -393,8 +393,9 @@ report. The package is written correctly before this point — only the summary 
 `PYTHONIOENCODING=utf-8` (or use Windows Terminal) before running.
 
 **A provider shows `via-openrouter` when you added its key.**
-The key name almost certainly doesn't match the catalog — Google in particular is
-`GOOGLE_AI_API_KEY`, not `GOOGLE_API_KEY`. `keys status` prints a warning line naming the
+The key name almost certainly doesn't match the catalog — check the table above for a typo.
+(Google accepts one alias, `GOOGLE_API_KEY`, in addition to its canonical `GOOGLE_AI_API_KEY`;
+any other name is simply unrecognized.) `keys status` prints a warning line naming the
 unrecognized key.
 
 **`Missing credentials` on `run`.**

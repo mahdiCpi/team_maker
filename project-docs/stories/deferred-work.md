@@ -306,3 +306,7 @@ the next architectural work item, ahead of new Epic 1 features.
 
 - **Type name inconsistency** — Frontend uses `TeamMessageView` but backend uses `MessageView` [web/lib/api-types/teams.ts:48]. Pre-existing pattern in the codebase, not introduced by this change.
 - **No error boundaries in new components** — New components lack error boundaries [web/components/my-teams/*.tsx]. Pre-existing pattern in codebase; no other components use error boundaries.
+
+## Deferred from: code review of story-2.9 (2026-08-15)
+
+- **`env_to_provider()`'s alias registration uses unconditional last-write-wins with no collision detection across providers** [team_maker/adapters/providers/registry.py:141-151]. A future alias colliding with another provider's canonical name/env_var/alias would silently mis-route with no warning. Pre-existing shape (the same last-write-wins already applied to `name`/`env_var`); this diff only extends it to a third field (`env_var_aliases`), and no actual collision exists today given AC4's single-evidenced-alias scope.

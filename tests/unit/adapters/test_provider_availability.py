@@ -72,7 +72,7 @@ def test_is_usable_only_missing_blocks():
     assert is_usable(STATUS_UNSUPPORTED_BY_RUNTIME) is False
 
 
-def test_google_api_key_alone_no_longer_recognized(tmp_path):
+def test_google_status_stays_unsupported_by_runtime_regardless_of_key_name(tmp_path):
     """Story 0.4: the catalog's google entry was fixed from GOOGLE_API_KEY (wrong) to
     GOOGLE_AI_API_KEY (matches the real adapter default).
 
@@ -82,15 +82,19 @@ def test_google_api_key_alone_no_longer_recognized(tmp_path):
     wrong name is still simply missing — the distinction the original test was
     written to lock in survives, it just has three states now instead of two.
 
-    Story 2.9 update: GOOGLE_API_KEY is now recognized as an alias for GOOGLE_AI_API_KEY
-    (so `.has("google")` is True), but the status is unchanged for the separate,
-    unrelated `runtime_supported=False` reason (CrewAI still can't call Google directly).
+    Story 2.9: GOOGLE_API_KEY is now recognized as an alias for GOOGLE_AI_API_KEY
+    (so `.has("google")` is True — asserted below, renamed from "...no_longer_recognized"
+    since that name became inaccurate once the alias made it recognized again), but the
+    status is unchanged for the separate, unrelated `runtime_supported=False` reason
+    (CrewAI still can't call Google directly).
     """
     path = tmp_path / "team_maker.keys"
     path.write_text("GOOGLE_API_KEY=old-wrong-name\n", encoding="utf-8")
     cfg = KeyConfig.from_file(path, include_env=False)
-    # The key is now recognized via alias, so .has("google") is True
+    # The key is now recognized via alias, so .has("google") is True, with the
+    # real value stored under the canonical provider name
     assert cfg.has("google") is True
+    assert cfg.keys["google"].get_secret_value() == "old-wrong-name"
     # But status is still UNSUPPORTED_BY_RUNTIME due to runtime_supported=False
     assert _status_map(cfg)["google"] == STATUS_UNSUPPORTED_BY_RUNTIME
 
