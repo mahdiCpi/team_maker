@@ -145,3 +145,13 @@ def test_secretstr_used_for_stored_keys(tmp_path):
     path = _write(tmp_path, f"OPENAI_API_KEY={SECRET}\n")
     cfg = KeyConfig.from_file(path, include_env=False)
     assert isinstance(cfg.keys["openai"], SecretStr)
+
+
+def test_google_api_key_alias_is_recognized(tmp_path):
+    """Story 2.9: GOOGLE_API_KEY should be recognized as an alias for GOOGLE_AI_API_KEY."""
+    path = _write(tmp_path, f"GOOGLE_API_KEY={SECRET}\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    # The alias should resolve to the google provider
+    assert cfg.has("google") is True
+    # No "Unrecognized key name" warning should be produced
+    assert not any("Unrecognized key name" in w for w in cfg.load_warnings)

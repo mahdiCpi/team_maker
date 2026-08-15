@@ -81,10 +81,17 @@ def test_google_api_key_alone_no_longer_recognized(tmp_path):
     CrewAI needs the `crewai[google-genai]` extra to call Google natively. The
     wrong name is still simply missing — the distinction the original test was
     written to lock in survives, it just has three states now instead of two.
+
+    Story 2.9 update: GOOGLE_API_KEY is now recognized as an alias for GOOGLE_AI_API_KEY
+    (so `.has("google")` is True), but the status is unchanged for the separate,
+    unrelated `runtime_supported=False` reason (CrewAI still can't call Google directly).
     """
     path = tmp_path / "team_maker.keys"
     path.write_text("GOOGLE_API_KEY=old-wrong-name\n", encoding="utf-8")
     cfg = KeyConfig.from_file(path, include_env=False)
+    # The key is now recognized via alias, so .has("google") is True
+    assert cfg.has("google") is True
+    # But status is still UNSUPPORTED_BY_RUNTIME due to runtime_supported=False
     assert _status_map(cfg)["google"] == STATUS_UNSUPPORTED_BY_RUNTIME
 
     path.write_text("GOOGLE_AI_API_KEY=correct-name\n", encoding="utf-8")
