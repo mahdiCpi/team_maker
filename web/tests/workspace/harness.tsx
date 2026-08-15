@@ -21,6 +21,12 @@ export type RunFetchQueue = {
   queueCreateRun: (status: number, body: unknown) => void;
   queueGetRun: (status: number, body: unknown) => void;
   queueTranscript: (status: number, body: unknown) => void;
+  /** Story 2.8: `WorkspaceSurface` fires this best-effort on run completion.
+   *  Optional to queue — a test that never calls this still passes, since an
+   *  unqueued request here resolves to a swallowed `unreachable` failure
+   *  (`transport.ts`'s `request()` catches a throwing `fetch`), exactly the
+   *  "team was never saved" case this call is designed to tolerate. */
+  queueRecordRun: (status: number, body: unknown) => void;
   install: () => void;
 };
 
@@ -29,6 +35,7 @@ export function createRunFetchQueue(): RunFetchQueue {
   const createQueue: Queued[] = [];
   const getRunQueue: Queued[] = [];
   const transcriptQueue: Queued[] = [];
+  const recordRunQueue: Queued[] = [];
   const requests: RecordedRequest[] = [];
 
   function answer(queue: Queued[], path: string): Response {
@@ -51,6 +58,7 @@ export function createRunFetchQueue(): RunFetchQueue {
     queueCreateRun: (status, body) => createQueue.push({ kind: "reply", status, body }),
     queueGetRun: (status, body) => getRunQueue.push({ kind: "reply", status, body }),
     queueTranscript: (status, body) => transcriptQueue.push({ kind: "reply", status, body }),
+    queueRecordRun: (status, body) => recordRunQueue.push({ kind: "reply", status, body }),
     install: () => {
       vi.stubGlobal(
         "fetch",
@@ -64,6 +72,9 @@ export function createRunFetchQueue(): RunFetchQueue {
           if (path === "/api/runs" && method === "POST") return answer(createQueue, path);
           if (/\/api\/runs\/[^/]+\/transcript$/.test(path)) return answer(transcriptQueue, path);
           if (/^\/api\/runs\/[^/]+$/.test(path)) return answer(getRunQueue, path);
+          if (/\/api\/teams\/[^/]+\/record-run$/.test(path) && method === "POST") {
+            return answer(recordRunQueue, path);
+          }
           throw new Error(`unexpected request to ${path}`);
         })
       );

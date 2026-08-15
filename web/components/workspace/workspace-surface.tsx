@@ -11,6 +11,7 @@ import {
   getRun,
   getRunTranscript,
   getTeamPlan,
+  recordTeamRun,
 } from "@/lib/api-client"
 import { DocumentTray } from "@/components/workspace/document-tray"
 import { GoalInput } from "@/components/workspace/goal-input"
@@ -139,6 +140,32 @@ export function WorkspaceSurface({ teamSlug }: { teamSlug: string }) {
       cancelled = true
     }
   }, [transcriptRunId, transcriptLoaded, transcriptAttempt])
+
+  // Story 2.8 AC 3: a saved team's `last_run_at`/`run_count` update on
+  // re-run. "Reopen" and "re-run" are the same navigation from My Teams (a
+  // run needs a goal, entered here, per Story 2.4's unchanged design), so
+  // this fires from the one place a run actually finishes rather than from
+  // a My Teams row. `recordedRunIds` guards against firing twice for the
+  // same run across re-renders (e.g. the poll effect's next tick).
+  const completedRunId = turn?.run.status === "complete" ? turn.runId : null
+  const recordedRunIds = React.useRef<Set<string>>(new Set())
+
+  React.useEffect(() => {
+    if (!completedRunId || recordedRunIds.current.has(completedRunId)) return
+    recordedRunIds.current.add(completedRunId)
+    // Bound the set size to prevent unbounded memory growth
+    if (recordedRunIds.current.size > 100) {
+      // Convert to array, drop the oldest entry, recreate the set
+      const entries = Array.from(recordedRunIds.current)
+      entries.shift()
+      recordedRunIds.current = new Set(entries)
+    }
+    // Best-effort and silent: a team reached via a fresh build that was
+    // never saved to My Teams has no row to update, so this 404s
+    // (`not_found`) harmlessly. `recordTeamRun` never rejects (the
+    // `request()` contract), so there is nothing to catch.
+    void recordTeamRun(teamSlug)
+  }, [completedRunId, teamSlug])
 
   async function submitGoal() {
     const text = goal.trim()

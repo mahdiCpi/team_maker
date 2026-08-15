@@ -11,6 +11,8 @@ as a Composer build would produce it — only the LLM *execution* is faked.
 """
 from __future__ import annotations
 
+import shutil
+
 import yaml
 
 from team_maker.runtime.results import RunResult, TaskResult, TranscriptEntry
@@ -67,6 +69,71 @@ def test_team_plan_unknown_slug_is_team_not_found(make_client):
     assert response.status_code == 404
     error = assert_envelope(response, "team_not_found")
     assert_no_exception_leak(error["message"])
+
+
+def test_team_plan_falls_back_to_a_saved_team_when_build_output_is_gone(make_client, tmp_path):
+    """Story 2.8: My Teams reopens a saved team by its exact (verbatim) name,
+    but this route's default lookup only reads `output_root()` — the Factory's
+    build-output root, a different root from Story 2.5's `SAVED_TEAMS_ROOT`
+    (`api/routers/teams.py`'s `_team_storage_path`). Proves the fallback: a
+    team present only under `SAVED_TEAMS_ROOT` (its original build output
+    deleted, simulating a cleaned-up or expired build) is still loadable by
+    its saved name.
+    """
+    import api.routers.teams as teams_module
+
+    team_name = "Reopened Team"
+    slug = build_team(tmp_path, team_name=team_name)
+
+    saved_root = tmp_path / "data" / "saved_teams"
+    saved_root.mkdir(parents=True, exist_ok=True)
+    original_saved_root = teams_module.SAVED_TEAMS_ROOT
+    teams_module.SAVED_TEAMS_ROOT = saved_root
+
+    try:
+        # Mirrors `_save_team_files`: a copy under the verbatim team name, not
+        # the slug. Removing the original build output afterwards proves the
+        # fallback resolves it -- not merely a duplicate that happens to work.
+        built_path = tmp_path / slug
+        saved_path = saved_root / team_name
+        shutil.copytree(built_path, saved_path)
+        shutil.rmtree(built_path)
+
+        harness = make_client(execution_engine=FakeExecutionEngine())
+        response = harness.client.get(f"/api/runs/teams/{team_name}")
+
+        assert response.status_code == 200
+        assert response.json()["team_name"] == team_name
+    finally:
+        teams_module.SAVED_TEAMS_ROOT = original_saved_root
+
+
+def test_team_plan_still_prefers_build_output_over_a_same_named_saved_team(make_client, tmp_path):
+    """The fallback only applies when the primary `output_root()` lookup
+    fails — a fresh build in progress must not be shadowed by a stale saved
+    copy under the same name."""
+    import api.routers.teams as teams_module
+
+    team_name = "Dual Team"
+    build_team(tmp_path, team_name=team_name)
+
+    saved_root = tmp_path / "data" / "saved_teams"
+    saved_root.mkdir(parents=True, exist_ok=True)
+    # A saved directory that exists but is not a loadable package -- if the
+    # fallback were ever consulted first, this would surface as a 404 instead
+    # of the real, buildable team resolving.
+    (saved_root / team_name).mkdir()
+    original_saved_root = teams_module.SAVED_TEAMS_ROOT
+    teams_module.SAVED_TEAMS_ROOT = saved_root
+
+    try:
+        harness = make_client(execution_engine=FakeExecutionEngine())
+        response = harness.client.get(f"/api/runs/teams/{team_name}")
+
+        assert response.status_code == 200
+        assert response.json()["team_name"] == team_name
+    finally:
+        teams_module.SAVED_TEAMS_ROOT = original_saved_root
 
 
 def test_the_teams_route_and_the_transcript_route_do_not_collide(make_client, tmp_path):

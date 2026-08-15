@@ -201,6 +201,28 @@ def _run_storage_path(team_name: str, run_id: str) -> Path:
     return _team_storage_path(team_name) / "runs" / run_id
 
 
+def resolve_saved_team_path(team_name: str) -> Optional[Path]:
+    """The saved-team package directory for `team_name`, if one exists on disk.
+
+    Story 2.8: `api/routers/run.py`'s `_load_team_or_404` reads only
+    `output_root()` (the Factory's build-output directory) by default, which is
+    a different root from `SAVED_TEAMS_ROOT`. A saved team's original build
+    output is not guaranteed to still exist there (a different build session, a
+    cleaned-up directory, or a name that no longer slugs to the same value), so
+    the run group falls back to this lookup to let My Teams reopen a team's
+    Workspace regardless. Returns `None` rather than raising for an
+    invalid/traversal name or a name with no saved directory — the caller
+    treats either as "no fallback available", not a reportable error, since the
+    primary `output_root()` lookup already produced the authoritative
+    `team_not_found` for a genuinely bad slug.
+    """
+    try:
+        path = _team_storage_path(team_name)
+    except ApiError:
+        return None
+    return path if path.is_dir() else None
+
+
 def _save_team_files(team_name: str, team_package_path: Path, run_results: Optional[dict] = None) -> Path:
     """Copy the team package and optionally run results into the storage tree.
 

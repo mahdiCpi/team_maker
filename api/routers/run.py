@@ -22,6 +22,7 @@ from api.deps import current_key_config, file_only_key_config, safe_label
 from api.errors import RUN_BLOCKED, TEAM_NOT_FOUND, ApiError
 from api.keystatus import STATUS_UNRECOGNIZED, provider_reports
 from api.output import output_root, slugify_team_name
+from api.routers.teams import resolve_saved_team_path
 from api.runs import RunRecord, TaskPlanEntry
 from api.schemas import (
     AgentKeyView,
@@ -205,12 +206,28 @@ def _resolve_team_path(slug: str) -> Path:
 def _load_team_or_404(team_slug: str) -> tuple[GeneratedTeam, Path, str]:
     """The client's value names a slug, never a path (Story 2.4 AC 2) — it is
     re-slugged here, once, and the *resolved* slug (never the client's raw
-    value) is what every caller stores and echoes back."""
+    value) is what every caller stores and echoes back.
+
+    Story 2.8: a saved team (Story 2.5's `SAVED_TEAMS_ROOT/<team_name>`, keyed
+    on the verbatim team name, not a slug) is tried as a fallback when nothing
+    exists under the build-output root — this is what lets My Teams reopen a
+    team whose original build output no longer exists. The fallback resolves
+    against `team_slug` as given (not the re-slugged value), since that is how
+    `SAVED_TEAMS_ROOT` keys its directories; the resolved identifier returned
+    in that case is `team_slug` itself, so a later lookup by the same value
+    (e.g. `record-run`) resolves the same way again.
+    """
     slug = slugify_team_name(team_slug)
     path = _resolve_team_path(slug)
     try:
         team = load_team_package(path)
     except TeamPackageError:
+        saved_path = resolve_saved_team_path(team_slug)
+        if saved_path is not None:
+            try:
+                return load_team_package(saved_path), saved_path, team_slug
+            except TeamPackageError:
+                pass
         # Never a message that echoes a filesystem path, and the slug itself
         # is not echoed either (AC 2) — the client already knows what it sent.
         raise ApiError(TEAM_NOT_FOUND, "No such team, or its package could not be read.") from None

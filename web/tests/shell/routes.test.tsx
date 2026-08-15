@@ -22,6 +22,15 @@ vi.mock("@/lib/api-client/keys", async () => {
   };
 });
 
+// Story 2.8: My Teams now fetches on mount. This suite exercises the
+// route-level contract shared with every other stub-style route (a heading,
+// one description sentence, a working primary action), which is exactly
+// what the *empty* list state renders — not this surface's own list/error
+// states, which have their own suite under `tests/my-teams/`.
+vi.mock("@/lib/api-client/teams", () => ({
+  listTeams: vi.fn().mockResolvedValue({ ok: true, data: { teams: [] } }),
+}));
+
 /**
  * AC 3 (Story 2.1) — every destination routes to a real page rendering an empty
  * state.
@@ -83,9 +92,13 @@ describe.each(ROUTES)("$name page", ({ name, Page, meta, action }) => {
   });
 
   if (action) {
-    it("offers a working primary action, not a disabled placeholder", () => {
+    // Async since Story 2.8: My Teams' primary action only appears once its
+    // (mocked) fetch resolves to an empty list. A synchronous component
+    // satisfies `waitFor` on its first check, so this is not weaker for
+    // Starter Teams, which is still synchronous.
+    it("offers a working primary action, not a disabled placeholder", async () => {
       render(<Page />);
-      const link = screen.getByRole("link");
+      const link = await waitFor(() => screen.getByRole("link"));
       expect(link).toHaveAttribute("href", action);
       expect(link).not.toHaveAttribute("disabled");
       expect(link).not.toHaveAttribute("aria-disabled", "true");

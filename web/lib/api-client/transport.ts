@@ -142,7 +142,7 @@ export function tooLong(what: string, limit: number): ApiFailure {
 
 export type RequestSpec = {
   path: string;
-  method: "GET" | "POST" | "PUT";
+  method: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   timeoutMs: number;
 };

@@ -1,7 +1,7 @@
 import Link from "next/link"
 
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { buttonVariants } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -68,15 +68,13 @@ export function BuildResult({ result }: { result: BuildResultView }) {
         </div>
 
         {slug ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="self-start"
-            render={<Link href={`/teams/${slug}`} data-slot="build-result-workspace-link" />}
+          <Link
+            href={`/teams/${slug}`}
+            data-slot="build-result-workspace-link"
+            className={buttonVariants({ size: "sm", variant: "outline", className: "self-start" })}
           >
             Open in workspace
-          </Button>
+          </Link>
         ) : null}
 
         <div className="flex items-center gap-2">

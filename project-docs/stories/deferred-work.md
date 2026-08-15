@@ -225,7 +225,7 @@ the next architectural work item, ahead of new Epic 1 features.
 - **`components/ui/popover.tsx` remains installed and unused for a second story running.** `deferred-work.md:165` guessed Story 2.4's badge picker would be its first consumer; AC 15 explicitly ruled the picker out of scope, so the guess is wrong twice now. Left in place as vendored, regenerable shadcn output.
 - **The `g`-chord unsaved-work gap (`deferred-work.md:172`) is improved, not closed.** A run now lives server-side behind a `run_id`, so navigating away no longer destroys the run itself — only the view of it. Attached documents (never sent until `Run` is pressed) and the on-screen chat log are still lost to a stray `g`+destination chord. Still no global unsaved-work guard anywhere in the app.
 - **Story 2.1's light-mode `--primary` contrast (4.12:1, below AA's 4.5:1) is now on a third surface's primary action** (the Workspace's `Run` button, via the same shadcn `Button` default the Composer's `Build team`/`Run it now` already use). Not changed unilaterally; still escalated, same as the story-2.2 entry above.
-- **My Teams / Starter Teams UI accessibility baseline (Story 2.7 AC 8):** `web/app/my-teams/page.tsx` and `web/app/starter-teams/page.tsx` are currently placeholder `EmptyState` stubs with no browse list, rename control, or delete confirmation dialog (Story 2.5 shipped backend-only; the pages' own pre-existing "New Team" call-to-action is unrelated to that gap). This story's accessibility floor (headings, landmarks, focus ring, color+label pairing, keyboard operability) applies to these routes as they exist today via the shared shell fixes (AC 2–4). Whoever builds the actual browse/rename/delete UI for My Teams or the browsing UI for Starter Teams inherits this story's floor as a baseline, not a fresh audit.
+- ~~**My Teams / Starter Teams UI accessibility baseline (Story 2.7 AC 8):**~~ **My Teams half resolved by Story 2.8 (2026-08-15).** `web/app/my-teams/page.tsx` now fetches and lists real saved teams (browse, reopen, re-run, rename, delete), inheriting this story's floor (headings, landmarks, focus ring, color+label pairing, keyboard operability, Esc-closing dialogs) as its baseline rather than a fresh audit — exactly as this entry anticipated. **Starter Teams remains open**: `web/app/starter-teams/page.tsx` is still the placeholder `EmptyState` stub (Epic 3 has not started); whoever builds its browsing UI still inherits this floor the same way.
 - **`web/lib/api-types.ts` and `web/lib/api-client.ts` were split into packages this story** (`web/lib/api-types/{primitives,errors,compose,keys,run}.ts`, `web/lib/api-client/{transport,compose,keys,run}.ts`), unlike every prior oversized-file entry in this log, which was flagged and left. Recorded here as the one file-size entry from this story that is *resolved* rather than deferred, so a future reader does not go looking for these two files at their old single-file paths.
 
 ## Deferred from: code review of story-2.4 (2026-08-09)
@@ -282,3 +282,27 @@ the next architectural work item, ahead of new Epic 1 features.
 - **The `cancelled`-flag pattern doesn't abort the in-flight `getKeyStatus()` request on unmount.** `web/components/settings/settings-surface.tsx:85-113`. No `AbortController` is wired in, so the network request keeps running after unmount even though its result is discarded. Mirrors `composer-surface.tsx`'s established pattern, which this story was explicitly instructed to follow — not a new defect, just inherited.
 - **Raw error message is shown to the user verbatim on fetch failure; `code`/`fields` on the API result go unused.** `web/components/settings/settings-surface.tsx:96-100`. No differentiation between failure types (e.g. unreachable vs. malformed response). Matches the minimal error-surface convention used elsewhere in the codebase.
 - **No retry affordance when the key-status fetch fails.** `web/components/settings/settings-surface.tsx`. The user is left on a static error message with no way to retry short of reloading the page — a real usability gap on a page users may open specifically to diagnose a broken key setup, but outside this story's ACs.
+
+## Deferred from: story-2.8 implementation (2026-08-15)
+
+- **Story 2.5's "prompted to save" UI is still not built** (`deferred-work.md:223`, 2026-08-09,
+  re-verified rather than re-recorded — see Story 2.8's Completion Notes). This story's My Teams
+  UI is fully functional against the existing backend, but in a real session there is still no way
+  for a user to ever get a team into the `teams` DB from the Workspace, so My Teams has nothing to
+  show until that prompt exists. Not built here — out of this story's stated scope.
+- **`recordTeamRun` fires on every completed run, including a team that was never saved**, and
+  is designed to tolerate the resulting `not_found` silently (Story 2.8 AC 3). This is one extra,
+  always-failing fetch per completed run for any unsaved team — harmless functionally, but if
+  `POST /api/teams/{team_name}/record-run`'s `NOT_FOUND` raise is ever changed to log server-side
+  (it is not, today — raised directly, not through `log_and_wrap`), that would become one log line
+  per run for the common case of a team nobody has saved. Worth a `WorkspaceSurface`-side "is this
+  a saved team" signal if that ever matters; not invented here since nothing today needs it.
+- **`web/lib/api-types/run.ts`'s `TeamPlanView` type omits `status: "complete"`**
+  (`api/schemas.py:340`), discovered via live verification against the running API, not by reading
+  the type definitions side by side. Harmless — the frontend parser ignores unknown fields — and
+  outside this story's file list (`run.ts` was not touched), so noted rather than fixed.
+
+## Deferred from: code review of story-2.8 (2026-08-15)
+
+- **Type name inconsistency** — Frontend uses `TeamMessageView` but backend uses `MessageView` [web/lib/api-types/teams.ts:48]. Pre-existing pattern in the codebase, not introduced by this change.
+- **No error boundaries in new components** — New components lack error boundaries [web/components/my-teams/*.tsx]. Pre-existing pattern in codebase; no other components use error boundaries.

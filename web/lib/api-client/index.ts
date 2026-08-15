@@ -22,8 +22,10 @@
  * - `compose.ts` — the compose seam's routes (Story 2.0–2.2).
  * - `keys.ts` — key-status routes (Story 2.3).
  * - `run.ts` — run/team-plan/transcript routes (Story 2.4).
+ * - `teams.ts` — named-teams routes (Story 2.5's backend; Story 2.8's frontend).
  */
 export * from "@/lib/api-types";
 export * from "./compose";
 export * from "./keys";
 export * from "./run";
+export * from "./teams";
