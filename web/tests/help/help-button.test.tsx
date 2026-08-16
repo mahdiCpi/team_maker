@@ -1,8 +1,13 @@
 import { render, screen } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
 import { HelpButton } from "@/components/help/help-button"
 import { SidebarProvider } from "@/components/ui/sidebar"
+import {
+  BUILD_ACTIONS_REVIEW_OFF_COPY,
+  BUILD_ACTIONS_REVIEW_ON_COPY,
+} from "@/components/composer/composer-actions"
+import { ORIENTATION_COPY } from "@/components/composer/first-visit-orientation"
 
 function renderHelpButton() {
   return render(
@@ -26,30 +31,33 @@ describe("HelpButton", () => {
     expect(screen.getByText("Help")).toBeInTheDocument()
   })
 
-  it("renders the HelpCircle icon", () => {
+  it("renders an icon inside the button", () => {
     renderHelpButton()
-    const icon = screen.getByRole("img", { hidden: true })
-    expect(icon).toBeInTheDocument()
+    const button = screen.getByRole("button", { name: /Help/i })
+    expect(button.querySelector("svg")).toBeInTheDocument()
   })
 
-  it("has a button with Help text", () => {
+  it("signals to assistive tech that it opens a dialog, not a navigation", () => {
     renderHelpButton()
-    expect(screen.getByRole("button", { name: /Help/i })).toBeInTheDocument()
+    const button = screen.getByRole("button", { name: /Help/i })
+    expect(button).toHaveAttribute("aria-haspopup", "dialog")
+    expect(button).toHaveAttribute("aria-expanded", "false")
   })
 
   it("opens help dialog when clicked", async () => {
     renderHelpButton()
     const helpButton = screen.getByRole("button", { name: /Help/i })
     helpButton.click()
-    
+
     expect(await screen.findByText("About team_maker")).toBeInTheDocument()
+    expect(helpButton).toHaveAttribute("aria-expanded", "true")
   })
 
   it("renders help content with orientation questions", async () => {
     renderHelpButton()
     const helpButton = screen.getByRole("button", { name: /Help/i })
     helpButton.click()
-    
+
     // Check for the main sections
     expect(await screen.findByText("What is a team?")).toBeInTheDocument()
     expect(screen.getByText("Build team vs Run it now")).toBeInTheDocument()
@@ -57,34 +65,31 @@ describe("HelpButton", () => {
     expect(screen.getByText("How do I run a team again?")).toBeInTheDocument()
   })
 
-  it("reuses existing copy for Build team/Run it now explanation", async () => {
+  it("reuses the real composer-actions copy for both review-toggle variants", async () => {
     renderHelpButton()
     const helpButton = screen.getByRole("button", { name: /Help/i })
     helpButton.click()
-    
-    expect(
-      await screen.findByText("Build team writes the package. Run it now does the same, skipping review.")
-    ).toBeInTheDocument()
+
+    // Cross-references the same exported constants composer-actions.tsx
+    // renders, so this fails the moment the two diverge instead of only
+    // matching a second, independently hardcoded literal.
+    expect(await screen.findByText(BUILD_ACTIONS_REVIEW_OFF_COPY)).toBeInTheDocument()
+    expect(screen.getByText(BUILD_ACTIONS_REVIEW_ON_COPY)).toBeInTheDocument()
   })
 
   it("has a close button in the dialog", async () => {
     renderHelpButton()
     const helpButton = screen.getByRole("button", { name: /Help/i })
     helpButton.click()
-    
+
     expect(await screen.findByText("Close")).toBeInTheDocument()
   })
 
-  it("includes first visit orientation content", async () => {
+  it("surfaces the same first-visit orientation copy on demand", async () => {
     renderHelpButton()
     const helpButton = screen.getByRole("button", { name: /Help/i })
     helpButton.click()
-    
-    expect(await screen.findByText("First visit orientation")).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        /team_maker turns a description into a runnable team of AI agents./
-      )
-    ).toBeInTheDocument()
+
+    expect(await screen.findByText(ORIENTATION_COPY)).toBeInTheDocument()
   })
 })

@@ -24,6 +24,8 @@ export function HelpButton() {
         <SidebarMenuButton
           tooltip="Help"
           onClick={() => setOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={open}
           data-slot="sidebar-help"
         >
           <HelpCircle />

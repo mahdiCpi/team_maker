@@ -1,10 +1,10 @@
-import { render, screen } from "@testing-library/react"
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
+import { render, screen, waitFor } from "@testing-library/react"
+import { describe, expect, it, vi, beforeEach, afterEach, afterAll } from "vitest"
 
 import {
   FirstVisitOrientation,
+  ORIENTATION_COPY,
   markBuildCompleted,
-  resetOrientationState,
   shouldShowOrientation,
 } from "@/components/composer/first-visit-orientation"
 
@@ -12,7 +12,7 @@ import {
 const mockLocalStorage = (() => {
   let store: Record<string, string> = {}
   return {
-    getItem: vi.fn((key: string) => store[key] || null),
+    getItem: vi.fn((key: string) => (key in store ? store[key] : null)),
     setItem: vi.fn((key: string, value: string) => {
       store[key] = value
     }),
@@ -25,8 +25,18 @@ const mockLocalStorage = (() => {
   }
 })()
 
+const originalLocalStorage = window.localStorage
+
 Object.defineProperty(window, "localStorage", {
   value: mockLocalStorage,
+  configurable: true,
+})
+
+afterAll(() => {
+  Object.defineProperty(window, "localStorage", {
+    value: originalLocalStorage,
+    configurable: true,
+  })
 })
 
 describe("FirstVisitOrientation", () => {
@@ -70,67 +80,57 @@ describe("FirstVisitOrientation", () => {
         "true"
       )
     })
-  })
 
-  describe("resetOrientationState", () => {
-    it("removes both orientation flags from localStorage", () => {
-      mockLocalStorage.setItem("team_maker_orientation_shown", "true")
-      mockLocalStorage.setItem("team_maker_build_completed", "true")
-      
-      resetOrientationState()
-      
-      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith(
-        "team_maker_orientation_shown"
-      )
-      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith(
-        "team_maker_build_completed"
-      )
+    it("does not throw when localStorage.setItem throws", () => {
+      mockLocalStorage.setItem.mockImplementationOnce(() => {
+        throw new Error("QuotaExceededError")
+      })
+      expect(() => markBuildCompleted()).not.toThrow()
     })
   })
 
   describe("FirstVisitOrientation component", () => {
-    it("renders when neither flag is set", () => {
-      render(<FirstVisitOrientation onDismiss={() => {}} />)
-      expect(screen.getByText("What team_maker does")).toBeInTheDocument()
+    it("renders when neither flag is set", async () => {
+      render(<FirstVisitOrientation />)
+      expect(await screen.findByText("What team_maker does")).toBeInTheDocument()
     })
 
     it("does not render when orientation has been shown", () => {
       mockLocalStorage.setItem("team_maker_orientation_shown", "true")
-      render(<FirstVisitOrientation onDismiss={() => {}} />)
+      render(<FirstVisitOrientation />)
       expect(screen.queryByText("What team_maker does")).not.toBeInTheDocument()
     })
 
     it("does not render when build has been completed", () => {
       mockLocalStorage.setItem("team_maker_build_completed", "true")
-      render(<FirstVisitOrientation onDismiss={() => {}} />)
+      render(<FirstVisitOrientation />)
       expect(screen.queryByText("What team_maker does")).not.toBeInTheDocument()
     })
 
-    it("renders the orientation description", () => {
-      render(<FirstVisitOrientation onDismiss={() => {}} />)
-      expect(
-        screen.getByText(
-          /team_maker turns a description into a runnable team of AI agents./
-        )
-      ).toBeInTheDocument()
+    it("renders the orientation description", async () => {
+      render(<FirstVisitOrientation />)
+      expect(await screen.findByText(ORIENTATION_COPY)).toBeInTheDocument()
     })
 
-    it("renders a dismiss button", () => {
-      render(<FirstVisitOrientation onDismiss={() => {}} />)
-      expect(screen.getByText("Dismiss")).toBeInTheDocument()
+    it("renders a dismiss button", async () => {
+      render(<FirstVisitOrientation />)
+      expect(await screen.findByText("Dismiss")).toBeInTheDocument()
     })
 
-    it("calls onDismiss when dismissed", () => {
-      const onDismiss = vi.fn()
-      render(<FirstVisitOrientation onDismiss={onDismiss} />)
-      
-      const dismissButton = screen.getByText("Dismiss")
+    it("persists the dismissal and closes when dismissed", async () => {
+      render(<FirstVisitOrientation />)
+
+      const dismissButton = await screen.findByText("Dismiss")
       dismissButton.click()
-      
-      expect(onDismiss).toHaveBeenCalled()
+
       expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
         "team_maker_orientation_shown",
         "true"
+      )
+      // Base UI's Dialog unmounts the popup after its exit transition, not
+      // synchronously on click.
+      await waitFor(() =>
+        expect(screen.queryByText("What team_maker does")).not.toBeInTheDocument()
       )
     })
   })

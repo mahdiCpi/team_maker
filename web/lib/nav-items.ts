@@ -1,4 +1,4 @@
-import { HelpCircle, LayoutTemplate, Settings, Sparkles, Users } from "lucide-react"
+import { LayoutTemplate, Settings, Sparkles, Users } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 export type NavDestination = {
@@ -19,10 +19,4 @@ export const SETTINGS_DESTINATION: NavDestination = {
   title: "Settings",
   href: "/settings",
   icon: Settings,
-}
-
-export const HELP_DESTINATION: NavDestination = {
-  title: "Help",
-  href: "/help",
-  icon: HelpCircle,
 }

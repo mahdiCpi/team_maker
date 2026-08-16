@@ -9,6 +9,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  BUILD_ACTIONS_REVIEW_OFF_COPY,
+  BUILD_ACTIONS_REVIEW_ON_COPY,
+} from "@/components/composer/composer-actions"
+import { ORIENTATION_COPY } from "@/components/composer/first-visit-orientation"
 
 /**
  * Help content for orientation and wayfinding (Story 2.11, AC 3, 4).
@@ -18,7 +23,8 @@ import {
  * built teams go, how to run one again.
  *
  * Voice and Tone: plain, confident, helpful — matches EXPERIENCE.md:52-62.
- * Reuses existing established copy where it already exists.
+ * Points to existing copy (composer-actions, the first-visit orientation)
+ * instead of forking a second, possibly-diverging explanation.
  */
 export function HelpContent({
   open,
@@ -29,18 +35,19 @@ export function HelpContent({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold">
             About team_maker
           </DialogTitle>
+          {/* `DialogDescription` renders a `<p>` — keep it to plain text only,
+              block content (headings, nested `<p>`s) goes in the `<div>` below. */}
+          <DialogDescription className="text-base leading-relaxed">
+            {ORIENTATION_COPY}
+          </DialogDescription>
         </DialogHeader>
-        <DialogDescription className="space-y-4 text-base leading-relaxed">
-          <p>
-            team_maker turns a description into a runnable team of AI agents.
-            Describe what work you want done, then build and run the team.
-          </p>
-          
+
+        <div className="space-y-4 text-base leading-relaxed">
           <section className="space-y-2">
             <h3 className="font-medium text-foreground">What is a team?</h3>
             <p className="text-muted-foreground">
@@ -51,9 +58,8 @@ export function HelpContent({
 
           <section className="space-y-2">
             <h3 className="font-medium text-foreground">Build team vs Run it now</h3>
-            <p className="text-muted-foreground">
-              Build team writes the package. Run it now does the same, skipping review.
-            </p>
+            <p className="text-muted-foreground">{BUILD_ACTIONS_REVIEW_OFF_COPY}</p>
+            <p className="text-muted-foreground">{BUILD_ACTIONS_REVIEW_ON_COPY}</p>
           </section>
 
           <section className="space-y-2">
@@ -69,15 +75,8 @@ export function HelpContent({
               Go to My Teams, open your team, and use the run controls in the workspace.
             </p>
           </section>
+        </div>
 
-          <section className="space-y-2 border-t pt-4">
-            <h3 className="font-medium text-foreground">First visit orientation</h3>
-            <p className="text-muted-foreground">
-              team_maker turns a description into a runnable team of AI agents.
-              Describe what work you want done, then build and run the team.
-            </p>
-          </section>
-        </DialogDescription>
         <div className="flex justify-end">
           <Button
             type="button"

@@ -210,7 +210,6 @@ export function ComposerSurface() {
 
   return (
     <div data-slot="composer" className="flex min-h-0 flex-1 flex-col gap-3">
-      <FirstVisitOrientation onDismiss={() => {}} />
       <h1
         id="page-heading"
         tabIndex={-1}
@@ -220,6 +219,7 @@ export function ComposerSurface() {
       </h1>
       {state.transcript.length === 0 ? (
         <div className="flex min-h-0 flex-1 flex-col justify-center">
+          <FirstVisitOrientation />
           <EmptyState
             title="Describe your team."
             description="Say what work you want done. team_maker proposes the roles and tasks, then you refine them here."
