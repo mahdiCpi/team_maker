@@ -62,7 +62,7 @@ Key names must match the provider catalog exactly. A typo is reported as a warni
 |----------|----------|
 | `anthropic` | `ANTHROPIC_API_KEY` |
 | `openai` | `OPENAI_API_KEY` |
-| `google` | `GOOGLE_AI_API_KEY` |
+| `google` | `GOOGLE_AI_API_KEY` (alias: `GOOGLE_API_KEY`) |
 | `groq` | `GROQ_API_KEY` |
 | `xai` | `XAI_API_KEY` |
 | `openrouter` | `OPENROUTER_API_KEY` |
@@ -270,8 +270,8 @@ for that.
 
 ## Web app
 
-Story 2.1 adds a standalone Next.js UI at [web/](web/) — no backend yet, so it's static empty
-states and navigation only. Requires Node ≥20.9.
+Story 2.1 adds a standalone Next.js UI at [web/](web/) — app shell, navigation and empty
+states. Requires Node ≥20.9.
 
 ```bash
 make web-install   # npm --prefix web ci
@@ -280,7 +280,47 @@ make web-test      # npm --prefix web test
 make web-lint      # npm --prefix web run lint
 ```
 
-The Python CLI above is unaffected — `web/` is additive and does not touch `team_maker/` or `tests/`.
+### Running the UI against the API
+
+Story 2.0 adds the HTTP layer at [api/](api/). The UI reaches the Python core **only** through
+it, so local development is two processes in two terminals:
+
+```bash
+# terminal 1 — the API (uvicorn, port 8000)
+pip install -e ".[dev]"     # or: pip install -e ".[api]"
+make api-dev                # uvicorn api.main:app --reload --port 8000
+
+# terminal 2 — the UI (Next, port 3000)
+make web-install
+make web-dev
+```
+
+Then open <http://localhost:3000>. Check the seam is live with:
+
+```bash
+curl http://localhost:3000/api/health   # -> {"status":"ok"}, answered by uvicorn
+```
+
+Notes:
+
+- **No CORS anywhere.** [web/next.config.ts](web/next.config.ts) rewrites `/api/:path*` to the
+  API, so the browser only ever makes same-origin requests. Point it elsewhere with
+  `API_ORIGIN=http://host:port make web-dev`; never hard-code a frontend origin, since an
+  occupied port 3000 pushes `next dev` to 3001.
+- **One worker, always.** Compose conversations live in an in-process dictionary, so a second
+  worker would make sessions vanish at random. `make api-serve` pins `--workers 1`, `--reload`
+  already implies one, and the app logs a warning at startup if `WEB_CONCURRENCY` disagrees.
+  Sessions are also lost on every `--reload` restart.
+- **Keys stay server-side.** The API never accepts or returns a key value (AD-9); it reads the
+  Key Config described under [Key Config](#key-config) above. A request may *name* an authoring
+  provider — `{"authoring": {"provider": "openai", "model": "gpt-4o"}}` — and the server
+  resolves that provider's credential itself. Default is `anthropic` / `claude-sonnet-4-6`;
+  `openrouter` (gateway) and `ollama` (keyless, local) also work.
+- These endpoints are an **internal precursor**, not the public contract — Epic 4 owns the
+  versioned surface and may rename them. The generated schema is at
+  <http://localhost:8000/docs>.
+
+The Python CLI above is unaffected.
 
 ---
 
@@ -353,8 +393,9 @@ report. The package is written correctly before this point — only the summary 
 `PYTHONIOENCODING=utf-8` (or use Windows Terminal) before running.
 
 **A provider shows `via-openrouter` when you added its key.**
-The key name almost certainly doesn't match the catalog — Google in particular is
-`GOOGLE_AI_API_KEY`, not `GOOGLE_API_KEY`. `keys status` prints a warning line naming the
+The key name almost certainly doesn't match the catalog — check the table above for a typo.
+(Google accepts one alias, `GOOGLE_API_KEY`, in addition to its canonical `GOOGLE_AI_API_KEY`;
+any other name is simply unrecognized.) `keys status` prints a warning line naming the
 unrecognized key.
 
 **`Missing credentials` on `run`.**

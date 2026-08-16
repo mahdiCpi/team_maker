@@ -5,6 +5,7 @@ import "./globals.css";
 import { AppShellProvider } from "@/components/app-shell-provider";
 import { AppSidebar } from "@/components/app-sidebar";
 import { NavShortcuts } from "@/components/nav-shortcuts";
+import { RouteFocusAnnouncer } from "@/components/route-focus-announcer";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
@@ -58,16 +59,17 @@ export default function RootLayout({
                     Skip to content
                   </a>
                 </header>
-                <main
+                <div
                   id="main-content"
                   tabIndex={-1}
                   className="flex flex-1 flex-col px-4 pb-4"
                 >
                   {children}
-                </main>
+                </div>
               </SidebarInset>
             </AppShellProvider>
             <NavShortcuts />
+            <RouteFocusAnnouncer />
           </TooltipProvider>
         </ThemeProvider>
       </body>

@@ -1,0 +1,8 @@
+{
+  "session_id": "test-session-id",
+  "status": "needs_clarification",
+  "spec": null,
+  "clarification": "Please describe the team you want to build and what they should do.",
+  "turn": 1,
+  "turns_remaining": 19
+}

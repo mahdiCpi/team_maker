@@ -115,6 +115,22 @@ def test_file_takes_priority_over_env(tmp_path, monkeypatch):
     assert cfg.keys["anthropic"].get_secret_value() == "sk-from-file"
 
 
+def test_env_var_alias_used_as_fallback_when_no_file(tmp_path, monkeypatch):
+    """Story 2.9 follow-up: an alias env var (not just the canonical one) is a valid fallback."""
+    monkeypatch.delenv("GOOGLE_AI_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "sk-google-alias-env")
+    cfg = KeyConfig.from_file(tmp_path / "none.keys", include_env=True)
+    assert cfg.has("google") is True
+    assert cfg.keys["google"].get_secret_value() == "sk-google-alias-env"
+
+
+def test_env_var_canonical_takes_priority_over_alias(tmp_path, monkeypatch):
+    monkeypatch.setenv("GOOGLE_AI_API_KEY", "sk-canonical-env")
+    monkeypatch.setenv("GOOGLE_API_KEY", "sk-alias-env")
+    cfg = KeyConfig.from_file(tmp_path / "none.keys", include_env=True)
+    assert cfg.keys["google"].get_secret_value() == "sk-canonical-env"
+
+
 # --- security (AD-9) ---
 
 
@@ -145,3 +161,26 @@ def test_secretstr_used_for_stored_keys(tmp_path):
     path = _write(tmp_path, f"OPENAI_API_KEY={SECRET}\n")
     cfg = KeyConfig.from_file(path, include_env=False)
     assert isinstance(cfg.keys["openai"], SecretStr)
+
+
+def test_google_api_key_alias_is_recognized(tmp_path):
+    """Story 2.9: GOOGLE_API_KEY should be recognized as an alias for GOOGLE_AI_API_KEY."""
+    path = _write(tmp_path, f"GOOGLE_API_KEY={SECRET}\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    # The alias should resolve to the google provider, with the real value stored
+    assert cfg.has("google") is True
+    assert cfg.keys["google"].get_secret_value() == SECRET
+    # No "Unrecognized key name" warning should be produced
+    assert not any("Unrecognized key name" in w for w in cfg.load_warnings)
+
+
+def test_later_line_wins_between_alias_and_canonical_google_key(tmp_path):
+    """AC2: the alias invents no new precedence rule — same last-line-wins as any
+    other duplicate provider definition (see the story-1.1 deferred-work entry)."""
+    path = _write(tmp_path, f"GOOGLE_API_KEY=old-alias-value\nGOOGLE_AI_API_KEY={SECRET}\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    assert cfg.keys["google"].get_secret_value() == SECRET
+
+    path = _write(tmp_path, f"GOOGLE_AI_API_KEY={SECRET}\nGOOGLE_API_KEY=later-alias-value\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    assert cfg.keys["google"].get_secret_value() == "later-alias-value"

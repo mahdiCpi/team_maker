@@ -7,6 +7,7 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from team_maker.adapters.providers._model_match import _closest_model
+from team_maker.adapters.providers._timeouts import request_timeout
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -45,7 +46,9 @@ class AnthropicProvider:
                 "Set it to your Anthropic API key."
             )
 
-        client = anthropic.Anthropic(api_key=api_key)
+        # Explicit timeout: the SDK default is 10 minutes, and behind the HTTP
+        # seam that is held per attempt inside a session lock (see `_timeouts`).
+        client = anthropic.Anthropic(api_key=api_key, timeout=request_timeout())
         self._maybe_resolve_model(client)
 
         schema = response_model.model_json_schema()

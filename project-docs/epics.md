@@ -138,7 +138,9 @@ that unblocks 2.2–2.6), sidebar IA, conversational Composer with a "run now"
 escape and optional review/edit, the Team Workspace (chat with the team, document loader, task
 list, results incl. the full agent transcript), named teams with save/rename/delete + recent-teams,
 plain-language key-check states, and Settings. Realizes the UX spines (shadcn + Coinpela brand,
-teal tokens, light/dark).
+teal tokens, light/dark). Stories 2.8–2.11 close gaps found by manual QA after 2.0–2.7 shipped: the
+My Teams browse/re-run frontend, tolerant key-name recognition, non-team Composer input, and
+lightweight onboarding.
 **FRs covered:** FR-3, FR-14, FR-15, FR-23, FR-24, FR-25, FR-26, FR-27 (surfaced), FR-28  · **UX-DR1–9**
 
 ### Epic 3: Start fast — starter teams
@@ -432,6 +434,64 @@ so that it's accessible.
 **When** I navigate by keyboard or screen reader
 **Then** it meets WCAG 2.2 AA, is fully keyboard-operable, announces run progress via aria-live,
 and pairs color with text/labels (never color-only). (UX-DR9, NFR4)
+
+> **Stories 2.8–2.11, numbered deliberately.** Epic 2 was marked done through 2.7, but a manual
+> QA pass surfaced four gaps squarely inside Epic 2's own stated scope (My Teams/Team Workspace,
+> key-check messaging, the Composer, the app shell) rather than Epic 3 (starter teams) or Epic 4
+> (developer API). Following the Story 2.0 precedent — inserted deliberately rather than
+> renumbering everything after it — these four continue the existing numbering. See each story
+> file under `project-docs/stories/` for full context; none has been implemented yet.
+
+### Story 2.8: My Teams — browse, reopen, re-run, rename, delete
+As a user, I want to see the teams I've saved and act on them from My Teams,
+so that building a team is not a dead end — I can come back to it later.
+**Acceptance Criteria:**
+**Given** `GET /api/teams/browse` (Story 2.5, already shipped)
+**When** a user opens My Teams
+**Then** the page lists every saved team by name with its last-run time and run count, and lets
+the user reopen its Workspace, re-run it, rename it, or delete it with an explicit confirmation
+**And** the reopen path resolves a real technical gap: the Workspace's loader
+(`GET /api/runs/teams/{team_slug}`) reads only the build-output root, not Story 2.5's saved-teams
+storage — see the story file's "Open technical question" before assuming a simple link works.
+(FR-25, FR-26, FR-28, frontend-only — see
+[2-8-my-teams-browse-and-rerun.md](stories/2-8-my-teams-browse-and-rerun.md))
+
+### Story 2.9: Recognize common alternate key names without a key-entry UI
+As a user, I want a Key Config entry named the way I'd naturally guess (e.g. `GOOGLE_API_KEY`) to
+be recognized, so that a reasonable guess isn't silently ignored.
+**Acceptance Criteria:**
+**Given** the hard-coded provider catalog (`team_maker/adapters/providers/registry.py`) and its
+exact-match key lookup
+**When** a Key Config entry uses a well-known alternate name (seeded with `GOOGLE_API_KEY` →
+`GOOGLE_AI_API_KEY`, the one evidenced case)
+**Then** it is recognized as that provider's key instead of producing an "Unrecognized key name"
+warning
+**And** no key-entry UI is added — this is a parsing-layer change only (AD-9 still holds). (FR-12,
+FR-21 — see [2-9-key-name-aliasing.md](stories/2-9-key-name-aliasing.md))
+
+### Story 2.10: Composer should not fabricate a team from non-team input
+As a user, I want the Composer to recognize when what I typed isn't a team description, so that a
+bare greeting doesn't produce a fabricated team.
+**Acceptance Criteria:**
+**Given** the Composer's system prompt today unconditionally authors a full spec for any input
+**When** a user's first message does not describe a team (e.g. "Hello")
+**Then** no fabricated spec is produced or shown, and the user sees a short, specific invitation to
+describe a team instead
+**And** the working path (a real team description) is unchanged, and the existing turn-cap
+mechanism still bounds the conversation. (FR-1, FR-2, FR-20 — see
+[2-10-composer-non-team-input.md](stories/2-10-composer-non-team-input.md))
+
+### Story 2.11: Lightweight orientation and wayfinding for new or lost users
+As a user who has never used team_maker before, or who is looking for a specific feature, I want
+some minimal, discoverable guidance, so that I'm not left guessing.
+**Acceptance Criteria:**
+**Given** no orientation or wayfinding exists today beyond one-sentence empty states
+**When** a first-time user lands on New Team, or any user looks for a core concept or feature
+**Then** a one-time, dismissible, plain-language orientation and a small persistent help
+affordance are available
+**And** neither introduces hype/celebration copy (`EXPERIENCE.md:172`, already rejected) or
+duplicates existing inline copy (e.g. `composer-actions.tsx`'s Build team/Run it now sentence).
+(FR-14, FR-15 — see [2-11-onboarding-guidance.md](stories/2-11-onboarding-guidance.md))
 
 ## Epic 3: Start fast — starter teams
 

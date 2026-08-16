@@ -100,11 +100,19 @@ class KeyConfig(BaseModel):
                 keys[provider] = SecretStr(value)
 
         # Env-var fallback — file has priority; only fill providers not set from the file.
+        # Checks the canonical env_var first, then each alias (Story 2.9) — same
+        # precedence order as env_to_provider(), just applied to os.environ instead
+        # of a file's lines.
         if include_env:
             for p in PROVIDERS:
-                if p.env_var and p.name not in keys:
-                    env_val = os.environ.get(p.env_var)
+                if p.name in keys:
+                    continue
+                for candidate in (p.env_var, *p.env_var_aliases):
+                    if not candidate:
+                        continue
+                    env_val = os.environ.get(candidate)
                     if env_val:
                         keys[p.name] = SecretStr(env_val)
+                        break
 
         return cls(keys=keys, load_warnings=warnings)

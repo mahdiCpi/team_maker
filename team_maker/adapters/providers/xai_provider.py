@@ -8,6 +8,8 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from team_maker.adapters.providers._timeouts import request_timeout
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -43,6 +45,8 @@ class XAIProvider:
         client = OpenAI(
             base_url=f"{self.base_url}",
             api_key=api_key,
+            # Explicit timeout — see `_timeouts`; the SDK default is 10 minutes.
+            timeout=request_timeout(),
         )
 
         schema = response_model.model_json_schema()

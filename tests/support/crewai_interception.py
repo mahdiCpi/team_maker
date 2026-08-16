@@ -45,6 +45,13 @@ class LLMCall:
     model: str
     api_key: Optional[str]
     base_url: Optional[str]
+    # Added by Story 2.4: the exact message list this call received, so a
+    # test can prove injected text (a run's goal, an attached document)
+    # reached an actual prompt rather than merely a `TaskSpec.description`
+    # string. Defaulted so every pre-2.4 construction of this dataclass
+    # (there are none in this repo — callers only ever read attributes off
+    # instances the recorder builds) stays unaffected.
+    messages: tuple = ()
 
 
 class _NetworkEscaped(BaseException):
@@ -130,6 +137,7 @@ def install_call_recorder(
                 model=getattr(self, "model", None),
                 api_key=getattr(self, "api_key", None),
                 base_url=getattr(self, "base_url", None),
+                messages=tuple(messages) if messages else (),
             )
         )
         if responder is not None:

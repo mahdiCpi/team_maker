@@ -10,25 +10,11 @@ from team_maker.composer.composer import Composer, ComposerError
 from team_maker.keyconfig import KeyConfig
 from team_maker.schema.request import TeamCreationRequest
 
-
-class FakeLLMProvider:
-    """Implements the LLMProvider port structurally — no SDK, no network.
-
-    Each scripted response is either a raw dict (validated by the real
-    response_model, mirroring how the concrete adapters behave) or an
-    Exception instance to raise verbatim.
-    """
-
-    def __init__(self, responses: list[Any]) -> None:
-        self._responses = list(responses)
-        self.calls: list[dict[str, Any]] = []
-
-    def complete_structured(self, system: str, user: str, response_model: type) -> Any:
-        self.calls.append({"system": system, "user": user, "response_model": response_model})
-        response = self._responses.pop(0)
-        if isinstance(response, Exception):
-            raise response
-        return response_model.model_validate(response)
+# Promoted to tests/support/ in Story 2.0 when tests/api/ became a third
+# consumer. Imported here because this module's own tests use it — the
+# re-export shim that briefly lived here had no consumers, since both former
+# importers were re-pointed at tests.support in the same change.
+from tests.support.fake_llm import FakeLLMProvider
 
 
 def _valid_payload(tmp_path, **overrides: Any) -> dict[str, Any]:

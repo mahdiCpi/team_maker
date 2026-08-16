@@ -273,6 +273,17 @@ def compose(
             if interactive:
                 session = ComposerSession(composer)
                 request = session.start(intent)
+                # Story 2.10: `start()` returns None when the intent does not
+                # describe a team, instead of fabricating one. The CLI has no
+                # multi-turn "needs_clarification" surface like the API does,
+                # so this is a clean exit rather than a crash on
+                # `request.model_dump(...)` below.
+                if request is None:
+                    err_console.print(
+                        "[bold]That doesn't look like a description of a team to build.[/bold] "
+                        "Try again with a plain-language description of the team you want."
+                    )
+                    sys.exit(2)
                 if not quiet:
                     _print_spec_summary(request, title="Composed team spec")
 
@@ -299,6 +310,12 @@ def compose(
                         )
                         for error in exc.errors:
                             err_console.print(f"  • {escape(error)}")
+                        continue
+                    if request is None:
+                        err_console.print(
+                            "[bold]That doesn't look like a description of a team to build.[/bold] "
+                            "Describe the team you want, or type 'done' to finish."
+                        )
                         continue
                     if not quiet:
                         _print_spec_summary(request, title="Updated team spec")

@@ -15,12 +15,20 @@ conversation_history.txt
 final_state.txt
 to_run/
 
+# Local team storage (Story 2.5, AD-11) — SQLite metadata + saved team
+# packages/runs, generated at runtime, never source.
+data/
+
 # Key Config — never commit API keys (AD-9)
 team_maker.keys
 *.keys
 
 # Local agent tooling
 .claude/
+.agents/
+.cline/
+_bmad/
+
 
 # Web app (Story 2.1) — node/Next.js artifacts
 node_modules/

@@ -1,0 +1,1 @@
+{"status":"complete","team_name":"article_team","output_path":"C:\\Projects\\CoinPela\\Projects\\team_maker\\generated_teams\\article_team","agent_count":4,"task_count":4,"written_file_count":19,"model_substitutions":[{"role":"critic","requested":"openai/gpt-4o-min","resolved":"openai/gpt-4o-mini"}],"validation":{"passed":true,"issues":[],"warnings":[]}}

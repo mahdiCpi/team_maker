@@ -16,6 +16,7 @@ from team_maker.adapters.providers.anthropic_provider import AnthropicProvider
 from team_maker.adapters.providers.google_provider import GoogleProvider
 from team_maker.adapters.providers.ollama_provider import OllamaProvider
 from team_maker.adapters.providers.openai_provider import OpenAIProvider
+from team_maker.adapters.providers.openrouter_provider import OpenRouterProvider
 from team_maker.adapters.providers.xai_provider import XAIProvider
 from team_maker.ports.llm_provider import LLMProvider
 from team_maker.schema.request import ProviderConfig
@@ -39,6 +40,14 @@ _ADAPTERS: dict[str, Callable[[ProviderConfig], LLMProvider]] = {
     "ollama": lambda c: OllamaProvider(
         model=c.model, base_url=c.base_url or "http://localhost:11434"
     ),
+    # Story 2.0 (AC 11): the gateway shape — one key, many models. The catalog
+    # already knew OpenRouter as a routing target for team agents; this row is
+    # what makes it selectable as an *authoring* provider too.
+    "openrouter": lambda c: OpenRouterProvider(
+        model=c.model,
+        api_key_env=c.api_key_env or "OPENROUTER_API_KEY",
+        base_url=c.base_url or "https://openrouter.ai/api/v1",
+    ),
 }
 
 
@@ -53,11 +62,27 @@ def create_provider(config: ProviderConfig) -> LLMProvider:
     return builder(config)
 
 
+def supported_providers() -> tuple[str, ...]:
+    """Provider ids `create_provider` can actually build, in registration order.
+
+    Added by the Story 2.0 code review. The key catalog (`registry.PROVIDERS`)
+    and this adapter table are deliberately separate — the catalog knows
+    providers a *team* can route to, this knows providers something can be
+    *authored* with — but nothing exposed the difference, so callers could only
+    discover it by triggering `create_provider`'s `ValueError`. That produced
+    the `groq` dead end: a 503 telling the user to add `GROQ_API_KEY`, followed
+    by a 422 telling them `groq` is not a known provider once they had.
+    """
+    return tuple(_ADAPTERS)
+
+
 __all__ = [
     "AnthropicProvider",
     "OpenAIProvider",
     "XAIProvider",
     "OllamaProvider",
     "GoogleProvider",
+    "OpenRouterProvider",
     "create_provider",
+    "supported_providers",
 ]

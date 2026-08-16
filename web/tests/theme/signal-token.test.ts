@@ -136,12 +136,17 @@ describe("guard B — the --signal pair exists and carries the DESIGN.md values"
   });
 });
 
-// Nothing in Story 2.1 consumes --signal yet; Story 2.4's live-status
-// component is the first. Whitelist a path here rather than rewriting this.
-const SIGNAL_CONSUMER_WHITELIST: string[] = [];
+// Story 2.1 shipped `--signal` with an empty consumer whitelist, naming
+// Story 2.4 as its first consumer. `run-status.tsx` is that consumer — the
+// run-level accent pulse, confined to exactly this one file (AC 12).
+const SIGNAL_CONSUMER_WHITELIST: string[] = ["components/workspace/run-status.tsx"];
 
-describe("guard B — no early consumers of --signal outside components/ui/", () => {
-  it("finds no source referencing --signal or bg-signal yet", () => {
+describe("guard B — no consumer of --signal outside the whitelist", () => {
+  // Story 2.4 flipped the whitelist from empty to one entry — the title
+  // "finds no source referencing --signal or bg-signal yet" would now be a
+  // false sentence while the assertion still passed (defect class 5: a test
+  // title is a testable assertion). Renamed to what it still guards.
+  it("finds no consumer of --signal or bg-signal outside the whitelist", () => {
     const files = collectScanTargets(process.cwd());
     expect(files.length).toBeGreaterThan(0);
 

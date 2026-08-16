@@ -1,0 +1,1 @@
+{"error":{"code":"authoring_unavailable","message":"Could not reach the local authoring provider 'ollama' at http://localhost:11434. Start it, or choose a hosted authoring provider."}}

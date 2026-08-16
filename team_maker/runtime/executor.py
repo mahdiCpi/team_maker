@@ -10,20 +10,49 @@ at module scope — so importing this module (and, transitively,
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
 
+from team_maker.domain.models import GeneratedTeam
 from team_maker.keyconfig import KeyConfig
 from team_maker.ports.execution_engine import ExecutionEngine
 from team_maker.runtime.loader import load_team_package
 from team_maker.runtime.preflight import check_credentials
 from team_maker.runtime.results import RunResult
+from team_maker.runtime.run_context import RunDocument, augment_team_for_run
 
 _SUPPORTED_FRAMEWORK = "crewai"
 
 
 class UnsupportedFrameworkError(Exception):
-    """The package's ``primary_framework`` is not executable by the v1 Runtime."""
+    """The package's ``primary_framework`` is not executable by the v1 Runtime.
+
+    Carries the offending value as ``framework`` so a caller can author its own
+    sentence from the structured field instead of re-rendering ``str(exc)``.
+    ``primary_framework`` is read verbatim from ``team_config.yaml`` with no
+    validation (``loader.py``), so a caller that puts it in an HTTP response
+    needs to sanitise it — which it can only do if it can reach the value.
+    """
+
+    def __init__(self, framework: str) -> None:
+        self.framework = framework
+        super().__init__(
+            f"Only 'crewai' packages can be run in v1 (this package targets '{framework}')."
+        )
+
+
+def check_runnable(team: GeneratedTeam) -> None:
+    """Raise ``UnsupportedFrameworkError`` if *team* targets a framework this
+    Runtime cannot execute.
+
+    Public and separated from `run_team_package` (Story 2.4 AC 7) so the API's
+    synchronous pre-run gate can run the exact same check, on the exact same
+    loaded team, before spawning a run's background thread — rather than
+    re-encoding the ``"crewai"`` comparison a second time.
+    """
+    if team.primary_framework != _SUPPORTED_FRAMEWORK:
+        raise UnsupportedFrameworkError(team.primary_framework)
 
 
 def run_team_package(
@@ -31,14 +60,22 @@ def run_team_package(
     goal: str,
     key_config: KeyConfig,
     engine: Optional[ExecutionEngine] = None,
+    *,
+    documents: Sequence[RunDocument] = (),
 ) -> RunResult:
-    """Load the Team Package at *package_path* and run it toward *goal*."""
+    """Load the Team Package at *package_path* and run it toward *goal*.
+
+    ``documents`` is keyword-only and defaults to empty, so every existing
+    caller (the CLI, the pre-2.4 test suite) is unaffected (Story 2.4 AC 6).
+    """
     team = load_team_package(package_path)
-    if team.primary_framework != _SUPPORTED_FRAMEWORK:
-        raise UnsupportedFrameworkError(
-            f"Only 'crewai' packages can be run in v1 (this package targets "
-            f"'{team.primary_framework}')."
-        )
+    check_runnable(team)
+
+    # The goal and any documents are woven into the task descriptions of a
+    # *new* team object before the engine ever sees it (Story 2.4 AC 5) — see
+    # `run_context.py` for why, and for why this happens here rather than
+    # inside an engine.
+    team = augment_team_for_run(team, goal, documents=documents)
 
     # AD-9: resolve every agent's credential before any work begins. Raises
     # MissingCredentialsError naming every unusable provider. Doing it here —

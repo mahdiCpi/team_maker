@@ -136,6 +136,29 @@ class TaskHint(BaseModel):
     agent_role: str = Field(..., description="Which role should own this task")
     dependencies: List[str] = Field(default_factory=list, description="Task names this task depends on")
 
+    @field_validator("name")
+    @classmethod
+    def validate_task_name(cls, v: str) -> str:
+        """Mirror of ``RoleDefinition.validate_role_name`` — and load-bearing.
+
+        This field reaches the filesystem: the task generator emits one file per
+        task and ``ArtifactWriter.write`` joins the name onto the output
+        directory, so an unconstrained name is a path-traversal primitive. A
+        task named ``../../escaped`` writes outside ``output_path`` entirely and
+        bypasses the ``overwrite=False`` guard, which only inspects
+        ``output_path`` itself. Verified before this validator existed.
+
+        Added by the Story 2.0 code review as a declared exception to that
+        story's ``team_maker/`` freeze: the HTTP seam made the hole remotely
+        reachable, but the hole is here, and fixing it here protects the CLI and
+        every future surface rather than just the one door.
+        """
+        if not re.match(r"^[a-z][a-z0-9_]*$", v):
+            raise ValueError(
+                f"Task name must be snake_case (lowercase letters, digits, underscores), got: {v!r}"
+            )
+        return v
+
 
 class RoleDefinition(BaseModel):
     """Optional hint for a single agent role — the LLM planner may expand or adjust these."""

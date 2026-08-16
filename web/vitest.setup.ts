@@ -1,4 +1,13 @@
+import { toHaveNoViolations } from "jest-axe";
+import { beforeEach, expect } from "vitest";
 import "@testing-library/jest-dom/vitest";
+
+// `jest-axe`'s `toHaveNoViolations` export is already the matcher-map shape
+// `expect.extend` wants (`{ toHaveNoViolations: fn }`) — passing it directly,
+// not re-wrapped in `{ toHaveNoViolations }`, which double-nests it and
+// leaves `expect(...).toHaveNoViolations` bound to an object instead of a
+// function.
+expect.extend(toHaveNoViolations);
 
 /**
  * jsdom implements no `matchMedia` at all (the property is absent, not
@@ -47,3 +56,19 @@ export function setViewportWidth(width: number): void {
   });
   listeners.forEach((cb) => cb());
 }
+
+/**
+ * Story 2.11's first-visit orientation reads real `localStorage` and opens a
+ * modal over the whole Composer whenever it's empty. Suites that aren't
+ * exercising that feature are testing an established, already-seen surface —
+ * so default every test to "already seen" here. `first-visit-orientation.test.tsx`
+ * replaces `window.localStorage` with its own mock before this hook runs, so
+ * this seed is a no-op there and has no effect on that suite's own scenarios.
+ */
+beforeEach(() => {
+  try {
+    localStorage.setItem("team_maker_orientation_shown", "true");
+  } catch {
+    // Storage may be unavailable in some environments — not this hook's job to fix.
+  }
+});

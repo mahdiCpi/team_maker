@@ -58,6 +58,10 @@ class Provider:
     # Why the runtime cannot reach it, shown to the user. Only meaningful when
     # `runtime_supported` is False.
     unsupported_reason: str | None = None
+    # Additional environment variable names that should be recognized as aliases
+    # for this provider's canonical env_var. Used by env_to_provider() to build
+    # the lookup mapping (Story 2.9).
+    env_var_aliases: tuple[str, ...] = ()
 
     def openrouter_model_prefix(self) -> str:
         """The vendor segment of an ``openrouter/<vendor>/<model>`` model string."""
@@ -85,6 +89,7 @@ PROVIDERS: list[Provider] = [
             "the installed CrewAI needs the 'crewai[google-genai]' extra to call Google "
             "directly"
         ),
+        env_var_aliases=("GOOGLE_API_KEY",),
     ),
     # groq is an inference host, not a model vendor, so there is no `groq/`
     # namespace on OpenRouter — it is NOT openrouter_reachable.
@@ -140,6 +145,9 @@ def env_to_provider() -> dict[str, str]:
         mapping[p.name.upper()] = p.name
         if p.env_var:
             mapping[p.env_var.upper()] = p.name
+        # Register each alias (uppercased) -> provider name (Story 2.9)
+        for alias in p.env_var_aliases:
+            mapping[alias.upper()] = p.name
     return mapping
 
 
