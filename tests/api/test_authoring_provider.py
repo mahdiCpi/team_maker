@@ -25,7 +25,10 @@ def test_default_authoring_matches_the_cli(make_client, spec_payload, tmp_path):
     """Unspecified means `anthropic`/`claude-sonnet-4-6` — the same default the
     CLI uses (`cli.py:37-38`), so nothing changes for a user who configures
     nothing."""
-    harness = make_client([spec_payload(tmp_path)])
+    # Story 2.10: `ComposerSession.start()` makes a classification call before
+    # the compose call, so the classification answer must come first in the
+    # fake provider's response queue.
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
 
     assert _start(harness).status_code == 201
 
@@ -41,7 +44,7 @@ def test_direct_provider_shape(make_client, spec_payload, tmp_path):
     This is the case that used to be a dead Composer: a user holding only an
     OpenAI key can now author.
     """
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
 
     response = _start(harness, {"provider": "openai", "model": "gpt-4o"})
 
@@ -53,7 +56,7 @@ def test_direct_provider_shape(make_client, spec_payload, tmp_path):
 
 def test_gateway_shape(make_client, spec_payload, tmp_path):
     """Shape 2: one key, many models (`openrouter` + `OPENROUTER_API_KEY`)."""
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
 
     response = _start(
         harness, {"provider": "openrouter", "model": "anthropic/claude-sonnet-4-6"}
@@ -72,7 +75,7 @@ def test_keyless_local_shape_is_never_refused_for_a_missing_key(
     """Shape 3: `ollama` has `env_var=None` and `keyless_local=True`
     (`registry.py:104`). The Key Config holds no ollama entry and must not need
     one — the gate is the catalog row, never "is there a key"."""
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
 
     response = _start(harness, {"provider": "ollama", "model": "llama3.2"})
 
@@ -84,7 +87,7 @@ def test_keyless_local_shape_is_never_refused_for_a_missing_key(
 
 
 def test_model_alone_can_be_overridden(make_client, spec_payload, tmp_path):
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
 
     assert _start(harness, {"model": "claude-haiku-4-5"}).status_code == 201
 

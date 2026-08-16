@@ -1,27 +1,20 @@
-"""Tests for the input classifier (Story 2.10)."""
+"""Tests for the input classifier (Story 2.10).
+
+Uses `FakeLLMProvider` (`tests/support/fake_llm.py`), the same offline stand-in
+for the real `LLMProvider` port that `Composer`'s own tests use — not an ad hoc
+mock shaped to match the classifier's implementation. That is deliberate: an
+earlier version of this module called a `complete()` method that does not
+exist anywhere on the real port or its adapters, and a mock that invented the
+same nonexistent method let the bug ship undetected.
+"""
 from __future__ import annotations
 
-import pytest
-
 from team_maker.composer.classifier import (
-    InputClassifier,
     ClassificationResult,
+    InputClassifier,
     classify_input,
-    _CLASSIFICATION_PROMPT,
 )
-
-
-class MockProvider:
-    """Mock LLMProvider for testing."""
-
-    def __init__(self, responses: dict[str, str]) -> None:
-        self.responses = responses
-        self.call_count = 0
-
-    def complete(self, system: str, user: str) -> str:
-        self.call_count += 1
-        # Use user input as key, or return a default
-        return self.responses.get(user, "team")
+from tests.support.fake_llm import FakeLLMProvider
 
 
 class TestInputClassifier:
@@ -29,48 +22,46 @@ class TestInputClassifier:
 
     def test_classify_team_input(self) -> None:
         """Test that clear team descriptions are classified as team."""
-        provider = MockProvider({"I want a team that writes blog posts": "team"})
+        provider = FakeLLMProvider([{"is_team": True}])
         classifier = InputClassifier(provider)
         result = classifier.classify("I want a team that writes blog posts")
         assert result.is_team is True
 
     def test_classify_non_team_input(self) -> None:
         """Test that non-team input is classified as not a team."""
-        provider = MockProvider({"Hello": "not_team"})
+        provider = FakeLLMProvider([{"is_team": False}])
         classifier = InputClassifier(provider)
         result = classifier.classify("Hello")
         assert result.is_team is False
 
     def test_classify_greeting(self) -> None:
         """Test that greetings are classified as not a team."""
-        provider = MockProvider({"hi": "not_team", "hey": "not_team", "what is this app": "not_team"})
+        provider = FakeLLMProvider(
+            [{"is_team": False}, {"is_team": False}, {"is_team": False}]
+        )
         classifier = InputClassifier(provider)
-        
+
         assert classifier.classify("hi").is_team is False
         assert classifier.classify("hey").is_team is False
         assert classifier.classify("what is this app").is_team is False
 
-    def test_classify_permissive_default(self) -> None:
-        """Test that unexpected responses default to team (permissive)."""
-        provider = MockProvider({"some input": "maybe"})
+    def test_classify_permissive_default_on_unparseable_response(self) -> None:
+        """An unparseable structured response defaults to permissive (is_team=True)."""
+        provider = FakeLLMProvider([{}])  # missing the required `is_team` field
         classifier = InputClassifier(provider)
         result = classifier.classify("some input")
-        # Permissive: when in doubt, it's a team
         assert result.is_team is True
 
-    def test_classify_case_insensitive(self) -> None:
-        """Test that classification is case-insensitive."""
-        provider = MockProvider({"test": "TEAM"})
-        classifier = InputClassifier(provider)
-        result = classifier.classify("test")
-        assert result.is_team is True
+    def test_classify_uses_the_real_llm_provider_port(self) -> None:
+        """Classification must go through `complete_structured`, the only method
+        `LLMProvider` actually declares — not an invented `complete()` string
+        API. A regression here breaks every real compose call, not just this
+        classifier."""
+        provider = FakeLLMProvider([{"is_team": True}])
+        InputClassifier(provider).classify("build a team")
 
-    def test_classify_whitespace_handling(self) -> None:
-        """Test that whitespace is stripped from responses."""
-        provider = MockProvider({"test": "  team  "})
-        classifier = InputClassifier(provider)
-        result = classifier.classify("test")
-        assert result.is_team is True
+        assert len(provider.calls) == 1
+        assert "is_team" in provider.calls[0]["response_model"].model_fields
 
 
 class TestClassifyInput:
@@ -78,24 +69,15 @@ class TestClassifyInput:
 
     def test_classify_input_team(self) -> None:
         """Test classify_input with team input."""
-        provider = MockProvider({"build a team": "team"})
+        provider = FakeLLMProvider([{"is_team": True}])
         assert classify_input(provider, "build a team") is True
 
     def test_classify_input_not_team(self) -> None:
         """Test classify_input with non-team input."""
-        provider = MockProvider({"hello": "not_team"})
+        provider = FakeLLMProvider([{"is_team": False}])
         assert classify_input(provider, "hello") is False
 
 
-class TestClassificationPrompt:
-    """Tests for the classification prompt itself."""
-
-    def test_prompt_contains_guidelines(self) -> None:
-        """Test that the prompt contains the key guidelines."""
-        assert "team" in _CLASSIFICATION_PROMPT.lower()
-        assert "not_team" in _CLASSIFICATION_PROMPT.lower()
-        assert "permissive" in _CLASSIFICATION_PROMPT.lower() or "doubt" in _CLASSIFICATION_PROMPT.lower()
-
-    def test_prompt_asks_for_single_word(self) -> None:
-        """Test that the prompt asks for a single word response."""
-        assert "one word" in _CLASSIFICATION_PROMPT.lower() or "only" in _CLASSIFICATION_PROMPT.lower()
+def test_classification_result_holds_is_team() -> None:
+    assert ClassificationResult(is_team=True).is_team is True
+    assert ClassificationResult(is_team=False).is_team is False

@@ -1,200 +1,112 @@
-"""Tests for ComposerSession classification integration (Story 2.10)."""
+"""Tests for ComposerSession classification integration (Story 2.10).
+
+Uses `FakeLLMProvider` (`tests/support/fake_llm.py`), the same offline stand-in
+`Composer`'s own tests use, seeded with real `TeamCreationRequest` payloads and
+`{"is_team": ...}` classification responses in call order — not an invented
+provider shape. `ComposerSession.start()` always issues a classification call
+before an authoring call, so every scripted session below queues one
+`{"is_team": ...}` response per turn that needs it.
+"""
 from __future__ import annotations
 
-import pytest
-
-from team_maker.composer.composer import Composer, ComposerError
+from team_maker.composer.composer import Composer
 from team_maker.composer.session import ComposerSession
-from team_maker.schema.request import TeamCreationRequest
-
-
-class MockProvider:
-    """Mock LLMProvider that returns controlled responses."""
-
-    def __init__(
-        self,
-        *,
-        classification_responses: dict[str, str] | None = None,
-        compose_responses: list[TeamCreationRequest] | None = None,
-        should_fail_compose: bool = False,
-    ) -> None:
-        self.classification_responses = classification_responses or {}
-        self.compose_responses = compose_responses
-        self.compose_index = 0
-        self.should_fail_compose = should_fail_compose
-        self.classification_calls: list[str] = []
-        self.compose_calls: list[str] = []
-
-    def complete(self, system: str, user: str) -> str:
-        # This is for classification
-        self.classification_calls.append(user)
-        return self.classification_responses.get(user, "team")
-
-    def complete_structured(self, system: str, user: str, response_model: type) -> TeamCreationRequest:
-        # This is for compose
-        self.compose_calls.append(user)
-        if self.should_fail_compose:
-            raise ValueError("Validation error")
-        if self.compose_responses and self.compose_index < len(self.compose_responses):
-            result = self.compose_responses[self.compose_index]
-            self.compose_index += 1
-            return result
-        # Return a default valid response
-        return TeamCreationRequest(
-            team_name="test_team",
-            purpose="test purpose with enough characters",
-            output_path="./output/test_team",
-            desired_roles=[{"name": "test_role", "description": "test description with enough"}],
-        )
+from tests.support.fake_llm import FakeLLMProvider
+from tests.unit.test_composer import _valid_payload
 
 
 class TestComposerSessionClassification:
     """Tests for ComposerSession with classification (Story 2.10)."""
 
-    def test_start_with_team_input(self) -> None:
+    def test_start_with_team_input(self, tmp_path) -> None:
         """Test that start() with team input returns a TeamCreationRequest."""
-        provider = MockProvider(
-            classification_responses={"build a team": "team"},
-            compose_responses=[
-                TeamCreationRequest(
-                    team_name="test_team",
-                    purpose="test purpose with enough characters",
-                    output_path="./output/test_team",
-                    desired_roles=[{"name": "role1", "description": "description with enough chars"}],
-                )
-            ],
-        )
-        composer = Composer(provider)
-        session = ComposerSession(composer)
-        
+        payload = _valid_payload(tmp_path)
+        fake = FakeLLMProvider([{"is_team": True}, payload])
+        session = ComposerSession(Composer(fake))
+
         result = session.start("build a team")
-        
+
         assert result is not None
-        assert isinstance(result, TeamCreationRequest)
-        assert session.current is not None
+        assert session.current is result
+        assert len(fake.calls) == 2
 
     def test_start_with_non_team_input(self) -> None:
-        """Test that start() with non-team input returns None."""
-        provider = MockProvider(
-            classification_responses={"Hello": "not_team"},
-        )
-        composer = Composer(provider)
-        session = ComposerSession(composer)
-        
+        """Test that start() with non-team input returns None without composing."""
+        fake = FakeLLMProvider([{"is_team": False}])
+        session = ComposerSession(Composer(fake))
+
         result = session.start("Hello")
-        
+
         assert result is None
         assert session.current is None
+        assert len(fake.calls) == 1
 
-    def test_refine_with_existing_spec(self) -> None:
-        """Test that refine() with existing spec works normally."""
-        provider = MockProvider(
-            classification_responses={},
-            compose_responses=[
-                TeamCreationRequest(
-                    team_name="test_team",
-                    purpose="test purpose with enough characters",
-                    output_path="./output/test_team",
-                    desired_roles=[{"name": "role1", "description": "description with enough chars"}],
-                ),
-                TeamCreationRequest(
-                    team_name="test_team",
-                    purpose="updated purpose with enough chars",
-                    output_path="./output/test_team",
-                    desired_roles=[{"name": "role1", "description": "description with enough chars"}],
-                ),
-            ],
+    def test_refine_with_existing_spec_does_not_reclassify(self, tmp_path) -> None:
+        """Once a spec exists, refine() composes directly — classification is a
+        first-turn (or still-stuck) concern only, per Open Question 3."""
+        first = _valid_payload(tmp_path)
+        second = _valid_payload(
+            tmp_path,
+            desired_roles=[{"name": "writer", "description": "Writes documentation."}],
         )
-        composer = Composer(provider)
-        session = ComposerSession(composer)
-        
-        # Start with a team
+        fake = FakeLLMProvider([{"is_team": True}, first, second])
+        session = ComposerSession(Composer(fake))
+
         session.start("build a team")
-        assert session.current is not None
-        
-        # Refine
         result = session.refine("add more roles")
-        
+
         assert result is not None
-        assert isinstance(result, TeamCreationRequest)
+        # classify, start-compose, refine-compose — no second classification call.
+        assert len(fake.calls) == 3
 
-    def test_refine_without_existing_spec(self) -> None:
-        """Test that refine() without existing spec (from non-team start) returns None."""
-        provider = MockProvider(
-            classification_responses={"Hello": "not_team"},
-        )
-        composer = Composer(provider)
-        session = ComposerSession(composer)
-        
-        # Start with non-team
+    def test_refine_without_existing_spec_reclassifies_and_can_recover(self, tmp_path) -> None:
+        """A session stuck in needs_clarification after turn 1 must recover once
+        the user actually describes a team — it must not be stuck for the rest
+        of the conversation."""
+        payload = _valid_payload(tmp_path)
+        fake = FakeLLMProvider([{"is_team": False}, {"is_team": True}, payload])
+        session = ComposerSession(Composer(fake))
+
         session.start("Hello")
         assert session.current is None
-        
-        # Refine without spec
-        result = session.refine("another message")
-        
-        assert result is None
-        assert session.current is None
 
-    def test_consecutive_non_team_turns(self) -> None:
+        result = session.refine("build me a 3-person marketing team")
+
+        assert result is not None
+        assert session.current is result
+
+    def test_consecutive_non_team_turns_keep_current_none(self) -> None:
         """Test that consecutive non-team turns keep current as None."""
-        provider = MockProvider(
-            classification_responses={
-                "Hello": "not_team",
-                "hi": "not_team",
-                "what?": "not_team",
-            },
-        )
-        composer = Composer(provider)
-        session = ComposerSession(composer)
-        
-        # First turn: non-team
+        fake = FakeLLMProvider([{"is_team": False}, {"is_team": False}, {"is_team": False}])
+        session = ComposerSession(Composer(fake))
+
         session.start("Hello")
         assert session.current is None
-        
-        # Second turn: still non-team
         session.refine("hi")
         assert session.current is None
-        
-        # Third turn: still non-team
         session.refine("what?")
         assert session.current is None
+        assert len(fake.calls) == 3
 
-    def test_classification_called_before_compose(self) -> None:
+    def test_classification_called_before_compose(self, tmp_path) -> None:
         """Test that classification is called before compose for start()."""
-        provider = MockProvider(
-            classification_responses={"build a team": "team"},
-            compose_responses=[
-                TeamCreationRequest(
-                    team_name="test_team",
-                    purpose="test purpose with enough characters",
-                    output_path="./output/test_team",
-                    desired_roles=[{"name": "role1", "description": "description with enough chars"}],
-                )
-            ],
-        )
-        composer = Composer(provider)
-        session = ComposerSession(composer)
-        
-        session.start("build a team")
-        
-        # Classification should have been called
-        assert len(provider.classification_calls) > 0
-        assert "build a team" in provider.classification_calls
-        # Compose should have been called
-        assert len(provider.compose_calls) > 0
+        payload = _valid_payload(tmp_path)
+        fake = FakeLLMProvider([{"is_team": True}, payload])
+        session = ComposerSession(Composer(fake))
 
-    def test_classification_not_called_when_not_team(self) -> None:
-        """Test that compose is NOT called when classification returns not_team."""
-        provider = MockProvider(
-            classification_responses={"Hello": "not_team"},
-        )
-        composer = Composer(provider)
-        session = ComposerSession(composer)
-        
-        session.start("Hello")
-        
-        # Classification should have been called
-        assert len(provider.classification_calls) > 0
-        # Compose should NOT have been called
-        assert len(provider.compose_calls) == 0
+        session.start("build a team")
+
+        assert len(fake.calls) == 2
+        assert fake.calls[0]["user"] == "build a team"
+        assert "is_team" in fake.calls[0]["response_model"].model_fields
+
+    def test_classification_not_called_again_after_a_successful_start(self, tmp_path) -> None:
+        """Once a spec exists, further turns skip classification entirely."""
+        payload = _valid_payload(tmp_path)
+        fake = FakeLLMProvider([{"is_team": True}, payload, payload])
+        session = ComposerSession(Composer(fake))
+
+        session.start("build a team")
+        session.refine("add a reviewer")
+
+        assert len(fake.calls) == 3  # classify, start-compose, refine-compose

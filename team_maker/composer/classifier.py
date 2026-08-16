@@ -11,11 +11,14 @@ Spine invariants:
 """
 from __future__ import annotations
 
+from pydantic import BaseModel, ValidationError
+
 from team_maker.ports.llm_provider import LLMProvider
 
-
-# Classification prompt: permissive by design — when in doubt, say "yes, it's a team".
-# This minimizes false negatives (rejecting valid team descriptions).
+# Classification prompt: permissive by design — when in doubt, say "yes, it's a
+# team". This minimizes false negatives (rejecting valid team descriptions).
+# The response shape is enforced by `_ClassificationResponse` via
+# `complete_structured`, not by string-matching a free-form reply.
 _CLASSIFICATION_PROMPT = """\
 You are a classifier for a team-building assistant. Your job is to determine
 whether the user's message describes a team they want to build.
@@ -25,21 +28,20 @@ Guidelines:
   or any kind of collaborative effort, classify it as a team description.
 - If the message is a greeting, a question about the app, random text,
   or clearly not about building a team, classify it as NOT a team description.
-- WHEN IN DOUBT, classify as a team description (be permissive).
+- WHEN IN DOUBT, classify as a team description (be permissive)."""
 
-Respond with ONLY one of these two words:
-- "team" if the message describes a team to build
-- "not_team" if the message does NOT describe a team to build
 
-Do not add any explanation, commentary, or additional text. Just one word."""
+class _ClassificationResponse(BaseModel):
+    """Structured-output contract for the classification call."""
+
+    is_team: bool
 
 
 class ClassificationResult:
     """Result of classifying user input."""
 
-    def __init__(self, is_team: bool, confidence: str | None = None) -> None:
+    def __init__(self, is_team: bool) -> None:
         self.is_team = is_team
-        self.confidence = confidence
 
 
 class InputClassifier:
@@ -54,20 +56,17 @@ class InputClassifier:
         Returns:
             ClassificationResult with is_team=True if the input describes a team.
         """
-        response = self._provider.complete(
-            system=_CLASSIFICATION_PROMPT,
-            user=intent,
-        )
-        # Normalize the response to handle case and whitespace
-        normalized = response.strip().lower()
-        if normalized == "team":
+        try:
+            response = self._provider.complete_structured(
+                system=_CLASSIFICATION_PROMPT,
+                user=intent,
+                response_model=_ClassificationResponse,
+            )
+        except ValidationError:
+            # Permissive default: an unparseable classification response must
+            # never block authoring — when in doubt, it's a team.
             return ClassificationResult(is_team=True)
-        elif normalized == "not_team":
-            return ClassificationResult(is_team=False)
-        else:
-            # Permissive default: when in doubt, it's a team
-            # This handles any unexpected response from the LLM
-            return ClassificationResult(is_team=True)
+        return ClassificationResult(is_team=response.is_team)
 
 
 def classify_input(provider: LLMProvider, intent: str) -> bool:

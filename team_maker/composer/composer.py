@@ -93,6 +93,13 @@ class Composer:
             _usable_provider_names(key_config) if key_config is not None else None
         )
 
+    @property
+    def provider(self) -> LLMProvider:
+        """The injected ``LLMProvider``, for wrappers that need to reuse the same
+        provider instance (e.g. ``ComposerSession``'s classification step) without
+        reaching past this class's encapsulation boundary."""
+        return self._provider
+
     def compose(self, intent: str, *, preferences: str | None = None) -> TeamCreationRequest:
         """Author a schema-valid ``TeamCreationRequest`` from ``intent``.
 

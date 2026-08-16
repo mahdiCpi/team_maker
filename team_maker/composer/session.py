@@ -22,14 +22,21 @@ from team_maker.schema.request import TeamCreationRequest
 class ComposerSession:
     """Tracks a conversation's current spec and lets it be refined turn by turn.
 
-    Story 2.10: The provider is stored to enable classification calls without
-    duplicating the Composer's own provider reference.
+    Story 2.10: also reuses the Composer's injected provider for a pre-authoring
+    classification call, via ``Composer.provider`` rather than reaching into a
+    private attribute.
     """
 
     def __init__(self, composer: Composer) -> None:
         self._composer = composer
-        self._provider = composer._provider
+        self._provider: LLMProvider = composer.provider
         self._intent: str | None = None
+        # Distinguishes "start() was never called" (a programmer error refine()
+        # must still raise on) from "start() was called but classified
+        # non-team" (current is None, but that is a valid, already-started
+        # state) — both looked like `current is None` before Story 2.10, which
+        # is what caused the two to be conflated.
+        self._started = False
         self.current: TeamCreationRequest | None = None
 
     def start(self, intent: str) -> TeamCreationRequest | None:
@@ -39,6 +46,7 @@ class ComposerSession:
         description, returns None instead of fabricating a spec.
         """
         self._intent = intent
+        self._started = True
         # Classification step (Story 2.10): check if this describes a team
         if not classify_input(self._provider, intent):
             # Not a team description - leave current as None
@@ -55,14 +63,22 @@ class ComposerSession:
             ComposerError: the repair budget was exhausted for this turn.
                 ``self.current`` is left untouched — a failed turn never
                 corrupts the last known-good spec.
+            RuntimeError: ``start()`` was never called on this session.
 
-        Story 2.10: If current is None (first turn was not a team), subsequent
-        turns also return None to maintain the needs_clarification state.
+        Story 2.10: If ``current`` is None because an earlier turn was
+        classified non-team, this re-runs classification on ``message`` rather
+        than unconditionally staying in ``needs_clarification`` — a user who
+        opens with "hi" and then actually describes a team must still get a
+        spec, not a session stuck until the turn cap runs out.
         """
+        if not self._started:
+            raise RuntimeError("ComposerSession.refine() called before start()")
         if self.current is None:
-            # Story 2.10: If we never had a spec (first turn was not a team),
-            # keep returning None for subsequent turns
-            return None
+            if not classify_input(self._provider, message):
+                return None
+            self._intent = message
+            self.current = self._composer.compose(message)
+            return self.current
         combined_intent = self._build_refinement_intent(message)
         updated = self._composer.compose(combined_intent)
         self.current = updated

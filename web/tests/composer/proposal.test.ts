@@ -18,6 +18,7 @@ import { messageTurn2, sessionCreate } from "./fixtures";
 function specFrom(payload: unknown): SpecView {
   const view = parseSessionResponse(payload);
   if (!view) throw new Error("fixture failed to parse");
+  if (view.status !== "complete") throw new Error("fixture is not a complete session");
   return view.spec;
 }
 

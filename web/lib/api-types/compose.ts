@@ -63,17 +63,30 @@ export type SpecView = {
   desired_tasks: TaskView[];
 };
 
-export type SessionView = {
-  session_id: string;
-  turn: number;
-  turns_remaining: number;
-  /** The team specification, or null if status is "needs_clarification" */
-  spec: SpecView | null;
-  /** Status discriminator: "complete" means spec is valid, "needs_clarification" means spec is null */
-  status: "complete" | "needs_clarification";
-  /** Present when status is "needs_clarification" - the message to show the user */
-  clarification: string | null;
-};
+/**
+ * A discriminated union, not a flat object with an optional `spec`: this is
+ * what lets the compiler narrow `spec` to non-null wherever `status` has
+ * already been checked, instead of every consumer needing a `spec!` assertion
+ * or a runtime null check the type system can't verify.
+ */
+export type SessionView =
+  | {
+      status: "complete";
+      session_id: string;
+      turn: number;
+      turns_remaining: number;
+      spec: SpecView;
+      clarification: null;
+    }
+  | {
+      status: "needs_clarification";
+      session_id: string;
+      turn: number;
+      turns_remaining: number;
+      spec: null;
+      /** The message to show the user in place of a proposal. */
+      clarification: string | null;
+    };
 
 export type ModelSubstitutionView = {
   role: string;
@@ -174,34 +187,37 @@ export function parseSessionResponse(value: unknown): SessionView | null {
   const sessionId = asString(value.session_id);
   const turn = asNumber(value.turn);
   const turnsRemaining = asNumber(value.turns_remaining);
+  if (sessionId === null || turn === null || turnsRemaining === null) return null;
   const status = asString(value.status);
-  if (sessionId === null || turn === null || turnsRemaining === null || status === null) return null;
-  
-  // Handle both "complete" and "needs_clarification" statuses
+
   if (status === "needs_clarification") {
-    // spec should be null, clarification should be present
-    const clarification = asString(value.clarification);
     return {
+      status,
       session_id: sessionId,
       turn,
       turns_remaining: turnsRemaining,
       spec: null,
-      status,
-      clarification,
+      clarification: asString(value.clarification),
     };
   }
-  
-  // status === "complete" - spec should be present
-  const spec = parseSpec(value.spec);
-  if (spec === null) return null;
-  return {
-    session_id: sessionId,
-    turn,
-    turns_remaining: turnsRemaining,
-    spec,
-    status,
-    clarification: null,
-  };
+
+  if (status === "complete") {
+    const spec = parseSpec(value.spec);
+    if (spec === null) return null;
+    return {
+      status,
+      session_id: sessionId,
+      turn,
+      turns_remaining: turnsRemaining,
+      spec,
+      clarification: null,
+    };
+  }
+
+  // Any other (or missing) status is refused rather than silently treated as
+  // "complete" — a typo'd or future status string must not be trusted to mean
+  // the spec is present.
+  return null;
 }
 
 function parseSubstitution(value: unknown): ModelSubstitutionView | null {

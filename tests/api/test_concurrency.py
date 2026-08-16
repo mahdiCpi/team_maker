@@ -90,13 +90,35 @@ class CredentialProbeProvider:
         return response_model.model_validate(self._payload)
 
 
+class _ClassificationShortCircuit:
+    """Wraps a provider so Story 2.10's classification call — now made once,
+    ahead of `Composer.compose()`, on every session's first turn — answers
+    instantly with a fixed "is a team" verdict instead of reaching the
+    wrapped provider.
+
+    Without this, `CredentialProbeProvider`'s barrier (built for exactly
+    `parties=2`, one call per concurrent turn) sees two calls per turn
+    instead of one, doubling `observed` and desynchronising the rendezvous
+    the test relies on. Detected structurally, by the response model's
+    shape, so it stays correct regardless of call count or order.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def complete_structured(self, system: str, user: str, response_model: type) -> Any:
+        if "is_team" in getattr(response_model, "model_fields", {}):
+            return response_model.model_validate({"is_team": True})
+        return self._inner.complete_structured(system, user, response_model)
+
+
 def test_two_concurrent_turns_both_keep_their_credential(
     make_client, spec_payload, tmp_path
 ):
     """Task 2: the credential is bridged once at startup and held, so there is
     no window in which a concurrent request can lose it."""
     probe = CredentialProbeProvider(spec_payload(tmp_path), parties=2)
-    harness = make_client(provider=probe)
+    harness = make_client(provider=_ClassificationShortCircuit(probe))
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [
@@ -117,7 +139,12 @@ def test_two_concurrent_turns_both_keep_their_credential(
 def test_separate_sessions_do_not_share_a_spec(make_client, spec_payload, tmp_path):
     """Two conversations run in parallel; each keeps its own `session.current`."""
     harness = make_client(
-        [spec_payload(tmp_path, team_name="Team One"), spec_payload(tmp_path, team_name="Team Two")]
+        [
+            {"is_team": True},
+            spec_payload(tmp_path, team_name="Team One"),
+            {"is_team": True},
+            spec_payload(tmp_path, team_name="Team Two"),
+        ]
     )
 
     first = harness.client.post("/api/compose/sessions", json={"intent": "one"}).json()

@@ -65,32 +65,13 @@ def create_session(payload: CreateSessionRequest, request: Request) -> SessionVi
     state.registry.begin_turn(entry)
     try:
         with state.registry.hold(entry):
-            # Story 2.10: start() can now return None for non-team input
-            # We need to handle both the None case and exceptions
-            try:
-                result = conversation.start(payload.intent)
-            except ComposerError as exc:
-                # ComposerError from compose() - wrap it
-                raise log_and_wrap(
-                    SPEC_INVALID,
-                    "The team specification could not be completed from that description. "
-                    "Try rephrasing it, or simplifying the requirements.",
-                    exc,
-                    fields=fields_from_composer_errors(exc.errors),
-                ) from exc
-            except Exception as exc:
-                # Any other exception - wrap it
-                _handle_general_compose_error(entry, exc)
-            else:
-                # No exception - check if result is None (non-team classification)
-                if result is None:
-                    # Story 2.10: classification determined this is not a team description
-                    entry.clarification = _generate_clarification(payload.intent)
-                    # current stays None, clarification is set
-                else:
-                    # Normal path: result is a TeamCreationRequest
-                    entry.conversation.current = result
-                _adopt_server_output_path(entry)
+            # Story 2.10: start() can return None for non-team input instead of
+            # raising — `ComposerSession.start()` already leaves `current` as
+            # `None` in that case, so only the clarification text is our job.
+            result = _guarded(entry, lambda: conversation.start(payload.intent))
+            if result is None:
+                entry.clarification = _generate_clarification()
+            _adopt_server_output_path(entry)
     except ApiError:
         # The first turn produced no spec, so there is nothing to refine and a
         # follow-up message would hit `refine() before start()`. Drop the
@@ -109,26 +90,11 @@ def send_message(session_id: str, payload: MessageRequest, request: Request) -> 
     # round-trips, and the cap exists to bound spend, not successes.
     state.registry.begin_turn(entry)
     with state.registry.hold(entry):
-        # Story 2.10: refine() can now return None if current is None
-        # (i.e., first turn was not a team and we're still in needs_clarification state)
-        try:
-            result = entry.conversation.refine(payload.message)
-        except ComposerError as exc:
-            raise log_and_wrap(
-                SPEC_INVALID,
-                "The team specification could not be completed from that description. "
-                "Try rephrasing it, or simplifying the requirements.",
-                exc,
-                fields=fields_from_composer_errors(exc.errors),
-            ) from exc
-        except Exception as exc:
-            _handle_general_compose_error(entry, exc)
-        else:
-            if result is None:
-                # Still in needs_clarification state - update clarification
-                entry.clarification = _generate_clarification(payload.message)
-            else:
-                entry.conversation.current = result
+        # Story 2.10: refine() can return None — still no spec yet, or the
+        # message didn't describe one either — instead of raising.
+        result = _guarded(entry, lambda: entry.conversation.refine(payload.message))
+        if result is None:
+            entry.clarification = _generate_clarification()
         # A refine re-authors the whole spec, including `output_path`, which is
         # how a free-text message used to steer where the build writes.
         _adopt_server_output_path(entry)
@@ -140,7 +106,7 @@ def replace_spec(session_id: str, payload: SpecEditRequest, request: Request) ->
     """Apply a direct edit to the three client-owned dimensions of the spec.
 
     No LLM call happens here, so this does not consume a turn.
-    
+
     Story 2.10: If the session is in needs_clarification state (current is None),
     spec edits are not allowed.
     """
@@ -244,7 +210,9 @@ def _adopt_server_output_path(entry: ComposeSession) -> None:
     entry.conversation.current = with_output_path(current, entry.output_path)
 
 
-def _guarded(entry: ComposeSession, call: Callable[[], TeamCreationRequest]) -> None:
+def _guarded(
+    entry: ComposeSession, call: Callable[[], TeamCreationRequest | None]
+) -> TeamCreationRequest | None:
     """Run one authoring turn, mapping every failure onto an AC 2 error code.
 
     The CLI's interactive loop catches only `ComposerError` and any other
@@ -253,9 +221,13 @@ def _guarded(entry: ComposeSession, call: Callable[[], TeamCreationRequest]) -> 
     with zero retries (`deferred-work.md:47`). This catches broadly and never
     lets an exception string reach the client — `str(exc)` on an SDK error can
     echo an embedded secret (`deferred-work.md:45`).
+
+    Returns the call's result (`None` for a Story 2.10 needs_clarification
+    turn) so the caller can react to it; every failure raises instead of
+    returning.
     """
     try:
-        call()
+        return call()
     except ComposerError as exc:
         raise log_and_wrap(
             SPEC_INVALID,
@@ -401,34 +373,6 @@ def _merge_roles(existing: list[dict[str, Any]], payload: SpecEditRequest) -> li
     return merged
 
 
-# Story 2.10: Classification support functions
-
-def _generate_clarification(intent: str) -> str:
-    """Generate a clarification message when input is not a team description.
-
-    Returns a short, specific invitation to describe a team.
-    """
-    # Keep it simple and direct
+def _generate_clarification() -> str:
+    """A short, direct invitation to describe a team to build (Story 2.10)."""
     return "Please describe the team you want to build and what they should do."
-
-
-def _handle_general_compose_error(entry: ComposeSession, exc: Exception) -> None:
-    """Handle a general exception from compose operations.
-
-    This is the same logic as _guarded but extracted for reuse.
-    """
-    if entry.choice.keyless:
-        endpoint = entry.choice.config.base_url or "its local endpoint"
-        raise log_and_wrap(
-            AUTHORING_UNAVAILABLE,
-            f"Could not reach the local authoring provider "
-            f"'{entry.choice.config.provider}' at {endpoint}. Start it, or "
-            f"choose a hosted authoring provider.",
-            exc,
-        ) from exc
-    raise log_and_wrap(
-        COMPOSE_FAILED,
-        "The team specification could not be created. Retry once; if the "
-        "problem repeats, stop and report it.",
-        exc,
-    ) from exc
