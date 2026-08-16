@@ -97,3 +97,49 @@ def test_generate_from_template_with_explicit_template_id():
     
     template = get_template(template_id)
     assert template is not None
+
+
+def test_generate_from_template_defaults_to_software_delivery_when_none():
+    """Test that _generate_from_template defaults to software_delivery_team when template_id is None."""
+    from team_maker.pipeline.runner import PipelineRunner
+    from team_maker.templates.registry import get_template
+    
+    req = TeamCreationRequest(
+        team_name="Test Team",
+        purpose="A test team without template_id to verify default.",
+        output_path="/tmp/test_default_fallback",
+        desired_roles=[
+            RoleDefinition(name="architect", description="Designs architecture.")
+        ],
+        template_id=None,
+    )
+    
+    # Call the method directly to verify it uses the default
+    result_team = PipelineRunner._generate_from_template(req)
+    
+    # Should have used software_delivery_team as default
+    assert result_team.template_used == "software_delivery_team"
+
+
+def test_generate_from_template_defaults_to_software_delivery_when_missing():
+    """Test that _generate_from_template defaults to software_delivery_team when template_id is omitted."""
+    from team_maker.pipeline.runner import PipelineRunner
+    
+    req = TeamCreationRequest(
+        team_name="Test Team",
+        purpose="A test team without template_id field.",
+        output_path="/tmp/test_missing_fallback",
+        desired_roles=[
+            RoleDefinition(name="architect", description="Designs architecture.")
+        ],
+        # template_id is omitted, should default to None
+    )
+    
+    # Verify the field defaults to None
+    assert req.template_id is None
+    
+    # Call the method to verify it uses the default
+    result_team = PipelineRunner._generate_from_template(req)
+    
+    # Should have used software_delivery_team as default
+    assert result_team.template_used == "software_delivery_team"

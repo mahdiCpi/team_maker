@@ -310,3 +310,28 @@ the next architectural work item, ahead of new Epic 1 features.
 ## Deferred from: code review of story-2.9 (2026-08-15)
 
 - **`env_to_provider()`'s alias registration uses unconditional last-write-wins with no collision detection across providers** [team_maker/adapters/providers/registry.py:141-151]. A future alias colliding with another provider's canonical name/env_var/alias would silently mis-route with no warning. Pre-existing shape (the same last-write-wins already applied to `name`/`env_var`); this diff only extends it to a third field (`env_var_aliases`), and no actual collision exists today given AC4's single-evidenced-alias scope.
+
+## Deferred from: code review of story-3-1 (2026-08-16)
+
+- **Template ID validation missing at schema level** — `template_id` field accepts any string but `get_template()` raises `ValueError` for unknown IDs. No validation at schema level to ensure it matches a registered template. Pre-existing. [team_maker/schema/request.py]
+- **Starter YAMLs hardcoded in router** — `_STARTER_YAMLS` list is hardcoded. Adding/removing starter teams requires manual update, creating drift risk with `team_maker/templates/__init__.py` and example files. Pre-existing. [api/routers/starters.py:30-33]
+- **No template existence check at request time** — `PipelineRunner._generate_from_template` calls `get_template()` which may fail at runtime if `template_id` references unregistered template. Pre-existing. [pipeline/runner.py:106-107]
+- **Agent count mismatch potential** — Starter endpoint uses `len(request.desired_roles)` for `agent_count`, but this reflects the YAML's roles, not the template's actual catalog. Could diverge if YAML roles ≠ template defaults. Pre-existing. [api/routers/starters.py:73]
+- **Path traversal risk in starter router** — `_EXAMPLES_DIR` constructed via `Path(__file__).parent.parent.parent / "examples"` with no validation that resolved path stays within repo root. Malicious symlink could escape. Pre-existing. [api/routers/starters.py:27]
+- **No validation of YAML data before schema validation** — `_load_starter_yaml` uses `yaml.safe_load` correctly but doesn't verify loaded data structure before validation. Pre-existing. [api/routers/starters.py:46-49]
+- **Duplicate template IDs not prevented** — Registry allows overwrites via `@register` decorator pattern. Pre-existing. [templates/registry.py]
+- **Thread safety of registry not tested** — No tests for concurrent access to registry or template instances. Out of scope for this story. [tests/unit/templates/test_registry.py]
+- **Missing error handling for corrupt YAMLs** — `_get_starter_teams()` logs error and continues on exception, returning partial list. No test verifies partial list behavior. Pre-existing. [api/routers/starters.py:80]
+- **No enforcement of YAML filename vs template_id sync** — Starter router assumes `template_id` in YAML matches expected ID. By design, no runtime enforcement. Deferred.
+- **Static vs template count divergence in endpoint** — Starter endpoint returns count from YAML's `desired_roles` not template's catalog. Pre-existing. [api/routers/starters.py:73]
+- **Missing YAML structure validation** — `_load_starter_yaml` validates schema but doesn't verify that `template_id` matches a registered template or that required fields for starter teams are present. Pre-existing. [api/routers/starters.py]
+- **Race condition in registry imports** — `team_maker/templates/__init__.py` imports trigger `@register` decorators, but no ordering guarantee. If imports fail mid-way, registry could be partial. Pre-existing. [templates/__init__.py]
+- **No empty starter list test** — If all files in `_STARTER_YAMLS` are missing, `list_starters()` returns empty list. No test verifies this edge case or that frontend handles it gracefully. Test gap. [tests/api/test_starters.py]
+- **Path resolution assumes fixed repo structure** — `_EXAMPLES_DIR` assumes fixed relative path from `api/routers/starters.py` to repo root. Packaging or installation could break this. Pre-existing. [api/routers/starters.py:27]
+- **No YAML loading failure test** — `test_starters.py` doesn't test behavior when YAML files are missing, corrupt, or have invalid schema. Only happy path tested. Test gap. [tests/api/test_starters.py]
+- **Template ID not validated against registry in starter router** — Starter router loads YAMLs directly from filesystem but doesn't verify `template_id` field matches a registered template via `get_template()`. Pre-existing. [api/routers/starters.py]
+- **Missing idempotency test for starter teams** — Story 3.1 Dev Notes mention idempotency contract but no test verifies starter team YAMLs produce byte-identical output across runs (like `test_pipeline_is_idempotent`). Out of scope for Task 8, belongs to Story 3.2.
+- **No custom roles test** — No test for starter team with roles not in template's `_ROLE_DEFAULTS`. Out of scope for this story. Deferred.
+- **Hardcoded sentinel values in secret containment** — Only tests specific starter IDs (`baseline_education_team`, `research_content_team`) for credential leakage. Pre-existing pattern. [tests/api/test_secret_containment.py:140-142]
+- **Missing template_id null test** — No test for starter YAML with missing or null `template_id` field. Test gap. Deferred.
+- **No concurrency tests for starter endpoint** — Multiple simultaneous requests to `/api/starters` could race on YAML file reads or registry access. No tests for concurrent access patterns. Out of scope. Deferred.
