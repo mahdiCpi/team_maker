@@ -130,18 +130,18 @@ Composer → Factory → Runtime; a starter team skips the Composer entirely).
   - [x] Confirm every existing test/example that omits `template_id` still resolves to
     `software_delivery_team` (regression guard for AC 2).
 
-- [ ] **Task 2 — Extract shared role/task-building helpers** (AC: 1, prerequisite for Tasks 3–4)
-  - [ ] Create `team_maker/templates/role_based.py` with a mixin (e.g.
+- [x] **Task 2 — Extract shared role/task-building helpers** (AC: 1, prerequisite for Tasks 3–4)
+  - [x] Create `team_maker/templates/role_based.py` with a mixin (e.g.
     `RoleBasedTemplateMixin`) holding the generic parts of
     `SoftwareDeliveryTemplate`: `_DEFAULT_PROVIDER`, `_resolve_routing`,
     `_build_agent_from_role`, `_build_agents`, `_build_tasks`, `_task_dep_available` — lifted
     verbatim from `team_maker/templates/software_delivery/template.py:199,241-323`. These methods
     are already generic over any `_ROLE_DEFAULTS`/`_DEFAULT_TASKS` shape; nothing about them is
     software-delivery-specific.
-  - [ ] Refactor `SoftwareDeliveryTemplate` to subclass `(RoleBasedTemplateMixin,
+  - [x] Refactor `SoftwareDeliveryTemplate` to subclass `(RoleBasedTemplateMixin,
     BaseTeamTemplate)`, keeping only its own `_ROLE_DEFAULTS`, `_DEFAULT_TASKS`, and
     `generate()`/`default_role_names()`/`default_task_names()`.
-  - [ ] Run the existing template tests unchanged first, to confirm the refactor is
+  - [x] Run the existing template tests unchanged first, to confirm the refactor is
     behavior-preserving before building the two new templates on top of it.
 
 - [ ] **Task 3 — Baseline education team template** (AC: 1, 3)
@@ -367,8 +367,11 @@ since. `epic_3` and this story's branch (`story_3_1`) are both cut directly from
 
 ### Completion Notes List
 - Task 1 complete: Added template_id field to TeamCreationRequest and updated PipelineRunner._generate_from_template. All existing tests pass (369 passed).
+- Task 2 complete: Created RoleBasedTemplateMixin with shared helpers and refactored SoftwareDeliveryTemplate to use it. All existing tests pass (369 passed).
 
 ### File List
 - team_maker/schema/request.py (MODIFIED: Added template_id field)
 - team_maker/pipeline/runner.py (MODIFIED: Updated _generate_from_template to use template_id)
+- team_maker/templates/role_based.py (NEW: RoleBasedTemplateMixin with shared helpers)
+- team_maker/templates/software_delivery/template.py (MODIFIED: Refactored to use RoleBasedTemplateMixin)
 - tests/unit/test_template_id.py (NEW: Tests for template_id functionality)
