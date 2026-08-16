@@ -118,16 +118,16 @@ Composer → Factory → Runtime; a starter team skips the Composer entirely).
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Make template selection data-driven** (AC: 2)
-  - [ ] Add `template_id: Optional[str] = Field(None, description=...)` to `TeamCreationRequest`
+- [x] **Task 1 — Make template selection data-driven** (AC: 2)
+  - [x] Add `template_id: Optional[str] = Field(None, description=...)` to `TeamCreationRequest`
     (`team_maker/schema/request.py`).
-  - [ ] Update `PipelineRunner._generate_from_template` (`team_maker/pipeline/runner.py:103-113`)
+  - [x] Update `PipelineRunner._generate_from_template` (`team_maker/pipeline/runner.py:103-113`)
     to call `get_template(request.template_id or "software_delivery_team")` instead of the
     hardcoded string literal.
-  - [ ] Leave `examples/software_delivery_request.yaml`'s existing (inert, differently-named)
+  - [x] Leave `examples/software_delivery_request.yaml`'s existing (inert, differently-named)
     `template:` key alone — out of scope; it is a different field that Pydantic already silently
     ignores, and renaming it is not needed for this fix to work.
-  - [ ] Confirm every existing test/example that omits `template_id` still resolves to
+  - [x] Confirm every existing test/example that omits `template_id` still resolves to
     `software_delivery_team` (regression guard for AC 2).
 
 - [ ] **Task 2 — Extract shared role/task-building helpers** (AC: 1, prerequisite for Tasks 3–4)
@@ -366,5 +366,9 @@ since. `epic_3` and this story's branch (`story_3_1`) are both cut directly from
 ### Debug Log References
 
 ### Completion Notes List
+- Task 1 complete: Added template_id field to TeamCreationRequest and updated PipelineRunner._generate_from_template. All existing tests pass (369 passed).
 
 ### File List
+- team_maker/schema/request.py (MODIFIED: Added template_id field)
+- team_maker/pipeline/runner.py (MODIFIED: Updated _generate_from_template to use template_id)
+- tests/unit/test_template_id.py (NEW: Tests for template_id functionality)
