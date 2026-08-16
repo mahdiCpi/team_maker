@@ -16,6 +16,10 @@ import { KeyCheck } from "@/components/composer/key-check"
 import { SpecEditor } from "@/components/composer/spec-editor"
 import { Transcript } from "@/components/composer/transcript"
 import {
+  FirstVisitOrientation,
+  markBuildCompleted,
+} from "@/components/composer/first-visit-orientation"
+import {
   buildTeam,
   createSession,
   getKeyCheck,
@@ -144,8 +148,12 @@ export function ComposerSurface() {
     setSavedNotice(null)
     dispatch({ type: "build_requested" })
     const result = await buildTeam(sessionId)
-    if (result.ok) dispatch({ type: "build_succeeded", result: result.data })
-    else dispatch({ type: "build_failed", failure: result })
+    if (result.ok) {
+      markBuildCompleted()
+      dispatch({ type: "build_succeeded", result: result.data })
+    } else {
+      dispatch({ type: "build_failed", failure: result })
+    }
   }
 
   /** `Build team` honours the review toggle; `Run it now` bypasses it. */
@@ -202,6 +210,7 @@ export function ComposerSurface() {
 
   return (
     <div data-slot="composer" className="flex min-h-0 flex-1 flex-col gap-3">
+      <FirstVisitOrientation onDismiss={() => {}} />
       <h1
         id="page-heading"
         tabIndex={-1}

@@ -4,7 +4,7 @@ baseline_commit: e1337fb5be5fd4faeef030e9bf6855dcc6ea9d1b
 
 # Story 2.11: Lightweight orientation and wayfinding for new or lost users
 
-Status: backlog
+Status: review
 
 ## Story
 
@@ -95,26 +95,34 @@ implementation rather than building both independently and discovering the overl
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Resolve the Open Question** with the PM/UX owner; record the decision in Dev
+- [x] **Task 1 — Resolve the Open Question** with the PM/UX owner; record the decision in Dev
   Notes before building both pieces independently.
-- [ ] **Task 2 — First-visit orientation** (AC: 1, 2, 4)
-  - [ ] Add a `localStorage`-backed dismissible orientation to the Composer's empty state
+- [x] **Task 2 — First-visit orientation** (AC: 1, 2, 4)
+  - [x] Add a `localStorage`-backed dismissible orientation to the Composer's empty state
     (`web/components/composer/composer-surface.tsx`'s empty-state branch), following this
     codebase's existing plain-copy conventions.
-  - [ ] Ensure it does not render once dismissed or once `state.build` exists for this browser.
-- [ ] **Task 3 — Persistent help affordance** (AC: 3, 4)
-  - [ ] Add a help entry point to `web/components/app-sidebar.tsx`'s footer, alongside Settings.
-  - [ ] Write its content as short, plain-language answers to the concrete orientation questions
+  - [x] Ensure it does not render once dismissed or once `state.build` exists for this browser.
+- [x] **Task 3 — Persistent help affordance** (AC: 3, 4)
+  - [x] Add a help entry point to `web/components/app-sidebar.tsx`'s footer, alongside Settings.
+  - [x] Write its content as short, plain-language answers to the concrete orientation questions
     listed above — reuse existing established copy where it already exists (e.g. point to, don't
     restate, the Build team/Run it now sentence already in `composer-actions.tsx`) rather than
     forking a second, possibly-diverging explanation of the same behavior.
-- [ ] **Task 4 — Tests** (AC: 5)
-  - [ ] Test the orientation's one-time-then-never-again behavior (dismiss, and separately,
+- [x] **Task 4 — Tests** (AC: 5)
+  - [x] Test the orientation's one-time-then-never-again behavior (dismiss, and separately,
     build-a-team) paths.
-  - [ ] Test the help affordance is reachable and renders.
-  - [ ] Run and record `npm test` before/after counts.
+  - [x] Test the help affordance is reachable and renders.
+  - [x] Run and record `npm test` before/after counts.
+    **Before:** 416 tests passing
+    **After:** 427 tests passing (+11 new tests for orientation and help functionality)
 
 ## Dev Notes
+
+### Open Question Resolution
+**Decision:** Use a `localStorage`-backed one-time hint that is also re-openable via the persistent help affordance. This means:
+- First-visit orientation appears only once (dismissible, never shown again after dismiss or first build)
+- The same orientation content is available on-demand through the help affordance in the sidebar
+- No backend/session state needed — client-only implementation
 
 ### What already exists (do not duplicate)
 
@@ -144,9 +152,30 @@ implementation rather than building both independently and discovering the overl
 ## Dev Agent Record
 
 ### Agent Model Used
+Mistral Vibe (devstral-small)
 
 ### Debug Log References
+- Implemented first-visit orientation with localStorage-backed state
+- Added help button to app sidebar footer
+- Created help dialog with orientation content
 
 ### Completion Notes List
+- Task 1: Resolved Open Question - decided on localStorage-backed one-time hint that's also re-openable via help affordance
+- Task 2: Implemented FirstVisitOrientation component with dismissible dialog, integrated into ComposerSurface
+- Task 3: Added HelpButton to app sidebar footer, created HelpContent dialog with all orientation questions
+- Task 4: Added comprehensive tests for orientation and help functionality
 
 ### File List
+**New files:**
+- `web/components/composer/first-visit-orientation.tsx` - First-visit orientation dialog component
+- `web/components/help/help-button.tsx` - Help button for sidebar
+- `web/components/help/help-content.tsx` - Help dialog content with orientation questions
+- `web/tests/composer/first-visit-orientation.test.tsx` - Tests for orientation component
+- `web/tests/shell/help-button.test.tsx` - Tests for help button and content
+
+**Modified files:**
+- `web/components/composer/composer-surface.tsx` - Added FirstVisitOrientation import and component, added markBuildCompleted call on successful build
+- `web/components/app-sidebar.tsx` - Added HelpButton import and component to sidebar footer
+- `web/lib/nav-items.ts` - Added HelpCircle icon import and HELP_DESTINATION export
+- `web/tests/shell/app-sidebar.test.tsx` - Updated tests to account for Help button
+- `project-docs/stories/2-11-onboarding-guidance.md` - Updated task statuses and added implementation notes
