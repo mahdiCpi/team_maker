@@ -84,6 +84,7 @@ describe("createSession", () => {
     });
 
     if (!result.ok) throw new Error(`expected success, got ${result.code}`);
+    if (result.data.status !== "complete") throw new Error("expected a complete session");
     // Values asserted against the CAPTURED bytes, so a server-side rename of
     // any of these keys turns this red.
     expect(result.data.session_id).toBe("Rv-1jGo1Q5fnAVLinZ1MPg");
@@ -136,6 +137,7 @@ describe("sendMessage", () => {
     });
 
     if (!result.ok) throw new Error("expected success");
+    if (result.data.status !== "complete") throw new Error("expected a complete session");
     expect(result.data.turn).toBe(2);
     expect(result.data.turns_remaining).toBe(18);
     expect(result.data.spec.desired_roles.map((r) => r.name)).toContain(
@@ -266,6 +268,7 @@ describe("replaceSpec", () => {
       desired_tasks: tasks,
     });
     if (!result.ok) throw new Error("expected success");
+    if (result.data.status !== "complete") throw new Error("expected a complete session");
     // The captured response is the server's own re-serialisation; the local
     // edit value must not leak into what the caller renders.
     expect(result.data.spec.team_name).toBe("article_team");
@@ -440,13 +443,14 @@ describe("parseSessionResponse narrowing", () => {
 
   it("tolerates a role with no llm, which the real server omits entirely", () => {
     const view = parseSessionResponse(sessionCreate);
-    expect(view).not.toBeNull();
-    expect(view?.spec.desired_roles[0].llm).toBeUndefined();
+    if (!view || view.status !== "complete") throw new Error("expected a complete session");
+    expect(view.spec.desired_roles[0].llm).toBeUndefined();
   });
 
   it("keeps a role's llm when the server does send one", () => {
     const view = parseSessionResponse(specEdit);
-    const critic = view?.spec.desired_roles.find((r) => r.name === "critic");
+    if (!view || view.status !== "complete") throw new Error("expected a complete session");
+    const critic = view.spec.desired_roles.find((r) => r.name === "critic");
     expect(critic?.llm).toEqual({ provider: "openai", model: "gpt-4o" });
   });
 });

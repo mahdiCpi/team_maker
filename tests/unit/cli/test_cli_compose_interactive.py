@@ -24,7 +24,10 @@ def test_interactive_run_now_builds_after_a_refinement(tmp_path, monkeypatch):
     )
     _isolate_keys(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        "team_maker.cli.create_provider", lambda cfg: _FakeProvider([first, second])
+        # Story 2.10: `start()` classifies before composing, so the first
+        # queued response answers that call.
+        "team_maker.cli.create_provider",
+        lambda cfg: _FakeProvider([{"is_team": True}, first, second]),
     )
 
     result = CliRunner().invoke(
@@ -42,8 +45,9 @@ def test_interactive_run_now_builds_after_a_refinement(tmp_path, monkeypatch):
 def test_interactive_done_ends_loop_without_building(tmp_path, monkeypatch):
     _isolate_keys(monkeypatch, tmp_path)
     monkeypatch.setattr(
+        # Story 2.10: `start()` classifies before composing.
         "team_maker.cli.create_provider",
-        lambda cfg: _FakeProvider([_valid_payload(tmp_path)]),
+        lambda cfg: _FakeProvider([{"is_team": True}, _valid_payload(tmp_path)]),
     )
 
     result = CliRunner().invoke(
@@ -59,8 +63,9 @@ def test_interactive_done_ends_loop_without_building(tmp_path, monkeypatch):
 def test_interactive_blank_line_ends_loop_without_building(tmp_path, monkeypatch):
     _isolate_keys(monkeypatch, tmp_path)
     monkeypatch.setattr(
+        # Story 2.10: `start()` classifies before composing.
         "team_maker.cli.create_provider",
-        lambda cfg: _FakeProvider([_valid_payload(tmp_path)]),
+        lambda cfg: _FakeProvider([{"is_team": True}, _valid_payload(tmp_path)]),
     )
 
     result = CliRunner().invoke(
@@ -80,7 +85,10 @@ def test_interactive_recovers_from_a_failed_refinement_then_runs_now(tmp_path, m
             {"name": "writer", "description": "Writes more content."},
         ],
     )
-    responses = [first] + [duplicate_roles_payload] * 4  # exhausts the default repair budget
+    responses = [
+        {"is_team": True},  # Story 2.10: start()'s classification call
+        first,
+    ] + [duplicate_roles_payload] * 4  # exhausts the default repair budget
     _isolate_keys(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "team_maker.cli.create_provider", lambda cfg: _FakeProvider(responses)
@@ -108,8 +116,9 @@ def test_run_now_build_happens_with_credential_still_bridged(tmp_path, monkeypat
     keyfile = tmp_path / "team_maker.keys"
     keyfile.write_text(f"ANTHROPIC_API_KEY={secret}\n", encoding="utf-8")
     monkeypatch.setattr(
+        # Story 2.10: `start()` classifies before composing.
         "team_maker.cli.create_provider",
-        lambda cfg: _FakeProvider([_valid_payload(tmp_path)]),
+        lambda cfg: _FakeProvider([{"is_team": True}, _valid_payload(tmp_path)]),
     )
 
     observed = {}
@@ -137,8 +146,9 @@ def test_interactive_eof_on_first_prompt_ends_loop_without_building(tmp_path, mo
     """Exercises the `except EOFError` branch specifically (closed stdin, not just a blank line)."""
     _isolate_keys(monkeypatch, tmp_path)
     monkeypatch.setattr(
+        # Story 2.10: `start()` classifies before composing.
         "team_maker.cli.create_provider",
-        lambda cfg: _FakeProvider([_valid_payload(tmp_path)]),
+        lambda cfg: _FakeProvider([{"is_team": True}, _valid_payload(tmp_path)]),
     )
 
     result = CliRunner().invoke(

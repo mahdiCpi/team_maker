@@ -65,7 +65,12 @@ def create_session(payload: CreateSessionRequest, request: Request) -> SessionVi
     state.registry.begin_turn(entry)
     try:
         with state.registry.hold(entry):
-            _guarded(entry, lambda: conversation.start(payload.intent))
+            # Story 2.10: start() can return None for non-team input instead of
+            # raising — `ComposerSession.start()` already leaves `current` as
+            # `None` in that case, so only the clarification text is our job.
+            result = _guarded(entry, lambda: conversation.start(payload.intent))
+            if result is None:
+                entry.clarification = _generate_clarification()
             _adopt_server_output_path(entry)
     except ApiError:
         # The first turn produced no spec, so there is nothing to refine and a
@@ -85,9 +90,11 @@ def send_message(session_id: str, payload: MessageRequest, request: Request) -> 
     # round-trips, and the cap exists to bound spend, not successes.
     state.registry.begin_turn(entry)
     with state.registry.hold(entry):
-        # `ComposerSession.refine` only assigns `self.current` after a
-        # successful compose (`session.py:41-44`) — Story 1.3's AC 6 contract.
-        _guarded(entry, lambda: entry.conversation.refine(payload.message))
+        # Story 2.10: refine() can return None — still no spec yet, or the
+        # message didn't describe one either — instead of raising.
+        result = _guarded(entry, lambda: entry.conversation.refine(payload.message))
+        if result is None:
+            entry.clarification = _generate_clarification()
         # A refine re-authors the whole spec, including `output_path`, which is
         # how a free-text message used to steer where the build writes.
         _adopt_server_output_path(entry)
@@ -99,10 +106,20 @@ def replace_spec(session_id: str, payload: SpecEditRequest, request: Request) ->
     """Apply a direct edit to the three client-owned dimensions of the spec.
 
     No LLM call happens here, so this does not consume a turn.
+
+    Story 2.10: If the session is in needs_clarification state (current is None),
+    spec edits are not allowed.
     """
     state = app_state(request)
     entry = state.registry.get(session_id)
     with state.registry.hold(entry):
+        # Story 2.10: cannot edit spec if we don't have one yet
+        if entry.conversation.current is None:
+            raise ApiError(
+                SPEC_INVALID,
+                "This conversation has no team specification yet. "
+                "Describe a team first, then you can edit it.",
+            )
         current = _current_spec(entry)
         merged = _merge_spec(current, payload)
         try:
@@ -125,6 +142,13 @@ def build_session(session_id: str, request: Request) -> BuildView:
     state = app_state(request)
     entry = state.registry.get(session_id)
     with state.registry.hold(entry):
+        # Story 2.10: cannot build if we don't have a spec
+        if entry.conversation.current is None:
+            raise ApiError(
+                SPEC_INVALID,
+                "This conversation has no team specification yet. "
+                "Describe a team first, then you can build it.",
+            )
         return run_build(_current_spec(entry))
 
 
@@ -134,14 +158,27 @@ def build_session(session_id: str, request: Request) -> BuildView:
 
 
 def _session_view(state: AppState, entry: ComposeSession) -> SessionView:
-    spec = _current_spec(entry)
+    current = entry.conversation.current
+    if current is None:
+        # needs_clarification path: no spec yet
+        return SessionView(
+            session_id=entry.session_id,
+            status="needs_clarification",
+            spec=None,
+            clarification=entry.clarification,
+            turn=entry.turn,
+            turns_remaining=state.registry.turns_remaining(entry),
+        )
+    spec = current
     return SessionView(
         session_id=entry.session_id,
+        status="complete",
         # The re-serialised server spec is authoritative: `_pre_process`
         # (`request.py:271-354`) silently rewrites input in five ways, so
         # "edited JSON in" is not "JSON out" and a client must re-render from
         # this rather than from its own local edit.
         spec=spec.model_dump(mode="json", exclude_none=True),
+        clarification=None,
         turn=entry.turn,
         turns_remaining=state.registry.turns_remaining(entry),
     )
@@ -149,7 +186,7 @@ def _session_view(state: AppState, entry: ComposeSession) -> SessionView:
 
 def _current_spec(entry: ComposeSession) -> TeamCreationRequest:
     current = entry.conversation.current
-    if current is None:  # pragma: no cover — sessions without a spec are discarded
+    if current is None:  # pragma: no cover — sessions without a spec return needs_clarification
         raise ApiError(
             SPEC_INVALID, "This conversation has no team specification yet."
         )
@@ -166,14 +203,16 @@ def _adopt_server_output_path(entry: ComposeSession) -> None:
     for the session's life — see `api/output.py`.
     """
     current = entry.conversation.current
-    if current is None:  # pragma: no cover — a spec-less session is discarded
+    if current is None:  # pragma: no cover — a spec-less session returns needs_clarification
         return
     if entry.output_path is None:
         entry.output_path = derive_output_path(current.team_name)
     entry.conversation.current = with_output_path(current, entry.output_path)
 
 
-def _guarded(entry: ComposeSession, call: Callable[[], TeamCreationRequest]) -> None:
+def _guarded(
+    entry: ComposeSession, call: Callable[[], TeamCreationRequest | None]
+) -> TeamCreationRequest | None:
     """Run one authoring turn, mapping every failure onto an AC 2 error code.
 
     The CLI's interactive loop catches only `ComposerError` and any other
@@ -182,9 +221,13 @@ def _guarded(entry: ComposeSession, call: Callable[[], TeamCreationRequest]) -> 
     with zero retries (`deferred-work.md:47`). This catches broadly and never
     lets an exception string reach the client — `str(exc)` on an SDK error can
     echo an embedded secret (`deferred-work.md:45`).
+
+    Returns the call's result (`None` for a Story 2.10 needs_clarification
+    turn) so the caller can react to it; every failure raises instead of
+    returning.
     """
     try:
-        call()
+        return call()
     except ComposerError as exc:
         raise log_and_wrap(
             SPEC_INVALID,
@@ -328,3 +371,8 @@ def _merge_roles(existing: list[dict[str, Any]], payload: SpecEditRequest) -> li
         base["name"] = role.name
         merged.append(base)
     return merged
+
+
+def _generate_clarification() -> str:
+    """A short, direct invitation to describe a team to build (Story 2.10)."""
+    return "Please describe the team you want to build and what they should do."

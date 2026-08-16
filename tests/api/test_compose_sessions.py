@@ -13,7 +13,7 @@ def _start(harness, intent: str = "I need a team to write docs."):
 
 
 def test_create_session_returns_the_first_turn(make_client, spec_payload, tmp_path):
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
 
     response = _start(harness)
 
@@ -33,7 +33,7 @@ def test_create_session_has_no_validation_field(make_client, spec_payload, tmp_p
     the defect class the story's Dev Notes call out. `validation` belongs to the
     build response alone, where a real `ValidationResult` exists.
     """
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
 
     body = _start(harness).json()
 
@@ -42,7 +42,13 @@ def test_create_session_has_no_validation_field(make_client, spec_payload, tmp_p
 
 
 def test_refine_increments_the_turn_and_replaces_the_spec(make_client, spec_payload, tmp_path):
-    harness = make_client([spec_payload(tmp_path), spec_payload(tmp_path, team_name="Docs Squad")])
+    harness = make_client(
+        [
+            {"is_team": True},
+            spec_payload(tmp_path),
+            spec_payload(tmp_path, team_name="Docs Squad"),
+        ]
+    )
     session_id = _start(harness).json()["session_id"]
 
     response = harness.client.post(
@@ -60,14 +66,14 @@ def test_refinement_carries_the_earlier_turns_facts(make_client, spec_payload, t
     """The core keeps no chat history: each turn re-sends the original intent
     plus the whole current spec (`session.py:46-56`). Prove the API does not
     break that by, say, starting a fresh conversation per request."""
-    harness = make_client([spec_payload(tmp_path), spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path), spec_payload(tmp_path)])
     session_id = _start(harness, "I need a team to write docs.").json()["session_id"]
 
     harness.client.post(
         f"/api/compose/sessions/{session_id}/messages", json={"message": "add a reviewer"}
     )
 
-    second_turn_prompt = harness.provider.calls[1]["user"]
+    second_turn_prompt = harness.provider.calls[2]["user"]
     assert "I need a team to write docs." in second_turn_prompt
     assert "Docs Team" in second_turn_prompt
     assert "add a reviewer" in second_turn_prompt
@@ -80,7 +86,7 @@ def test_failed_refine_leaves_the_current_spec_intact(make_client, spec_payload,
     repairs), which is how a *real* `ComposerError` is produced — the fake
     returns invalid payloads and the real `TeamCreationRequest` rejects them.
     """
-    harness = make_client([spec_payload(tmp_path), {}, {}, {}, {}])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path), {}, {}, {}, {}])
     session_id = _start(harness).json()["session_id"]
 
     failed = harness.client.post(
@@ -100,7 +106,7 @@ def test_failed_refine_leaves_the_current_spec_intact(make_client, spec_payload,
 def test_failed_refine_reports_field_addressable_errors(make_client, spec_payload, tmp_path):
     """AC 2 / Task 3: `ComposerError.errors` is a `list[str]` shaped
     `"a → b → c: msg"`. The envelope must turn that into dotted paths."""
-    harness = make_client([spec_payload(tmp_path), {}, {}, {}, {}])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path), {}, {}, {}, {}])
     session_id = _start(harness).json()["session_id"]
 
     body = harness.client.post(
@@ -120,7 +126,7 @@ def test_failed_first_turn_does_not_leave_a_half_born_session(
 ):
     """A session whose first turn failed has no spec, so a follow-up would hit
     `refine() before start()`. It is discarded instead."""
-    harness = make_client([{}, {}, {}, {}])
+    harness = make_client([{"is_team": True}, {}, {}, {}, {}])
 
     failed = _start(harness)
 
@@ -148,7 +154,7 @@ def test_evicted_session_is_indistinguishable_from_an_unknown_one(
     `last_seen` is pushed past the TTL rather than sleeping for half an hour;
     the sweep itself is the real code path.
     """
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
     session_id = _start(harness).json()["session_id"]
     registry = harness.client.app.state.team_maker_api.registry
 
@@ -167,7 +173,7 @@ def test_turn_cap_is_enforced(make_client, spec_payload, tmp_path):
     """AC 7: an HTTP API makes unbounded LLM spend materially worse than a CLI
     (`deferred-work.md:54`), so the cap is a hard stop, not advice."""
     payloads = [spec_payload(tmp_path) for _ in range(MAX_TURNS_PER_SESSION + 1)]
-    harness = make_client(payloads)
+    harness = make_client([{"is_team": True}, *payloads])
     session_id = _start(harness).json()["session_id"]
 
     for _ in range(MAX_TURNS_PER_SESSION - 1):
@@ -186,4 +192,4 @@ def test_turn_cap_is_enforced(make_client, spec_payload, tmp_path):
     assert capped.json()["error"]["code"] == "turn_cap_reached"
     # The capped turn must not have reached the provider.
     assert harness.provider.calls, "sanity: the fake was used"
-    assert len(harness.provider.calls) == MAX_TURNS_PER_SESSION
+    assert len(harness.provider.calls) == MAX_TURNS_PER_SESSION + 1

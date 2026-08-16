@@ -42,7 +42,10 @@ def test_session_not_found(make_client, spec_payload, tmp_path):
 
 
 def test_turn_cap_reached(make_client, spec_payload, tmp_path):
-    harness = make_client([spec_payload(tmp_path) for _ in range(MAX_TURNS_PER_SESSION)])
+    # Story 2.10: the first turn's `start()` also issues a classification call.
+    harness = make_client(
+        [{"is_team": True}] + [spec_payload(tmp_path) for _ in range(MAX_TURNS_PER_SESSION)]
+    )
     session_id = _start(harness).json()["session_id"]
     for _ in range(MAX_TURNS_PER_SESSION - 1):
         harness.client.post(
@@ -58,8 +61,34 @@ def test_turn_cap_reached(make_client, spec_payload, tmp_path):
     assert_no_exception_leak(response.text)
 
 
+def test_needs_clarification_turns_still_count_against_the_turn_cap(make_client):
+    """AC 4/AC 6 (Story 2.10): a `needs_clarification` turn must consume the
+    same turn budget as any other turn, so repeatedly sending non-team
+    messages converges to `turn_cap_reached` rather than opening an unbounded
+    free-chat loop. Every turn here — including the first — classifies as
+    non-team, so no compose response is ever queued.
+    """
+    harness = make_client([{"is_team": False}] * MAX_TURNS_PER_SESSION)
+    session_id = _start(harness, intent="hi").json()["session_id"]
+
+    for _ in range(MAX_TURNS_PER_SESSION - 1):
+        response = harness.client.post(
+            f"/api/compose/sessions/{session_id}/messages",
+            json={"message": "still not a team"},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "needs_clarification"
+
+    capped = harness.client.post(
+        f"/api/compose/sessions/{session_id}/messages", json={"message": "one more"}
+    )
+
+    assert capped.status_code == 409
+    assert_envelope(capped, "turn_cap_reached")
+
+
 def test_spec_invalid_from_an_exhausted_repair_budget(make_client, spec_payload, tmp_path):
-    harness = make_client([spec_payload(tmp_path), {}, {}, {}, {}])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path), {}, {}, {}, {}])
     session_id = _start(harness).json()["session_id"]
 
     response = harness.client.post(
@@ -100,7 +129,7 @@ def test_output_exists(make_client, spec_payload, tmp_path, offline_model_resolv
     output = tmp_path / "docs_team"
     output.mkdir()
     (output / "already-here.txt").write_text("occupied", encoding="utf-8")
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
     session_id = _start(harness).json()["session_id"]
 
     response = harness.client.post(f"/api/compose/sessions/{session_id}/build")
@@ -123,7 +152,7 @@ def test_build_failed(make_client, spec_payload, tmp_path, monkeypatch):
         def run(self, request):
             raise RuntimeError(f"pipeline exploded: {POISON}")
 
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
     session_id = _start(harness).json()["session_id"]
     monkeypatch.setattr("api.build.PipelineRunner", ExplodingRunner)
 
@@ -138,6 +167,7 @@ def test_a_failed_turn_keeps_the_session_alive(make_client, spec_payload, tmp_pa
     """AC 8: catch broadly, keep the session, keep `session.current` intact."""
     harness = make_client(
         [
+            {"is_team": True},
             spec_payload(tmp_path),
             RuntimeError(f"transient: {POISON}"),
             spec_payload(tmp_path, team_name="Docs Squad"),
@@ -193,7 +223,7 @@ def test_an_unhandled_fault_still_answers_with_the_envelope(
     fire for a fault outside them. `raise_server_exceptions=False` models what
     a real client sees — uvicorn sends the handler's response and logs the
     exception; TestClient re-raises it by default purely as a convenience."""
-    harness = make_client([spec_payload(tmp_path)], raise_server_exceptions=False)
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)], raise_server_exceptions=False)
 
     def exploding_view(*args, **kwargs):
         raise RuntimeError(f"serializer exploded: {POISON}")

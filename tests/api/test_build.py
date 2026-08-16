@@ -16,7 +16,10 @@ def built(make_client, spec_payload, tmp_path, offline_model_resolver):
 
     def _build(**role_overrides):
         payload = spec_payload(tmp_path, **role_overrides)
-        harness = make_client([payload])
+        # `ComposerSession.start()` now makes a classification call before the
+        # compose call (Story 2.10) — this answers that first, so `payload`
+        # still satisfies the compose call exactly as before.
+        harness = make_client([{"is_team": True}, payload])
         session_id = harness.client.post(
             "/api/compose/sessions", json={"intent": "docs team"}
         ).json()["session_id"]

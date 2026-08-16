@@ -46,7 +46,7 @@ def test_a_traversing_task_name_is_rejected(make_client, spec_payload, tmp_path)
     *outside* `output_path` — measured: `output_path=<tmp>/nested/out` produced
     `<tmp>/nested/ESCAPED.yaml`, with client-controlled content, bypassing the
     `overwrite=False` guard (which only inspects `output_path` itself)."""
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
     session_id = _start(harness).json()["session_id"]
 
     response = harness.client.put(
@@ -88,7 +88,9 @@ def test_output_path_is_the_servers_not_the_composers(make_client, spec_payload,
     """The composer emits an `output_path`; the server replaces it. Before the
     fix the composer's value was used verbatim, which made a free-text message
     able to choose where a build wrote."""
-    harness = make_client([spec_payload(tmp_path, output_path="/somewhere/attacker/chose")])
+    harness = make_client(
+        [{"is_team": True}, spec_payload(tmp_path, output_path="/somewhere/attacker/chose")]
+    )
 
     spec = _start(harness).json()["spec"]
 
@@ -101,6 +103,7 @@ def test_a_refine_cannot_move_the_output_path(make_client, spec_payload, tmp_pat
     around `SpecEditRequest`'s refusal of the field."""
     harness = make_client(
         [
+            {"is_team": True},
             spec_payload(tmp_path),
             spec_payload(tmp_path, output_path="/tmp/moved-by-a-message"),
         ]
@@ -126,7 +129,9 @@ def test_the_path_is_pinned_for_the_session_even_if_the_team_is_renamed(
     test passed even with the whole feature disabled — true by construction,
     which is the second defect class the story's Dev Notes list.
     """
-    harness = make_client([spec_payload(tmp_path, output_path=str(tmp_path / "composer_chose"))])
+    harness = make_client(
+        [{"is_team": True}, spec_payload(tmp_path, output_path=str(tmp_path / "composer_chose"))]
+    )
     session_id = _start(harness).json()["session_id"]
     original = derive_output_path("Docs Team")
     assert original != str(tmp_path / "composer_chose"), "sanity: the two must differ"
@@ -425,7 +430,7 @@ def test_an_over_long_provider_id_never_reaches_the_echo(make_client):
 def test_duplicate_task_names_are_rejected(make_client, spec_payload, tmp_path):
     """Both collapse onto one manifest key, so one file is written while
     `task_count` reports two."""
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
     session_id = _start(harness).json()["session_id"]
 
     response = harness.client.put(
@@ -450,6 +455,7 @@ def test_renaming_a_role_no_longer_silently_orphans_its_tasks(
     could contain tasks the user never authored."""
     harness = make_client(
         [
+            {"is_team": True},
             spec_payload(
                 tmp_path,
                 desired_tasks=[
@@ -503,6 +509,7 @@ def test_an_internal_typeerror_during_refinement_is_contained_and_neutral(
     poison = "sk-INTERNAL-BUG-DETAIL-DO-NOT-LEAK"
     harness = make_client(
         [
+            {"is_team": True},
             spec_payload(tmp_path),
             TypeError(f"unsupported operand type(s) for +: 'int' and 'str' {poison}"),
         ]
@@ -554,6 +561,7 @@ def test_the_session_survives_an_internal_error_and_can_still_be_refined(
     session usable, or the user loses a spec that cost up to four LLM calls."""
     harness = make_client(
         [
+            {"is_team": True},
             spec_payload(tmp_path),
             TypeError("internal defect"),
             spec_payload(tmp_path, team_name="Docs Squad"),

@@ -22,7 +22,7 @@ def session(make_client, spec_payload, tmp_path):
             }
         ],
     )
-    harness = make_client([payload])
+    harness = make_client([{"is_team": True}, payload])
     created = harness.client.post(
         "/api/compose/sessions", json={"intent": "I need a team to write docs."}
     ).json()
@@ -68,7 +68,7 @@ def test_edit_does_not_consume_a_turn(session):
     ).json()
 
     assert body["turn"] == 1  # no LLM call happened, so no spend to cap
-    assert len(harness.provider.calls) == 1
+    assert len(harness.provider.calls) == 2  # classification + compose, from session start
 
 
 def test_server_owned_fields_are_carried_not_read_from_the_body(session):
@@ -194,7 +194,7 @@ def test_the_returned_spec_is_the_servers_not_the_clients(make_client, spec_payl
     response must be the re-serialised server spec, so a client re-renders from
     it rather than from its own local edit."""
     harness = make_client(
-        [spec_payload(tmp_path, stack={"language": "Python 3.13", "web": "FastAPI"})]
+        [{"is_team": True}, spec_payload(tmp_path, stack={"language": "Python 3.13", "web": "FastAPI"})]
     )
 
     spec = harness.client.post(

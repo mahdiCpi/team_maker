@@ -81,6 +81,8 @@ class ComposeSession:
     # The server-chosen output directory, frozen at session creation. See
     # `api/output.py` for why it is derived once rather than per turn.
     output_path: str | None = None
+    # The clarification message for when status is "needs_clarification"
+    clarification: str | None = None
     # Requests currently holding or waiting for `lock`, guarded by the
     # registry's own lock rather than by this one.
     waiters: int = 0

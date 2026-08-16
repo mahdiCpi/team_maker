@@ -232,6 +232,27 @@ export function composerReducer(
       };
 
     case "turn_succeeded": {
+      // Story 2.10: a needs_clarification turn has no spec — render the
+      // clarification message instead of calling describeProposal.
+      if (action.session.status === "needs_clarification") {
+        const withReply = append(
+          state,
+          "assistant",
+          action.session.clarification ?? "Please describe the team you want to build."
+        );
+        return {
+          ...state,
+          ...withReply,
+          ...adoptSession(state, action.session),
+          pending: null,
+          failure: null,
+          // A successful turn re-establishes what the session holds.
+          specMayBeStale: false,
+        };
+      }
+
+      // `action.session` is narrowed to the "complete" variant here, so
+      // `spec` is `SpecView`, not `SpecView | null` — no assertion needed.
       const proposal = describeProposal(
         action.session.spec,
         action.session.turn,

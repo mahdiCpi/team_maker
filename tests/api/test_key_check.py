@@ -27,7 +27,7 @@ def test_check_resolves_each_role_against_the_server_side_default(
     """A role that names no `llm` inherits `role.llm -> default_llm -> anthropic`.
     The browser cannot know that default (`spec-draft.ts:9-13` forbids inventing
     it), so the server does the join."""
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
     session_id = start_session(harness)
 
     body = harness.client.get(f"/api/keys/check/{session_id}").json()
@@ -46,6 +46,7 @@ def test_check_marks_an_explicit_role_routing_as_not_inherited(
 ):
     harness = make_client(
         [
+            {"is_team": True},
             spec_payload(
                 tmp_path,
                 desired_roles=[
@@ -55,7 +56,7 @@ def test_check_marks_an_explicit_role_routing_as_not_inherited(
                         "llm": {"provider": "openai", "model": "gpt-4o"},
                     }
                 ],
-            )
+            ),
         ]
     )
     session_id = start_session(harness)
@@ -72,6 +73,7 @@ def test_check_blocks_and_explains_when_a_required_key_is_missing(
     write_key_config({"ANTHROPIC_API_KEY": "sk-ant-x"})
     harness = make_client(
         [
+            {"is_team": True},
             spec_payload(
                 tmp_path,
                 desired_roles=[
@@ -81,7 +83,7 @@ def test_check_blocks_and_explains_when_a_required_key_is_missing(
                         "llm": {"provider": "openai", "model": "gpt-4o"},
                     }
                 ],
-            )
+            ),
         ]
     )
     session_id = start_session(harness)
@@ -99,7 +101,7 @@ def test_check_blocks_and_explains_when_a_required_key_is_missing(
 def test_check_reports_all_good_when_every_role_resolves_directly(
     make_client, spec_payload, tmp_path
 ):
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
     session_id = start_session(harness)
 
     body = harness.client.get(f"/api/keys/check/{session_id}").json()
@@ -113,7 +115,7 @@ def test_check_reports_via_openrouter_when_that_is_the_route(
     make_client, spec_payload, tmp_path, write_key_config
 ):
     write_key_config({"OPENROUTER_API_KEY": "sk-or-x"})
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
     session_id = start_session(harness, provider="openrouter", model="x")
 
     body = harness.client.get(f"/api/keys/check/{session_id}").json()
@@ -134,7 +136,7 @@ def test_the_planner_path_is_gated_on_planning_llm(
     `planning_llm` defaults to anthropic, which the sentinel config satisfies, so
     this asserts the role is *reported and marked required* rather than absent.
     """
-    harness = make_client([spec_payload(tmp_path, desired_roles=[])])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path, desired_roles=[])])
     session_id = start_session(harness)
 
     body = harness.client.get(f"/api/keys/check/{session_id}").json()
@@ -154,7 +156,7 @@ def test_the_planner_path_blocks_when_its_provider_has_no_credential(
     """A required role blocks: there is no way to build this team without it, so the
     UI must not offer to route around it."""
     write_key_config({"OPENAI_API_KEY": "sk-openai-x"})
-    harness = make_client([spec_payload(tmp_path, desired_roles=[])])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path, desired_roles=[])])
     session_id = start_session(harness, provider="openai", model="gpt-4o")
 
     body = harness.client.get(f"/api/keys/check/{session_id}").json()
@@ -190,6 +192,7 @@ def test_an_unsupported_required_provider_is_not_aggregated_as_missing_key(
     of this module did exactly that."""
     harness = make_client(
         [
+            {"is_team": True},
             spec_payload(
                 tmp_path,
                 desired_roles=[
@@ -199,7 +202,7 @@ def test_an_unsupported_required_provider_is_not_aggregated_as_missing_key(
                         "llm": {"provider": "groq", "model": "llama-3.1-70b"},
                     }
                 ],
-            )
+            ),
         ]
     )
     session_id = start_session(harness)
@@ -220,6 +223,7 @@ def test_the_blocking_reason_agrees_with_its_subject_in_number(
     write_key_config({"ANTHROPIC_API_KEY": "sk-ant-x"})
     harness = make_client(
         [
+            {"is_team": True},
             spec_payload(
                 tmp_path,
                 desired_roles=[
@@ -234,7 +238,7 @@ def test_the_blocking_reason_agrees_with_its_subject_in_number(
                         "llm": {"provider": "xai", "model": "grok"},
                     },
                 ],
-            )
+            ),
         ]
     )
     session_id = start_session(harness)
@@ -258,6 +262,7 @@ def test_the_blocking_reason_carries_no_spatial_pointer(
     write_key_config({"ANTHROPIC_API_KEY": "sk-ant-x"})
     harness = make_client(
         [
+            {"is_team": True},
             spec_payload(
                 tmp_path,
                 desired_roles=[
@@ -267,7 +272,7 @@ def test_the_blocking_reason_carries_no_spatial_pointer(
                         "llm": {"provider": "openai", "model": "gpt-4o"},
                     }
                 ],
-            )
+            ),
         ]
     )
     session_id = start_session(harness)
@@ -288,6 +293,7 @@ def test_a_role_on_an_unknown_provider_is_reported_and_sanitised(
     client-supplied string echoed into a message to go through `safe_label`."""
     harness = make_client(
         [
+            {"is_team": True},
             spec_payload(
                 tmp_path,
                 desired_roles=[
@@ -297,7 +303,7 @@ def test_a_role_on_an_unknown_provider_is_reported_and_sanitised(
                         "llm": {"provider": "not\na\rprovider", "model": "m"},
                     }
                 ],
-            )
+            ),
         ]
     )
     session_id = start_session(harness)
@@ -324,7 +330,7 @@ def test_neither_route_leaks_a_credential(
 ):
     import logging
 
-    harness = make_client([spec_payload(tmp_path)])
+    harness = make_client([{"is_team": True}, spec_payload(tmp_path)])
     session_id = start_session(harness)
 
     with caplog.at_level(logging.DEBUG):

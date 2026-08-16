@@ -118,6 +118,7 @@ import keyStatusHasKeys from "./key-status-has-keys.json";
 import keyStatusNoKeys from "./key-status-no-keys.json";
 import messageTurn2 from "./message-turn-2.json";
 import sessionCreate from "./session-create.json";
+import sessionNeedsClarification from "./session-needs-clarification.json";
 import specEdit from "./spec-edit.json";
 
 /**
@@ -140,6 +141,7 @@ export const CAPTURED: Record<string, unknown> = {
   keyStatusNoKeys,
   keyCheckAllGood,
   keyCheckMissingKey,
+  sessionNeedsClarification,
 };
 
 export {
@@ -155,5 +157,6 @@ export {
   keyStatusNoKeys,
   messageTurn2,
   sessionCreate,
+  sessionNeedsClarification,
   specEdit,
 };
