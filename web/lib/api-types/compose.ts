@@ -67,7 +67,12 @@ export type SessionView = {
   session_id: string;
   turn: number;
   turns_remaining: number;
-  spec: SpecView;
+  /** The team specification, or null if status is "needs_clarification" */
+  spec: SpecView | null;
+  /** Status discriminator: "complete" means spec is valid, "needs_clarification" means spec is null */
+  status: "complete" | "needs_clarification";
+  /** Present when status is "needs_clarification" - the message to show the user */
+  clarification: string | null;
 };
 
 export type ModelSubstitutionView = {
@@ -169,7 +174,24 @@ export function parseSessionResponse(value: unknown): SessionView | null {
   const sessionId = asString(value.session_id);
   const turn = asNumber(value.turn);
   const turnsRemaining = asNumber(value.turns_remaining);
-  if (sessionId === null || turn === null || turnsRemaining === null) return null;
+  const status = asString(value.status);
+  if (sessionId === null || turn === null || turnsRemaining === null || status === null) return null;
+  
+  // Handle both "complete" and "needs_clarification" statuses
+  if (status === "needs_clarification") {
+    // spec should be null, clarification should be present
+    const clarification = asString(value.clarification);
+    return {
+      session_id: sessionId,
+      turn,
+      turns_remaining: turnsRemaining,
+      spec: null,
+      status,
+      clarification,
+    };
+  }
+  
+  // status === "complete" - spec should be present
   const spec = parseSpec(value.spec);
   if (spec === null) return null;
   return {
@@ -177,6 +199,8 @@ export function parseSessionResponse(value: unknown): SessionView | null {
     turn,
     turns_remaining: turnsRemaining,
     spec,
+    status,
+    clarification: null,
   };
 }
 

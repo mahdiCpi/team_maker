@@ -13,6 +13,7 @@ import {
   buildWithSubstitution,
   messageTurn2,
   sessionCreate,
+  sessionNeedsClarification,
 } from "./fixtures";
 
 /** Pure reducer unit tests. No network, no mocks, no component rendering. */
@@ -346,5 +347,62 @@ describe("dismissing a failure", () => {
     expect(cleared.failure).toBeNull();
     expect(cleared.spec?.team_name).toBe("article_team");
     expect(cleared.transcript).toHaveLength(2);
+  });
+});
+
+// Story 2.10: needs_clarification tests
+const NEEDS_CLARIFICATION_SESSION = session(sessionNeedsClarification);
+
+describe("needs_clarification status (Story 2.10)", () => {
+  it("parses a needs_clarification session response", () => {
+    expect(NEEDS_CLARIFICATION_SESSION.status).toBe("needs_clarification");
+    expect(NEEDS_CLARIFICATION_SESSION.spec).toBeNull();
+    expect(NEEDS_CLARIFICATION_SESSION.clarification).toBe(
+      "Please describe the team you want to build and what they should do."
+    );
+  });
+
+  it("renders clarification message instead of calling describeProposal", () => {
+    const state = run([
+      { type: "turn_requested", text: "Hello" },
+      { type: "turn_succeeded", session: NEEDS_CLARIFICATION_SESSION },
+    ]);
+
+    // Should have user message and assistant clarification
+    expect(state.transcript).toHaveLength(2);
+    expect(state.transcript[0]).toMatchObject({ author: "user", text: "Hello" });
+    expect(state.transcript[1]).toMatchObject({
+      author: "assistant",
+      text: "Please describe the team you want to build and what they should do.",
+    });
+
+    // spec should be null
+    expect(state.spec).toBeNull();
+
+    // session should be tracked
+    expect(state.sessionId).toBe(NEEDS_CLARIFICATION_SESSION.session_id);
+  });
+
+  it("keeps hasSpec as false when spec is null", () => {
+    const state = run([
+      { type: "turn_requested", text: "Hello" },
+      { type: "turn_succeeded", session: NEEDS_CLARIFICATION_SESSION },
+    ]);
+
+    // hasSpec would be state.spec !== null, which is false
+    expect(state.spec).toBeNull();
+  });
+
+  it("handles consecutive needs_clarification turns", () => {
+    const state = run([
+      { type: "turn_requested", text: "Hello" },
+      { type: "turn_succeeded", session: NEEDS_CLARIFICATION_SESSION },
+      { type: "turn_requested", text: "hi" },
+      { type: "turn_succeeded", session: NEEDS_CLARIFICATION_SESSION },
+    ]);
+
+    // Should have 4 transcript entries: user, assistant, user, assistant
+    expect(state.transcript).toHaveLength(4);
+    expect(state.spec).toBeNull();
   });
 });

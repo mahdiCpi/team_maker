@@ -125,9 +125,10 @@ class SpecEditRequest(BaseModel):
 class SessionView(BaseModel):
     """The session envelope returned by create / message / spec-edit."""
 
-    status: Literal["complete"] = "complete"
+    status: Literal["complete", "needs_clarification"] = "complete"
     session_id: str
-    spec: dict[str, Any]
+    spec: dict[str, Any] | None
+    clarification: str | None = None
     turn: int
     turns_remaining: int
 

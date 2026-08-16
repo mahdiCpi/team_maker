@@ -65,8 +65,32 @@ def create_session(payload: CreateSessionRequest, request: Request) -> SessionVi
     state.registry.begin_turn(entry)
     try:
         with state.registry.hold(entry):
-            _guarded(entry, lambda: conversation.start(payload.intent))
-            _adopt_server_output_path(entry)
+            # Story 2.10: start() can now return None for non-team input
+            # We need to handle both the None case and exceptions
+            try:
+                result = conversation.start(payload.intent)
+            except ComposerError as exc:
+                # ComposerError from compose() - wrap it
+                raise log_and_wrap(
+                    SPEC_INVALID,
+                    "The team specification could not be completed from that description. "
+                    "Try rephrasing it, or simplifying the requirements.",
+                    exc,
+                    fields=fields_from_composer_errors(exc.errors),
+                ) from exc
+            except Exception as exc:
+                # Any other exception - wrap it
+                _handle_general_compose_error(entry, exc)
+            else:
+                # No exception - check if result is None (non-team classification)
+                if result is None:
+                    # Story 2.10: classification determined this is not a team description
+                    entry.clarification = _generate_clarification(payload.intent)
+                    # current stays None, clarification is set
+                else:
+                    # Normal path: result is a TeamCreationRequest
+                    entry.conversation.current = result
+                _adopt_server_output_path(entry)
     except ApiError:
         # The first turn produced no spec, so there is nothing to refine and a
         # follow-up message would hit `refine() before start()`. Drop the
@@ -85,9 +109,26 @@ def send_message(session_id: str, payload: MessageRequest, request: Request) -> 
     # round-trips, and the cap exists to bound spend, not successes.
     state.registry.begin_turn(entry)
     with state.registry.hold(entry):
-        # `ComposerSession.refine` only assigns `self.current` after a
-        # successful compose (`session.py:41-44`) — Story 1.3's AC 6 contract.
-        _guarded(entry, lambda: entry.conversation.refine(payload.message))
+        # Story 2.10: refine() can now return None if current is None
+        # (i.e., first turn was not a team and we're still in needs_clarification state)
+        try:
+            result = entry.conversation.refine(payload.message)
+        except ComposerError as exc:
+            raise log_and_wrap(
+                SPEC_INVALID,
+                "The team specification could not be completed from that description. "
+                "Try rephrasing it, or simplifying the requirements.",
+                exc,
+                fields=fields_from_composer_errors(exc.errors),
+            ) from exc
+        except Exception as exc:
+            _handle_general_compose_error(entry, exc)
+        else:
+            if result is None:
+                # Still in needs_clarification state - update clarification
+                entry.clarification = _generate_clarification(payload.message)
+            else:
+                entry.conversation.current = result
         # A refine re-authors the whole spec, including `output_path`, which is
         # how a free-text message used to steer where the build writes.
         _adopt_server_output_path(entry)
@@ -99,10 +140,20 @@ def replace_spec(session_id: str, payload: SpecEditRequest, request: Request) ->
     """Apply a direct edit to the three client-owned dimensions of the spec.
 
     No LLM call happens here, so this does not consume a turn.
+    
+    Story 2.10: If the session is in needs_clarification state (current is None),
+    spec edits are not allowed.
     """
     state = app_state(request)
     entry = state.registry.get(session_id)
     with state.registry.hold(entry):
+        # Story 2.10: cannot edit spec if we don't have one yet
+        if entry.conversation.current is None:
+            raise ApiError(
+                SPEC_INVALID,
+                "This conversation has no team specification yet. "
+                "Describe a team first, then you can edit it.",
+            )
         current = _current_spec(entry)
         merged = _merge_spec(current, payload)
         try:
@@ -125,6 +176,13 @@ def build_session(session_id: str, request: Request) -> BuildView:
     state = app_state(request)
     entry = state.registry.get(session_id)
     with state.registry.hold(entry):
+        # Story 2.10: cannot build if we don't have a spec
+        if entry.conversation.current is None:
+            raise ApiError(
+                SPEC_INVALID,
+                "This conversation has no team specification yet. "
+                "Describe a team first, then you can build it.",
+            )
         return run_build(_current_spec(entry))
 
 
@@ -134,14 +192,27 @@ def build_session(session_id: str, request: Request) -> BuildView:
 
 
 def _session_view(state: AppState, entry: ComposeSession) -> SessionView:
-    spec = _current_spec(entry)
+    current = entry.conversation.current
+    if current is None:
+        # needs_clarification path: no spec yet
+        return SessionView(
+            session_id=entry.session_id,
+            status="needs_clarification",
+            spec=None,
+            clarification=entry.clarification,
+            turn=entry.turn,
+            turns_remaining=state.registry.turns_remaining(entry),
+        )
+    spec = current
     return SessionView(
         session_id=entry.session_id,
+        status="complete",
         # The re-serialised server spec is authoritative: `_pre_process`
         # (`request.py:271-354`) silently rewrites input in five ways, so
         # "edited JSON in" is not "JSON out" and a client must re-render from
         # this rather than from its own local edit.
         spec=spec.model_dump(mode="json", exclude_none=True),
+        clarification=None,
         turn=entry.turn,
         turns_remaining=state.registry.turns_remaining(entry),
     )
@@ -149,7 +220,7 @@ def _session_view(state: AppState, entry: ComposeSession) -> SessionView:
 
 def _current_spec(entry: ComposeSession) -> TeamCreationRequest:
     current = entry.conversation.current
-    if current is None:  # pragma: no cover — sessions without a spec are discarded
+    if current is None:  # pragma: no cover — sessions without a spec return needs_clarification
         raise ApiError(
             SPEC_INVALID, "This conversation has no team specification yet."
         )
@@ -166,7 +237,7 @@ def _adopt_server_output_path(entry: ComposeSession) -> None:
     for the session's life — see `api/output.py`.
     """
     current = entry.conversation.current
-    if current is None:  # pragma: no cover — a spec-less session is discarded
+    if current is None:  # pragma: no cover — a spec-less session returns needs_clarification
         return
     if entry.output_path is None:
         entry.output_path = derive_output_path(current.team_name)
@@ -328,3 +399,36 @@ def _merge_roles(existing: list[dict[str, Any]], payload: SpecEditRequest) -> li
         base["name"] = role.name
         merged.append(base)
     return merged
+
+
+# Story 2.10: Classification support functions
+
+def _generate_clarification(intent: str) -> str:
+    """Generate a clarification message when input is not a team description.
+
+    Returns a short, specific invitation to describe a team.
+    """
+    # Keep it simple and direct
+    return "Please describe the team you want to build and what they should do."
+
+
+def _handle_general_compose_error(entry: ComposeSession, exc: Exception) -> None:
+    """Handle a general exception from compose operations.
+
+    This is the same logic as _guarded but extracted for reuse.
+    """
+    if entry.choice.keyless:
+        endpoint = entry.choice.config.base_url or "its local endpoint"
+        raise log_and_wrap(
+            AUTHORING_UNAVAILABLE,
+            f"Could not reach the local authoring provider "
+            f"'{entry.choice.config.provider}' at {endpoint}. Start it, or "
+            f"choose a hosted authoring provider.",
+            exc,
+        ) from exc
+    raise log_and_wrap(
+        COMPOSE_FAILED,
+        "The team specification could not be created. Retry once; if the "
+        "problem repeats, stop and report it.",
+        exc,
+    ) from exc
