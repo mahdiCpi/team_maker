@@ -144,23 +144,23 @@ Composer → Factory → Runtime; a starter team skips the Composer entirely).
   - [x] Run the existing template tests unchanged first, to confirm the refactor is
     behavior-preserving before building the two new templates on top of it.
 
-- [ ] **Task 3 — Baseline education team template** (AC: 1, 3)
-  - [ ] `team_maker/templates/education/__init__.py` (empty/marker) and
+- [x] **Task 3 — Baseline education team template** (AC: 1, 3)
+  - [x] `team_maker/templates/education/__init__.py` (empty/marker) and
     `team_maker/templates/education/template.py`:
     `@register("baseline_education_team") class EducationTeamTemplate(RoleBasedTemplateMixin,
     BaseTeamTemplate)`. See Dev Notes for the concrete role/task catalog to implement.
-  - [ ] `examples/baseline_education_team_request.yaml` — a curated request exercising this
+  - [x] `examples/baseline_education_team_request.yaml` — a curated request exercising this
     template (`template_id: baseline_education_team`), in the same shape as
     `examples/software_delivery_request.yaml`.
-  - [ ] Import the new module in `team_maker/templates/__init__.py` so its `@register` decorator
+  - [x] Import the new module in `team_maker/templates/__init__.py` so its `@register` decorator
     fires.
 
-- [ ] **Task 4 — Research/content team template** (AC: 1, 3)
-  - [ ] `team_maker/templates/research_content/__init__.py` and `template.py`:
+- [x] **Task 4 — Research/content team template** (AC: 1, 3)
+  - [x] `team_maker/templates/research_content/__init__.py` and `template.py`:
     `@register("research_content_team") class ResearchContentTeamTemplate(RoleBasedTemplateMixin,
     BaseTeamTemplate)`. See Dev Notes for the concrete role/task catalog.
-  - [ ] `examples/research_content_team_request.yaml`.
-  - [ ] Import in `team_maker/templates/__init__.py`.
+  - [x] `examples/research_content_team_request.yaml`.
+  - [x] Import in `team_maker/templates/__init__.py`.
 
 - [ ] **Task 5 — `GET /api/starters` read-only listing** (AC: 4)
   - [ ] `api/routers/starters.py`: reads the two shipped YAMLs directly (path resolved relative to
@@ -368,10 +368,19 @@ since. `epic_3` and this story's branch (`story_3_1`) are both cut directly from
 ### Completion Notes List
 - Task 1 complete: Added template_id field to TeamCreationRequest and updated PipelineRunner._generate_from_template. All existing tests pass (369 passed).
 - Task 2 complete: Created RoleBasedTemplateMixin with shared helpers and refactored SoftwareDeliveryTemplate to use it. All existing tests pass (369 passed).
+- Task 3 complete: Created baseline_education_team template with tutor, researcher, clarity_reviewer roles and research → draft → review task DAG.
+- Task 4 complete: Created research_content_team template with researcher, writer, fact_checker, editor roles and research → draft → fact_check → edit task DAG.
 
 ### File List
 - team_maker/schema/request.py (MODIFIED: Added template_id field)
 - team_maker/pipeline/runner.py (MODIFIED: Updated _generate_from_template to use template_id)
 - team_maker/templates/role_based.py (NEW: RoleBasedTemplateMixin with shared helpers)
+- team_maker/templates/__init__.py (MODIFIED: Import education and research_content templates)
 - team_maker/templates/software_delivery/template.py (MODIFIED: Refactored to use RoleBasedTemplateMixin)
+- team_maker/templates/education/__init__.py (NEW: Education template package)
+- team_maker/templates/education/template.py (NEW: EducationTeamTemplate)
+- team_maker/templates/research_content/__init__.py (NEW: Research content template package)
+- team_maker/templates/research_content/template.py (NEW: ResearchContentTeamTemplate)
+- examples/baseline_education_team_request.yaml (NEW: Example education team request)
+- examples/research_content_team_request.yaml (NEW: Example research content team request)
 - tests/unit/test_template_id.py (NEW: Tests for template_id functionality)
