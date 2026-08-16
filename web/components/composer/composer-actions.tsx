@@ -8,6 +8,13 @@ const REVIEW_LABEL_ID = "composer-review-before-build"
  *  control announces as unavailable and the reason is never announced with it. */
 const ACTIONS_REASON_ID = "composer-actions-reason"
 
+/** Exported so other surfaces (e.g. the help affordance) point to this copy
+ *  instead of forking their own paraphrase that can drift out of sync. */
+export const BUILD_ACTIONS_REVIEW_ON_COPY =
+  "Build team opens the spec for review first. Run it now skips it."
+export const BUILD_ACTIONS_REVIEW_OFF_COPY =
+  "Build team writes the package. Run it now does the same, skipping review."
+
 /**
  * The persistent action bar (AC 3, AC 4).
  *
@@ -104,8 +111,8 @@ export function ComposerActions({
           className="text-xs text-muted-foreground"
         >
           {reviewBeforeBuild
-            ? "Build team opens the spec for review first. Run it now skips it."
-            : "Build team writes the package. Run it now does the same, skipping review."}
+            ? BUILD_ACTIONS_REVIEW_ON_COPY
+            : BUILD_ACTIONS_REVIEW_OFF_COPY}
         </p>
       )}
     </div>

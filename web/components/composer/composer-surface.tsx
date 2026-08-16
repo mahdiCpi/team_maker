@@ -16,6 +16,10 @@ import { KeyCheck } from "@/components/composer/key-check"
 import { SpecEditor } from "@/components/composer/spec-editor"
 import { Transcript } from "@/components/composer/transcript"
 import {
+  FirstVisitOrientation,
+  markBuildCompleted,
+} from "@/components/composer/first-visit-orientation"
+import {
   buildTeam,
   createSession,
   getKeyCheck,
@@ -144,8 +148,12 @@ export function ComposerSurface() {
     setSavedNotice(null)
     dispatch({ type: "build_requested" })
     const result = await buildTeam(sessionId)
-    if (result.ok) dispatch({ type: "build_succeeded", result: result.data })
-    else dispatch({ type: "build_failed", failure: result })
+    if (result.ok) {
+      markBuildCompleted()
+      dispatch({ type: "build_succeeded", result: result.data })
+    } else {
+      dispatch({ type: "build_failed", failure: result })
+    }
   }
 
   /** `Build team` honours the review toggle; `Run it now` bypasses it. */
@@ -211,6 +219,7 @@ export function ComposerSurface() {
       </h1>
       {state.transcript.length === 0 ? (
         <div className="flex min-h-0 flex-1 flex-col justify-center">
+          <FirstVisitOrientation />
           <EmptyState
             title="Describe your team."
             description="Say what work you want done. team_maker proposes the roles and tasks, then you refine them here."

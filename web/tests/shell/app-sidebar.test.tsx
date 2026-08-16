@@ -20,10 +20,11 @@ function renderSidebar() {
 }
 
 describe("AppSidebar destinations", () => {
-  it("renders exactly four links and no more", () => {
+  it("renders exactly four navigation links and no more", () => {
     renderSidebar();
     // A count, not a probe for one absent string: asserting that
     // "Team Workspace" is missing also passed on a component rendering null.
+    // Help button is a dialog trigger, not a link, so still 4 links.
     expect(screen.getAllByRole("link")).toHaveLength(4);
   });
 
@@ -35,13 +36,18 @@ describe("AppSidebar destinations", () => {
     );
   });
 
-  it("renders the four destinations in order, Settings last", () => {
+  it("renders the four navigation destinations in order, Settings last", () => {
     renderSidebar();
     const hrefs = screen
       .getAllByRole("link")
       .map((el) => el.getAttribute("href"));
     expect(hrefs).toEqual(["/", "/starter-teams", "/my-teams", "/settings"]);
   });
+
+  it("renders a Help button in the footer", () => {
+    renderSidebar();
+    expect(screen.getByRole("button", { name: /Help/i })).toBeInTheDocument()
+  })
 });
 
 describe("AppSidebar active state", () => {

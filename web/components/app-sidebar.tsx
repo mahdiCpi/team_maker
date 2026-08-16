@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import { BrandWordmark } from "@/components/brand-wordmark"
+import { HelpButton } from "@/components/help/help-button"
 import {
   Sidebar,
   SidebarContent,
@@ -85,6 +86,7 @@ export function AppSidebar() {
               item={SETTINGS_DESTINATION}
               isActive={pathname === SETTINGS_DESTINATION.href}
             />
+            <HelpButton />
           </SidebarMenu>
         </nav>
       </SidebarFooter>
