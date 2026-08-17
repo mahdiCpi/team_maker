@@ -7,11 +7,19 @@ import NewTeamPage, { metadata as newTeamMeta } from "@/app/page";
  * The `/` route's own assertions, migrated out of `web/tests/shell/routes.test.tsx`
  * where they described the Story 2.1 placeholder this story replaced.
  *
- * No `fetch` stub and no `next/navigation` mock: rendering the page performs no
- * request and calls no router, and asserting that is part of the point — the old
- * suite does not mock `next/navigation`, so a page that reached for `useRouter`
- * would have broken it.
+ * `next/navigation` IS now mocked at module level, as of Story 3-2: reading
+ * `?starter=` to pre-load the Composer from a starter team requires
+ * `useSearchParams()`, called unconditionally by `StarterSeedEffect` on every
+ * render of `ComposerSurface`. That is a deliberate, accepted change to the
+ * invariant this file's own comment used to describe ("ComposerSurface calls
+ * no navigation hook") — not a regression to route around. `fetch` is still
+ * unstubbed at module level; the tests that need it stub it themselves.
  */
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 describe("the / route", () => {
   it("keeps its distinct document title", () => {
@@ -20,9 +28,12 @@ describe("the / route", () => {
     expect(newTeamMeta.title).toBe("New Team · team_maker");
   });
 
-  it("renders without a router, so it cannot break the shell suite", () => {
-    // `page.tsx` stays a server component and `ComposerSurface` calls no
-    // navigation hook. If either changed, this throws.
+  it("renders with no starter param, so it cannot break the shell suite", () => {
+    // `page.tsx` stays a server component. `ComposerSurface` DOES now call a
+    // navigation hook (Story 3-2's `StarterSeedEffect`, unconditionally, to
+    // read `?starter=`) — this no longer proves the page needs zero router
+    // support, only that it still renders cleanly in the common case where
+    // no `?starter=` param is present.
     expect(() => render(<NewTeamPage />)).not.toThrow();
   });
 
@@ -162,6 +173,7 @@ describe("the copy guards hold AFTER a conversation starts, not just before it",
     vi.doMock("next/navigation", () => ({
       useRouter: () => ({ push: vi.fn() }),
       usePathname: () => "/",
+      useSearchParams: () => new URLSearchParams(),
     }));
 
     const queue = createFetchQueue();

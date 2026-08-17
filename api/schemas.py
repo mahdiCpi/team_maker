@@ -416,6 +416,43 @@ class TeamListView(BaseModel):
     teams: list[TeamView]
 
 
+# ---------------------------------------------------------------------------
+# Starters (Story 3-1: Starter teams listing)
+# ---------------------------------------------------------------------------
+
+
+class StarterTeamView(BaseModel):
+    """Metadata for a single starter team."""
+
+    id: str
+    name: str
+    purpose: str
+    template_id: str
+    agent_count: int
+
+
+class StarterTeamListView(BaseModel):
+    """List of all starter teams with metadata."""
+
+    starters: list[StarterTeamView]
+
+
+class StarterRunView(BaseModel):
+    """Response from POST /api/starters/{starter_id}/run."""
+
+    status: Literal["complete"] = "complete"
+    team_slug: str
+    team_name: str
+
+
+class CreateSessionFromStarterRequest(BaseModel):
+    """Request body for POST /api/compose/sessions/from-starter."""
+
+    model_config = _STRICT
+
+    starter_id: str = Field(..., min_length=1, max_length=_MAX_NAME)
+
+
 class TeamSaveRequest(BaseModel):
     """Request body for POST /api/teams/save."""
 

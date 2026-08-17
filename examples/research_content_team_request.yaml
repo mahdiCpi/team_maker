@@ -1,0 +1,61 @@
+# team_maker — research/content team example request configuration
+# Run with:  python -m team_maker create --config examples/research_content_team_request.yaml
+#
+# This is one of the two starter teams shipped with team_maker (Epic 3, Story 3.1).
+# It's the flagship showcase team mentioned in the PRD addendum.
+# Demonstrates a template-driven team that skips the LLM planner entirely.
+
+team_name: "Research Content Team"
+purpose: >
+  Create well-researched, high-quality content by gathering facts, drafting
+  articles or reports, verifying accuracy, and producing polished final output.
+  The editor ensures the content meets quality standards and is ready for publication.
+
+output_path: "./generated_teams/research_content_team"
+stack: "Research, Content Creation, Fact-Checking, Editorial, Markdown"
+
+# Template selection - this is what makes it use the research_content template
+template_id: research_content_team
+
+# Default LLM used for any role without an explicit override
+default_llm:
+  provider: anthropic
+  model: claude-sonnet-4-6
+  api_key_env: ANTHROPIC_API_KEY
+
+documentation_level: standard
+overwrite: false
+
+tags:
+  - research
+  - content-creation
+  - starter-team
+  - fact-checked
+
+constraints:
+  - All content must be factually accurate and properly sourced
+  - Citations must be verifiable and complete
+  - Final output must meet publication quality standards
+
+# Role definitions for the research/content team
+desired_roles:
+  - name: researcher
+    description: >
+      Gathers and verifies facts, sources, and data on the assigned topic
+      to support content creation.
+
+  - name: writer
+    description: >
+      Creates the initial content draft based on verified research,
+      transforming information into compelling narratives.
+
+  - name: fact_checker
+    description: >
+      Verifies all claims, data points, and citations in the draft content
+      to ensure accuracy and integrity.
+
+  - name: editor
+    description: >
+      Edits for clarity, tone, structure, and overall quality.
+      Owns the final output and ensures it's ready for publication.
+    is_orchestrator: true

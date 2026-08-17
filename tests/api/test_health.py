@@ -60,6 +60,12 @@ def test_authored_routes_are_exactly_the_ac2_set(make_client):
         # Lets Story 2-4's re-run flow keep last_run_at/run_count honest
         # (code review D3).
         ("/api/teams/{team_name}/record-run", "POST"),
+        # The starters group, added by Story 3.1 (Starter teams listing).
+        ("/api/starters", "GET"),
+        ("/api/starters/{starter_id}", "GET"),
+        # Story 3.2 (Run and adapt a starter team).
+        ("/api/starters/{starter_id}/run", "POST"),
+        ("/api/compose/sessions/from-starter", "POST"),
     }
 
 

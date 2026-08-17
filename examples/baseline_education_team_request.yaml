@@ -1,0 +1,55 @@
+# team_maker — baseline education team example request configuration
+# Run with:  python -m team_maker create --config examples/baseline_education_team_request.yaml
+#
+# This is one of the two starter teams shipped with team_maker (Epic 3, Story 3.1).
+# It demonstrates a template-driven team that skips the LLM planner entirely.
+
+team_name: "Baseline Education Team"
+purpose: >
+  Create educational content that explains complex topics clearly and accurately.
+  The researcher gathers facts, the tutor creates explanations, and the clarity
+  reviewer ensures the content is understandable for the target audience.
+
+output_path: "./generated_teams/baseline_education_team"
+stack: "Educational content creation, Markdown, Python examples"
+
+# Template selection - this is what makes it use the education template
+# instead of the default software_delivery_team
+template_id: baseline_education_team
+
+# Default LLM used for any role without an explicit override
+default_llm:
+  provider: anthropic
+  model: claude-sonnet-4-6
+  api_key_env: ANTHROPIC_API_KEY
+
+documentation_level: standard
+overwrite: false
+
+tags:
+  - education
+  - starter-team
+  - content-creation
+
+constraints:
+  - All explanations must be accurate and fact-checked
+  - Content must be appropriate for the specified audience level
+  - Use simple language and avoid unnecessary jargon
+
+# Role definitions for the education team
+desired_roles:
+  - name: researcher
+    description: >
+      Gathers accurate facts, examples, and resources about the requested topic
+      to support the tutor's explanation.
+
+  - name: tutor
+    description: >
+      Creates clear, structured explanations tailored to the learner's level,
+      building on the research provided.
+    is_orchestrator: true
+
+  - name: clarity_reviewer
+    description: >
+      Reviews explanations for clarity, accuracy, and appropriateness,
+      identifying areas for improvement.

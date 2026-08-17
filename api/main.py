@@ -31,6 +31,7 @@ from api.errors import (
 from api.routers.compose import router as compose_router
 from api.routers.keys import router as keys_router
 from api.routers.run import router as run_router
+from api.routers.starters import router as starters_router
 from api.routers.teams import router as teams_router
 from api.runs import RunRegistry
 from api.schemas import HealthView
@@ -136,6 +137,8 @@ def create_app(
     # The key-status group (Story 2.3). Read-only: AD-9 forbids the browser
     # touching keys, so the UI's four states come from here.
     app.include_router(keys_router, prefix="/api")
+    # The starters group (Story 3-1): read-only listing of shipped starter teams
+    app.include_router(starters_router, prefix="/api")
     # The run group (Story 2.4). `run_router` declares `/teams/{team_slug}`
     # first internally, because it genuinely collides with
     # `/{run_id}/transcript` — both are two segments under `/runs` — and

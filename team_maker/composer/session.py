@@ -95,3 +95,36 @@ class ComposerSession:
             "specification the same. Re-emit the complete, updated team "
             "specification."
         )
+
+    def seed(self, spec: TeamCreationRequest, intent: str | None = None) -> None:
+        """Initialize a session with a pre-built spec, enabling conversational edits.
+
+        This method allows a session to start from an existing TeamCreationRequest
+        (e.g., a starter team) without invoking the LLM. It sets the session's
+        current spec, marks it as started, and sets a synthetic intent so that
+        subsequent refine() calls can build proper refinement prompts.
+
+        This is essential for Story 3.2's "Adapt with Composer" flow, where a
+        starter team's spec is loaded and the user can then tweak it through
+        the normal chat interface. Without setting _started=True and _intent,
+        refine() would raise RuntimeError on the first chat message.
+
+        Credential-free by construction, and deliberately so: this method never
+        touches `self._composer`/`self._provider` (unlike `start()`), so seeding
+        a session needs no usable authoring credential — that gate is an `api/`
+        layer concern, checked lazily by `api/routers/compose.py::send_message`
+        only once `refine()` is actually about to be called. Nothing here needs
+        to know that; the boundary is enforced by simply never calling into the
+        provider until `refine()` does.
+
+        Args:
+            spec: The TeamCreationRequest to seed the session with.
+            intent: Optional intent string. If not provided, a synthetic intent
+                    will be generated describing the loaded spec.
+        """
+        self.current = spec
+        self._started = True
+        if intent is None:
+            self._intent = f"Start from the existing '{spec.team_name}' team specification."
+        else:
+            self._intent = intent
