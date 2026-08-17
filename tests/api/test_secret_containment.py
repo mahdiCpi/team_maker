@@ -50,6 +50,11 @@ def _template(path: str) -> str:
         "delete",
     ]:
         return "/api/teams/{team_name}"
+    # Starter teams routes (Story 3.1)
+    if len(parts) == 2 and parts == ["api", "starters"]:
+        return "/api/starters"
+    if len(parts) == 3 and parts[:2] == ["api", "starters"]:
+        return "/api/starters/{starter_id}"
     return path
 
 
@@ -132,6 +137,10 @@ def _exercise_every_route(client, tmp_path, spec_payload) -> list:
         client.delete("/api/teams/delete", params={"team_name": "NonExistent"}),
         client.post("/api/teams/recent", json={"team_name": "Sweep Recent Team"}),
         client.post("/api/teams/NonExistent/record-run", json={}),
+        # Starter teams routes (Story 3.1).
+        client.get("/api/starters"),
+        client.get("/api/starters/baseline_education_team"),
+        client.get("/api/starters/unknown"),
     ]
     return responses
 

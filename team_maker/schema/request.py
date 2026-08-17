@@ -290,6 +290,10 @@ class TeamCreationRequest(BaseModel):
     overwrite: bool = Field(False, description="Allow overwriting an existing output directory")
     tags: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    template_id: Optional[str] = Field(
+        None,
+        description="Optional template ID to use for team generation. If not provided, defaults to 'software_delivery_team'.",
+    )
 
     @model_validator(mode="before")
     @classmethod
