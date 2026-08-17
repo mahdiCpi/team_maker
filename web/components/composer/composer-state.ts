@@ -132,7 +132,8 @@ export type ComposerAction =
   | { type: "key_status_loaded"; status: KeyStatusView }
   | { type: "key_check_requested"; epoch: number }
   | { type: "key_check_loaded"; check: KeyCheckView; epoch: number }
-  | { type: "key_check_unavailable"; failure: ApiFailure; epoch: number };
+  | { type: "key_check_unavailable"; failure: ApiFailure; epoch: number }
+  | { type: "session_seeded"; session: SessionView };
 
 export const INITIAL_COMPOSER_STATE: ComposerState = {
   sessionId: null,
@@ -436,5 +437,19 @@ export function composerReducer(
         keyCheckEpoch: state.keyCheckEpoch + 1,
         keyCheckState: "idle",
       };
+
+    case "session_seeded": {
+      // Story 3.2: session was seeded from a starter, no LLM turn was spent.
+      // Adopt the session state exactly like turn_succeeded, but WITHOUT
+      // appending a transcript entry (no turn happened).
+      return {
+        ...state,
+        ...adoptSession(state, action.session),
+        pending: null,
+        failure: null,
+        // A seeded session has a valid spec from the start
+        specMayBeStale: false,
+      };
+    }
   }
 }

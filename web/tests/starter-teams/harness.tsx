@@ -18,12 +18,14 @@ export type StartersFetchQueue = {
   requests: RecordedRequest[];
   queueList: (status: number, body: unknown) => void;
   queueGet: (status: number, body: unknown) => void;
+  queueRun: (status: number, body: unknown) => void;
   install: () => void;
 };
 
 export function createStartersFetchQueue(): StartersFetchQueue {
   const listQueue: Queued[] = [];
   const getQueue: Queued[] = [];
+  const runQueue: Queued[] = [];
   const requests: RecordedRequest[] = [];
 
   function answer(queue: Queued[], path: string): Response {
@@ -44,6 +46,7 @@ export function createStartersFetchQueue(): StartersFetchQueue {
     requests,
     queueList: (status, body) => listQueue.push({ kind: "reply", status, body }),
     queueGet: (status, body) => getQueue.push({ kind: "reply", status, body }),
+    queueRun: (status, body) => runQueue.push({ kind: "reply", status, body }),
     install: () => {
       vi.stubGlobal(
         "fetch",
@@ -55,6 +58,9 @@ export function createStartersFetchQueue(): StartersFetchQueue {
 
           if (path === "/api/starters" && method === "GET") return answer(listQueue, path);
           if (path.startsWith("/api/starters/") && method === "GET") return answer(getQueue, path);
+          if (path.startsWith("/api/starters/") && path.endsWith("/run") && method === "POST") {
+            return answer(runQueue, path);
+          }
           throw new Error(`unexpected request to ${path}`);
         })
       );

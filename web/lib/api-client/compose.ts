@@ -38,6 +38,10 @@ export type CreateSessionInput = {
   authoring?: AuthoringSelection;
 };
 
+export type CreateSessionFromStarterInput = {
+  starter_id: string;
+};
+
 export function createSession(
   input: CreateSessionInput
 ): Promise<ApiResult<SessionView>> {
@@ -122,6 +126,20 @@ export function buildTeam(sessionId: string): Promise<ApiResult<BuildResultView>
       timeoutMs: BUILD_TIMEOUT_MS,
     },
     parseBuildResponse
+  );
+}
+
+export function createSessionFromStarter(
+  input: CreateSessionFromStarterInput
+): Promise<ApiResult<SessionView>> {
+  return request(
+    {
+      path: "/api/compose/sessions/from-starter",
+      method: "POST",
+      body: { starter_id: input.starter_id },
+      timeoutMs: COMPOSE_TIMEOUT_MS,
+    },
+    parseSessionResponse
   );
 }
 

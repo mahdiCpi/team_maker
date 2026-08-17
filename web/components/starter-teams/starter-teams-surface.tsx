@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 
 import { EmptyState } from "@/components/empty-state"
+import { buttonVariants } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { listStarterTeams } from "@/lib/api-client"
 import type { StarterTeamView } from "@/lib/api-types"

@@ -1,10 +1,12 @@
 /** The starters routes (Story 3-1's backend, `api/routers/starters.py`). */
 import {
   type ApiResult,
+  type StarterRunView,
   type StarterTeamListView,
   type StarterTeamView,
   parseStarterTeam,
   parseStarterTeamList,
+  parseStarterRunView,
 } from "@/lib/api-types";
 import { request } from "./transport";
 
@@ -29,5 +31,20 @@ export function getStarterTeam(starterId: string): Promise<ApiResult<StarterTeam
       timeoutMs: STARTERS_TIMEOUT_MS,
     },
     parseStarterTeam
+  );
+}
+
+/** Building a starter performs per-provider model-list network calls, then writes files. */
+export const BUILD_STARTER_TIMEOUT_MS = 120_000;
+
+/** POST /api/starters/{starter_id}/run — build a starter team and return its slug. */
+export function runStarterTeam(starterId: string): Promise<ApiResult<StarterRunView>> {
+  return request(
+    {
+      path: `/api/starters/${encodeURIComponent(starterId)}/run`,
+      method: "POST",
+      timeoutMs: BUILD_STARTER_TIMEOUT_MS,
+    },
+    parseStarterRunView
   );
 }

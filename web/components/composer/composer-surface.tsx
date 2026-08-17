@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { Suspense } from "react"
 
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/empty-state"
@@ -14,6 +15,7 @@ import {
 } from "@/components/composer/composer-state"
 import { KeyCheck } from "@/components/composer/key-check"
 import { SpecEditor } from "@/components/composer/spec-editor"
+import { StarterSeedEffect } from "@/components/composer/starter-seed-effect"
 import { Transcript } from "@/components/composer/transcript"
 import {
   FirstVisitOrientation,
@@ -217,6 +219,12 @@ export function ComposerSurface() {
       >
         New Team
       </h1>
+      
+      {/* Starter seed effect (Story 3-2) - wrapped in Suspense for useSearchParams */}
+      <Suspense fallback={null}>
+        <StarterSeedEffect dispatch={dispatch} />
+      </Suspense>
+      
       {state.transcript.length === 0 ? (
         <div className="flex min-h-0 flex-1 flex-col justify-center">
           <FirstVisitOrientation />

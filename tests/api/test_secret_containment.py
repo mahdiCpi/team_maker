@@ -55,6 +55,11 @@ def _template(path: str) -> str:
         return "/api/starters"
     if len(parts) == 3 and parts[:2] == ["api", "starters"]:
         return "/api/starters/{starter_id}"
+    # Story 3.2 routes
+    if len(parts) == 4 and parts[:2] == ["api", "starters"] and parts[3] == "run":
+        return "/api/starters/{starter_id}/run"
+    if len(parts) == 4 and parts[:3] == ["api", "compose", "sessions"] and parts[3] == "from-starter":
+        return "/api/compose/sessions/from-starter"
     return path
 
 
@@ -141,6 +146,11 @@ def _exercise_every_route(client, tmp_path, spec_payload) -> list:
         client.get("/api/starters"),
         client.get("/api/starters/baseline_education_team"),
         client.get("/api/starters/unknown"),
+        # Story 3.2 (Run and adapt a starter team).
+        client.post("/api/starters/baseline_education_team/run"),
+        client.post("/api/starters/unknown/run"),
+        client.post("/api/compose/sessions/from-starter", json={"starter_id": "baseline_education_team"}),
+        client.post("/api/compose/sessions/from-starter", json={"starter_id": "unknown"}),
     ]
     return responses
 

@@ -21,6 +21,11 @@ import { completeFirstTurn, createFetchQueue, type FetchQueue } from "../compose
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => "/",
+  // Story 3-2's `StarterSeedEffect` is mounted unconditionally inside
+  // `ComposerSurface` and calls this on every render; without it this suite
+  // throws "invariant expected app router to be mounted" (there is no
+  // `?starter=` param in either test here, so it is otherwise a no-op).
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 let queue: FetchQueue;
