@@ -205,15 +205,28 @@ def build_authoring_provider(
     choice: AuthoringChoice,
     key_config: KeyConfig,
     factory: ProviderFactory,
+    *,
+    require_credential: bool = True,
 ) -> LLMProvider:
-    """Construct the authoring adapter, or raise the right AC 2 error."""
+    """Construct the authoring adapter, or raise the right AC 2 error.
+
+    `require_credential=False` skips the "has a usable credential" gate.
+    Every concrete adapter's `__init__` only stores its config (`model`,
+    `api_key_env`, ...) — the credential itself is read, and can fail, only
+    inside `complete_structured()` (the actual LLM call). So constructing a
+    provider never needs a usable credential; this parameter exists for a
+    caller that wants to defer the *gate* — not the construction — to the
+    point an authoring call is actually about to be made (Story 3-2: a
+    session seeded from a starter needs no credential merely to exist; see
+    `api/routers/compose.py`'s "Provider resolution architecture" note).
+    """
     if choice.row is not None:
         # Order matters: "this provider has no authoring adapter" must be
         # reported *before* "this provider has no key", or the user is told to
         # add a credential that cannot help.
         if choice.config.provider not in supported_providers():
             raise authoring_unsupported(choice)
-        if not has_usable_credential(choice, key_config):
+        if require_credential and not has_usable_credential(choice, key_config):
             raise authoring_unavailable(choice)
     try:
         return factory(choice.config)

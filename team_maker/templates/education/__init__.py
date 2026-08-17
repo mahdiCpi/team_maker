@@ -1,0 +1,1 @@
+# Education team template package

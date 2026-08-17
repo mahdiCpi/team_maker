@@ -121,7 +121,10 @@ def _init_schema(conn) -> None:
 
 # Guessed ahead of Epic 3 shipping its real starter-team names; reconcile once
 # it does (see deferred-work.md).
-_RESERVED_STARTER_NAMES = frozenset({"starter", "example", "demo", "template", "sample"})
+_RESERVED_STARTER_NAMES = frozenset({
+    "starter", "example", "demo", "template", "sample",
+    "baseline_education_team", "research_content_team",
+})
 
 # This router's own static path segments. A team saved under one of these
 # names would otherwise be unreachable via `GET /{team_name}` (shadowed by the

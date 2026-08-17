@@ -1,4 +1,4 @@
-"""The four compose routes (Story 2.0, AC 2 / AC 3 / AC 7 / AC 8).
+"""The compose routes (Story 2.0, AC 2 / AC 3 / AC 7 / AC 8, Story 3-2: from-starter).
 
 Every path operation here is declared `def`, not `async def`, and that is
 load-bearing. `Composer.compose()` performs up to four *sequential blocking*
@@ -8,6 +8,34 @@ port is sync, the Anthropic adapter uses the blocking client. Declaring these
 stop serving everything, including `/api/health`. Declared `def`, FastAPI runs
 them in its threadpool. `tests/api/test_concurrency.py` proves it, and that
 test goes red if any handler here is flipped to `async def`.
+
+Story 3.2 addition: POST /compose/sessions/from-starter seeds a session from
+a starter team spec without invoking the LLM.
+
+Provider-resolution architecture (Story 3-2 resolved decision)
+----------------------------------------------------------------
+`create_session` (an ordinary, intent-driven session) still resolves and
+credential-gates its authoring provider eagerly, before anything else — that
+first turn is going to call the LLM immediately, so there is nothing to defer.
+
+`create_session_from_starter` is different: seeding a session from a starter
+spec never calls the LLM (`ComposerSession.seed()` only assigns fields), so it
+must not require a usable credential either — "Adapt with Composer" and
+direct spec-editing (`PUT .../spec`) have to work with zero configured
+provider credentials. It therefore calls `build_authoring_provider(...,
+require_credential=False)`: the adapter object is still constructed (every
+concrete adapter's `__init__` is credential-free — see `api/deps.py`), but the
+"is there a usable credential" gate is skipped.
+
+The gate itself is not skipped forever — it moves to `send_message`, the one
+route that turns into a *real* LLM call (`ComposerSession.refine()`). Before
+spending a turn, `send_message` now checks `has_usable_credential` itself and
+raises the same `AUTHORING_UNAVAILABLE` a normal session would have raised at
+creation, just at the point a credential is actually needed. This applies
+uniformly to every session, not only starter-seeded ones — for a normal
+session the check is a no-op (its credential was already validated at
+creation and nothing changes it mid-conversation), so this adds no new failure
+mode there, only a clearer one for a session that skipped the eager gate.
 """
 from __future__ import annotations
 
@@ -19,10 +47,16 @@ from fastapi import APIRouter, Request, status
 from pydantic import ValidationError
 
 from api.build import run_build
-from api.deps import build_authoring_provider, resolve_authoring_choice
+from api.deps import (
+    authoring_unavailable,
+    build_authoring_provider,
+    has_usable_credential,
+    resolve_authoring_choice,
+)
 from api.errors import (
     AUTHORING_UNAVAILABLE,
     COMPOSE_FAILED,
+    NOT_FOUND,
     SPEC_INVALID,
     ApiError,
     FieldError,
@@ -31,8 +65,14 @@ from api.errors import (
     log_and_wrap,
 )
 from api.output import derive_output_path, with_output_path
+from api.routers.starters import (
+    _STARTER_ID_TO_FILE,
+    _get_starter_filename,
+    _load_starter_yaml,
+)
 from api.schemas import (
     BuildView,
+    CreateSessionFromStarterRequest,
     CreateSessionRequest,
     MessageRequest,
     SessionView,
@@ -86,6 +126,13 @@ def send_message(session_id: str, payload: MessageRequest, request: Request) -> 
     """Refine the current spec. On failure `session.current` is left intact."""
     state = app_state(request)
     entry = state.registry.get(session_id)
+    # The deferred half of the "Provider resolution architecture" note above:
+    # a session created via `create_session_from_starter` never had this
+    # checked, since seeding spends no LLM call. This turn is the first one
+    # that actually does, so the gate belongs here — for every session, not
+    # only a starter-seeded one, since nothing else re-checks it later either.
+    if not has_usable_credential(entry.choice, state.key_config):
+        raise authoring_unavailable(entry.choice)
     # Reserved before the call, not after: a failed turn still spent 1–4 LLM
     # round-trips, and the cap exists to bound spend, not successes.
     state.registry.begin_turn(entry)
@@ -376,3 +423,80 @@ def _merge_roles(existing: list[dict[str, Any]], payload: SpecEditRequest) -> li
 def _generate_clarification() -> str:
     """A short, direct invitation to describe a team to build (Story 2.10)."""
     return "Please describe the team you want to build and what they should do."
+
+
+# ---------------------------------------------------------------------------
+# Starter-seeded sessions (Story 3-2: Run and adapt a starter team)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/sessions/from-starter", status_code=status.HTTP_201_CREATED, response_model=SessionView)
+def create_session_from_starter(
+    payload: CreateSessionFromStarterRequest, request: Request
+) -> SessionView:
+    """Create a Composer session pre-loaded with a starter team's spec.
+
+    This endpoint seeds a session from an existing starter team's
+    TeamCreationRequest without invoking the LLM (no authoring turn is
+    spent). The seeded spec's team_name is automatically suffixed with
+    "-adapted" to ensure the build directory is distinct from the original
+    starter's, preventing accidental overwrites (Story 3-2 resolved decision).
+
+    No authoring credential is required to create this session — see this
+    module's "Provider resolution architecture" note above. The returned
+    session can be driven through the existing /messages, /spec, and /build
+    routes exactly like a normally-composed session.
+
+    Story 3-2, Task 3.
+    """
+    state = app_state(request)
+    # Always the default authoring provider — a starter-seeded session has no
+    # `authoring` selection of its own (`CreateSessionFromStarterRequest`
+    # carries only `starter_id`).
+    choice = resolve_authoring_choice(None, None)
+    # `require_credential=False`: seeding spends no LLM call, so no credential
+    # is required to create this session. The adapter is still constructed
+    # (safe and credential-free — see `build_authoring_provider`'s docstring)
+    # so a later chat message has a real provider to call; `send_message`
+    # is where a missing credential is actually gated.
+    provider = build_authoring_provider(
+        choice, state.key_config, state.provider_factory, require_credential=False
+    )
+    conversation = ComposerSession(Composer(provider, key_config=state.key_config))
+
+    entry = state.registry.create(conversation, choice)
+    # No begin_turn: seeding from a starter does not consume an authoring turn
+    try:
+        with state.registry.hold(entry):
+            # Load the starter spec — the same helpers `api/routers/starters.py`
+            # itself uses, not a second copy of them.
+            filename = _get_starter_filename(payload.starter_id)
+            starter_spec = _load_starter_yaml(filename)
+
+            # Auto-rename to prevent overwriting the original starter's build
+            # (Story 3-2 resolved decision: suffix with "-adapted")
+            adapted_spec = starter_spec.model_copy(
+                update={"team_name": f"{starter_spec.team_name}-adapted"}
+            )
+
+            # Seed the session with the adapted spec
+            conversation.seed(adapted_spec)
+
+            # Adopt the server output path (same as create_session)
+            _adopt_server_output_path(entry)
+    except FileNotFoundError as exc:
+        # Discarded here too, not just in the `ApiError` branch below — a
+        # half-born session that never got a spec is exactly as useless to
+        # leave behind as one whose seeding raised an `ApiError`.
+        state.registry.discard(entry.session_id)
+        available = ", ".join(sorted(_STARTER_ID_TO_FILE))
+        raise ApiError(
+            NOT_FOUND,
+            f"Starter team '{payload.starter_id}' not found. Available starters: {available}",
+        ) from exc
+    except ApiError:
+        # Clean up the session if seeding fails
+        state.registry.discard(entry.session_id)
+        raise
+
+    return _session_view(state, entry)

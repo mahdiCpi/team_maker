@@ -1,36 +1,26 @@
-"""Unit tests for the template registry and software delivery template."""
+"""Unit tests for the software delivery template."""
 from __future__ import annotations
 
 import pytest
 
-import team_maker.templates  # noqa: F401 — registers templates
 from team_maker.domain.models import GeneratedTeam
 from team_maker.schema.request import ProviderConfig, RoleDefinition, TeamCreationRequest
-from team_maker.templates.registry import get_template, list_templates
-from team_maker.templates.software_delivery.template import SoftwareDeliveryTemplate
-
-
-def test_software_delivery_template_is_registered():
-    templates = list_templates()
-    assert "software_delivery_team" in templates
-
-
-def test_unknown_template_raises():
-    with pytest.raises(ValueError, match="Unknown template"):
-        get_template("nonexistent_template")
-
-
-def test_get_template_returns_instance():
-    tmpl = get_template("software_delivery_team")
-    assert isinstance(tmpl, SoftwareDeliveryTemplate)
+from team_maker.templates.registry import get_template
 
 
 def test_software_delivery_default_role_names():
-    tmpl = SoftwareDeliveryTemplate()
+    tmpl = get_template("software_delivery_team")
     roles = tmpl.default_role_names()
     assert "architect" in roles
     assert "backend_engineer" in roles
     assert "devops" in roles
+
+
+def test_software_delivery_default_task_names():
+    tmpl = get_template("software_delivery_team")
+    tasks = tmpl.default_task_names()
+    assert "architecture_design" in tasks
+    assert "backend_implementation" in tasks
 
 
 def test_generate_returns_generated_team(full_request):

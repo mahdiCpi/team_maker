@@ -105,14 +105,14 @@ _(from Architecture spine)_
 
 - FR-1, FR-2, FR-4 → Epic 1 (Composer core)
 - FR-5, FR-6, FR-7 → Epic 1 (Factory reuse + multi-provider)
-- FR-8, FR-9, FR-10, FR-11, FR-27 → Epic 1 (Runtime; FR-27 surfaced in Epic 2 and Epic 4)
+- FR-8, FR-9, FR-10, FR-11, FR-27 → Epic 1 (Runtime; FR-27 surfaced in Epic 2 and Epic 5)
 - FR-12, FR-13, FR-21, FR-22 → Epic 1 (keys, key-aware resolution, OpenRouter)
 - FR-20 → Epic 1 (conversational core) / surfaced in Epic 2
 - FR-3, FR-14, FR-15 → Epic 2 (UI: optional review, end-to-end flow, plain-language errors)
 - FR-23, FR-24, FR-25, FR-26, FR-28 → Epic 2 (Team Workspace: chat, docs, save, recent teams,
   team naming + deletion)
 - FR-19 → Epic 3 (starter teams)
-- FR-16, FR-17, FR-18 → Epic 4 (developer API + embed)
+- FR-16, FR-17, FR-18 → Epic 5 (developer API + embed)
 
 ## Epic List
 
@@ -121,7 +121,7 @@ The project already contains a substantial pre-plan implementation (merged from 
 an LLM-driven planner (`team_maker/llm/`), a Jinja code-generation engine (`team_maker/codegen/`),
 framework adapters (`team_maker/frameworks/`), and a real end-to-end `pipeline/runner.py`. This
 code predates the architecture spine and **diverges from several binding invariants**. Epic 0
-migrates it onto the ports-and-adapters spine so Epics 1–4 build on a conformant base rather than
+migrates it onto the ports-and-adapters spine so Epics 1–5 build on a conformant base rather than
 greenfield. Retire the architectural debt before adding features.
 **ADs addressed:** AD-1, AD-2, AD-6, AD-8 · **See:** [reconciliation-notes.md](stories/reconciliation-notes.md)
 
@@ -148,10 +148,91 @@ Ship runnable starter teams (baseline education + research/content); browse and 
 immediately without composing, or adapt it via the Composer.
 **FRs covered:** FR-19
 
-### Epic 4: Developer surface — API & embed
+### Epic 4: Deferred Work Consolidation
+Consolidate and resolve all deferred technical debt from Stories 0.3–3.2 before proceeding to Epic 5.
+This epic addresses security vulnerabilities, architectural inconsistencies, testing gaps, and
+cleanup items that accumulated across previous epics. Addressing these now prevents them from
+blocking or complicating Epic 5's API work.
+**FRs covered:** None (technical debt) · **Dependencies:** None
+
+#### Story 4.1: Security Hardening
+As the codebase, I want all security vulnerabilities addressed before API exposure,
+so that external developers can safely consume the package.
+**Acceptance Criteria:**
+**Given** the deferred security items in deferred-work.md
+**When** this story completes
+**Then** ANSI/OSC escape sequences in transcripts are sanitized, path traversal risks in starter router are fixed, document text cannot leak to server logs, exception messages cannot echo SDK-embedded secrets, basic authentication exists for teams API endpoints, and run-context delimiters cannot be spoofed.
+
+#### Story 4.2: Credential Architecture Unification
+As the codebase, I want a single, consistent credential resolution system,
+so that provider/key management is not fragmented across multiple modules.
+**Acceptance Criteria:**
+**Given** the split-brain between keyconfig.py/providers/registry.py and llm/model_resolver.py
+**When** this story completes
+**Then** credential loading and availability reporting live in one place behind the provider layer, duplicate key definitions warn instead of silently resolving, keyless-local provider keys are not ignored, OpenRouter gateway uses data flags instead of hardcoded names, dead data fields like ProviderRouting.api_key_env are removed, api/deps.py and cli.py credential logic is consolidated, run goal validation exists, and xai's openrouter_slug/reachable inconsistency is fixed.
+
+#### Story 4.3: Transcript and Run Subsystem Hardening
+As the codebase, I want a robust transcript capture system,
+so that Story 5.2 (HTTP endpoints) can reliably expose transcripts.
+**Acceptance Criteria:**
+**Given** the current transcript implementation
+**When** this story completes
+**Then** partial transcripts are returned on failed runs, concurrent runs in one process no longer corrupt each other's transcripts, the generated crewai_runner.py.j2 template captures transcripts, ANSI/OSC escape sequences are sanitized in display, transcript line format is unambiguous and bounded, and document text cannot spoof run-context delimiters.
+
+#### Story 4.4: API Contract and Error Handling
+As the codebase, I want robust error handling and contract compliance,
+so that external developers have a reliable API experience.
+**Acceptance Criteria:**
+**Given** the current API layer
+**When** this story completes
+**Then** SDK-embedded secrets cannot echo in compose exceptions, per-role provider keys are bridged in compose --build, schema-level validation exists for all request fields, spec round-trip no longer mutates on PUT, empty desired_roles are guarded in build path, second builds in same session no longer fail, and fields[].message contains authored copy not pydantic-derived text.
+
+#### Story 4.5: Template and Starter System Hardening
+As the codebase, I want all gaps in the starter template system closed,
+so that Epic 3's starter teams are production-ready.
+**Acceptance Criteria:**
+**Given** the current starter template system
+**When** this story completes
+**Then** template_id has schema-level validation, starter YAMLs are discovered dynamically not hardcoded, template existence is checked at request time, path traversal risks are fixed, YAML structure and content are validated, duplicate template IDs are prevented, thread safety tests exist for registry, error handling exists for corrupt/empty YAMLs, and YAML filename vs template_id sync is validated.
+
+#### Story 4.6: Testing Infrastructure
+As the codebase, I want proper CI and test coverage,
+so that regressions are caught automatically.
+**Acceptance Criteria:**
+**Given** the current test gaps
+**When** this story completes
+**Then** CI lanes exist for pytest and npm test, pytest.importorskip is replaced with proper required markers, conformance tests use KeyConfig.from_file properly, missing negative tests are added, oversized test files are split, and a browser test lane exists.
+
+### Epic 5: Developer surface — API & embed
 A stable public API (compose-and-create, run) and CLI sufficient to create, run, and embed teams
 in third-party software without the UI.
 **FRs covered:** FR-16, FR-17, FR-18
+
+#### Story 5.1: Compose-and-create endpoint
+As a developer, I want to create a team from intent via API,
+so that I can build teams programmatically.
+**Acceptance Criteria:**
+**Given** the API is running
+**When** I POST plain-language intent (and optional preferences)
+**Then** I get back a team reference plus a pass/fail validation result. (FR-16)
+
+#### Story 5.2: Run endpoint
+As a developer, I want to run an existing team via API,
+so that I can trigger teams from my own software.
+**Acceptance Criteria:**
+**Given** a valid team reference
+**When** I POST a goal to the run endpoint
+**Then** I get final + per-task outputs (batch) — with the full run transcript (Story 1.7)
+available on request rather than always inlined — or a fast-fail naming a missing provider key.
+(FR-17, FR-10, FR-27)
+
+#### Story 5.3: Embed a team in third-party software (CLI + docs)
+As a developer, I want the endpoints and CLI to be sufficient to embed a team,
+so that I can drop, e.g., a content team into my product.
+**Acceptance Criteria:**
+**Given** only the compose-and-create and run endpoints (plus the CLI)
+**When** I create then run a team from an external app
+**Then** the full flow works without using the UI, and the contract is documented. (FR-18)
 
 ## Epic 0: Reconcile existing code to the architecture spine
 
@@ -296,7 +377,7 @@ batch-behind-a-streamable-interface seam so per-turn streaming can be added late
 contract change, and no key or secret ever appears in it. (FR-27, FR-11, AD-6, AD-13, NFR3)
 _Extends, not replaces:_ Story 1.5 shipped `final + per-task outputs`; this widens that result
 object rather than introducing a second run path. Surfaced in the UI by Story 2.4 and over the API
-by Story 4.2.
+by Story 5.2.
 
 ## Epic 2: The app — minimal UI & Team Workspace
 
@@ -317,7 +398,7 @@ with a turn cap, and no key value ever crossing to the browser
 > **Enabler, numbered 2.0 deliberately.** No story in this plan created the FastAPI application:
 > the architecture spine assumes `api/` throughout, its Structural Seed scopes it to
 > "compose/create, run, teams, settings", the Capability Map assigns Epic 2's FR-23–FR-26 to it,
-> and Epic 4's Story 4.1 opens *"Given the API is running"* — presupposing it. Story 2.1 deferred
+> and Epic 5's Story 5.1 opens *"Given the API is running"* — presupposing it. Story 2.1 deferred
 > the decision explicitly ("Epic 2 does not create one until it needs it"). This story is that
 > moment. Numbered `2.0` rather than renumbering 2.2–2.7 because 45 cross-references to those
 > numbers exist across six files, four of them already-accepted stories. Follows the Epic 0
@@ -337,7 +418,7 @@ them, so no part of `api/` is orphaned again:
 | **run** | **Story 2.4** | the Workspace runs a built team (FR-23–FR-26 → `api/` per the Capability Map) |
 | **teams** (save / browse / rename / delete / recent) | **Story 2.5** | storage-backed, AD-11 |
 | **settings** (provider + Key Config *status*, never values) | **Story 2.6** | AD-9: status only, never a key value |
-| **the public, versioned contract** (FR-16–FR-18) | **Epic 4** | 4.1/4.2 wrap the same app object; 2.0's routes are an internal precursor they may rename |
+| **the public, versioned contract** (FR-16–FR-18) | **Epic 5** | 5.1/5.2 wrap the same app object; 2.0's routes are an internal precursor they may rename |
 
 ### Story 2.1: App shell, sidebar nav, and theming
 As a semi-technical user, I want a clean app with clear navigation,
@@ -437,7 +518,7 @@ and pairs color with text/labels (never color-only). (UX-DR9, NFR4)
 
 > **Stories 2.8–2.11, numbered deliberately.** Epic 2 was marked done through 2.7, but a manual
 > QA pass surfaced four gaps squarely inside Epic 2's own stated scope (My Teams/Team Workspace,
-> key-check messaging, the Composer, the app shell) rather than Epic 3 (starter teams) or Epic 4
+> key-check messaging, the Composer, the app shell) rather than Epic 3 (starter teams) or Epic 5
 > (developer API). Following the Story 2.0 precedent — inserted deliberately rather than
 > renumbering everything after it — these four continue the existing numbering. See each story
 > file under `project-docs/stories/` for full context; none has been implemented yet.
@@ -493,51 +574,4 @@ affordance are available
 duplicates existing inline copy (e.g. `composer-actions.tsx`'s Build team/Run it now sentence).
 (FR-14, FR-15 — see [2-11-onboarding-guidance.md](stories/2-11-onboarding-guidance.md))
 
-## Epic 3: Start fast — starter teams
 
-### Story 3.1: Ship baseline starter teams
-As the product, I want curated starter teams included,
-so that users can run something immediately.
-**Acceptance Criteria:**
-**Given** a fresh install
-**When** the user opens Starter Teams
-**Then** a baseline education team and a research/content team are present as valid Team
-Specs/Packages. (FR-19)
-
-### Story 3.2: Run and adapt a starter team
-As a user, I want to run a starter without composing, then tweak it,
-so that I get value on day one and can personalize later.
-**Acceptance Criteria:**
-**Given** a starter team
-**When** I select and run it
-**Then** it runs via the core (Story 1.5) without going through the Composer
-**And** "Adapt with Composer" opens it pre-loaded so I can change roles/models in conversation,
-re-validating before rebuild. (FR-19, FR-1, FR-8)
-
-## Epic 4: Developer surface — API & embed
-
-### Story 4.1: Compose-and-create endpoint
-As a developer, I want to create a team from intent via API,
-so that I can build teams programmatically.
-**Acceptance Criteria:**
-**Given** the API is running
-**When** I POST plain-language intent (and optional preferences)
-**Then** I get back a team reference plus a pass/fail validation result. (FR-16)
-
-### Story 4.2: Run endpoint
-As a developer, I want to run an existing team via API,
-so that I can trigger teams from my own software.
-**Acceptance Criteria:**
-**Given** a valid team reference
-**When** I POST a goal to the run endpoint
-**Then** I get final + per-task outputs (batch) — with the full run transcript (Story 1.7)
-available on request rather than always inlined — or a fast-fail naming a missing provider key.
-(FR-17, FR-10, FR-27)
-
-### Story 4.3: Embed a team in third-party software (CLI + docs)
-As a developer, I want the endpoints and CLI to be sufficient to embed a team,
-so that I can drop, e.g., a content team into my product.
-**Acceptance Criteria:**
-**Given** only the compose-and-create and run endpoints (plus the CLI)
-**When** I create then run a team from an external app
-**Then** the full flow works without using the UI, and the contract is documented. (FR-18)
