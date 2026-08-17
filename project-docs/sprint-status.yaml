@@ -66,10 +66,19 @@ development_status:
   epic-3-retrospective: optional
 
   epic-4: backlog
-  4-1-compose-and-create-endpoint: backlog
-  4-2-run-endpoint: backlog
-  4-3-embed-team-in-third-party-software: backlog
+  4-1-security-hardening: backlog
+  4-2-credential-architecture-unification: backlog
+  4-3-transcript-and-run-subsystem: backlog
+  4-4-api-contract-and-error-handling: backlog
+  4-5-template-and-starter-system: backlog
+  4-6-testing-infrastructure: backlog
   epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-compose-and-create-endpoint: backlog
+  5-2-run-endpoint: backlog
+  5-3-embed-team-in-third-party-software: backlog
+  epic-5-retrospective: optional
 
 # Action items committed during retrospectives
 action_items:
