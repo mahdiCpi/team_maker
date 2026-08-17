@@ -2,7 +2,7 @@
 # Generated manually - tracks Epic 3 stories
 
 generated: 08-16-2026 15:00
-last_updated: 08-16-2026 16:30
+last_updated: 08-16-2026 21:40
 project: team_maker
 project_key: NOKEY
 tracking_system: file-system
@@ -62,14 +62,23 @@ development_status:
 
   epic-3: in-progress
   3-1-baseline-starter-teams: done
-  3-2-run-and-adapt-starter-team: backlog
+  3-2-run-and-adapt-starter-team: done
   epic-3-retrospective: optional
 
   epic-4: backlog
-  4-1-compose-and-create-endpoint: backlog
-  4-2-run-endpoint: backlog
-  4-3-embed-team-in-third-party-software: backlog
+  4-1-security-hardening: backlog
+  4-2-credential-architecture-unification: backlog
+  4-3-transcript-and-run-subsystem: backlog
+  4-4-api-contract-and-error-handling: backlog
+  4-5-template-and-starter-system: backlog
+  4-6-testing-infrastructure: backlog
   epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-compose-and-create-endpoint: backlog
+  5-2-run-endpoint: backlog
+  5-3-embed-team-in-third-party-software: backlog
+  epic-5-retrospective: optional
 
 # Action items committed during retrospectives
 action_items:

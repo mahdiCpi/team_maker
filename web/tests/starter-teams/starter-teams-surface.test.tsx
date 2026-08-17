@@ -1,8 +1,21 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StarterTeamsSurface } from "@/components/starter-teams/starter-teams-surface";
 import { createStartersFetchQueue, type StartersFetchQueue } from "./harness";
+
+// A populated list renders `StarterTeamCard` per starter (Story 3-2), and
+// that component calls `useRouter()` unconditionally — without this mock
+// (matching `starter-team-card.test.tsx`'s own) every populated-list test
+// below throws "invariant expected app router to be mounted", since this
+// file predates Story 3-2 and never needed a router context before.
+vi.mock("next/navigation", async () => {
+  const actual = await vi.importActual("next/navigation");
+  return {
+    ...actual,
+    useRouter: () => ({ push: vi.fn() }),
+  };
+});
 
 const educationTeam = {
   id: "baseline_education_team",

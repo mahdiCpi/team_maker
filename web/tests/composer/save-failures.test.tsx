@@ -25,6 +25,11 @@ import { createFetchQueue, failureAlert, openSpecEditor } from "./harness";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => "/",
+  // Story 3-2's `StarterSeedEffect` is mounted unconditionally inside
+  // `ComposerSurface` and calls this on every render; without it this suite
+  // throws "invariant expected app router to be mounted" (there is no
+  // `?starter=` param in any of these tests, so it is otherwise a no-op).
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 let queue: ReturnType<typeof createFetchQueue>;

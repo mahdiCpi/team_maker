@@ -72,7 +72,7 @@ _From code review 2026-07-11 (Blind Hunter + Edge Case Hunter + Acceptance Audit
 ### Architecture constraints (binding)
 - **AD-9 — keys live only in the Key Config file, read-only.** Never entered in the UI, never logged, never in run output. This story establishes that discipline: use `SecretStr`; the availability report carries **presence, not values**. [Source: project-docs/architecture/architecture-team_maker-2026-07-05/ARCHITECTURE-SPINE.md#AD-9]
 - **AD-8 — one LLMProvider port; OpenRouter is an adapter + default multi-provider path.** Adding a provider is config/catalog, never core branching. Model the catalog so a new provider is a data entry. OpenRouter presence unlocks many models with one key. [Source: ...#AD-8]
-- **AD-2 / AD-4 — ports-and-adapters, inward dependencies.** This code is foundational core/config; keep it free of UI/runtime imports so the API (Epic 4) and UI (Epic 2) can consume it. [Source: ...#AD-2, #AD-4]
+- **AD-2 / AD-4 — ports-and-adapters, inward dependencies.** This code is foundational core/config; keep it free of UI/runtime imports so the API (Epic 5) and UI (Epic 2) can consume it. [Source: ...#AD-2, #AD-4]
 - **AD-3 — single repo, local-only.** No external service; a local file + static catalog. [Source: ...#AD-3, #AD-11]
 
 ### Project conventions (must follow — from project-context.md)

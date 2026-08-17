@@ -47,3 +47,27 @@ export function parseStarterTeamList(value: unknown): StarterTeamListView | null
   if (starters.some((starter) => starter === null)) return null;
   return { starters: starters as StarterTeamView[] };
 }
+
+/** `StarterRunView` (`POST /api/starters/{starter_id}/run`). */
+export type StarterRunView = {
+  status: string;
+  team_slug: string;
+  team_name: string;
+};
+
+export function parseStarterRunView(value: unknown): StarterRunView | null {
+  if (!isRecord(value)) return null;
+  const status = asString(value.status);
+  const teamSlug = asString(value.team_slug);
+  const teamName = asString(value.team_name);
+  
+  if (status === null || teamSlug === null || teamName === null) {
+    return null;
+  }
+  
+  return {
+    status,
+    team_slug: teamSlug,
+    team_name: teamName,
+  };
+}

@@ -437,6 +437,22 @@ class StarterTeamListView(BaseModel):
     starters: list[StarterTeamView]
 
 
+class StarterRunView(BaseModel):
+    """Response from POST /api/starters/{starter_id}/run."""
+
+    status: Literal["complete"] = "complete"
+    team_slug: str
+    team_name: str
+
+
+class CreateSessionFromStarterRequest(BaseModel):
+    """Request body for POST /api/compose/sessions/from-starter."""
+
+    model_config = _STRICT
+
+    starter_id: str = Field(..., min_length=1, max_length=_MAX_NAME)
+
+
 class TeamSaveRequest(BaseModel):
     """Request body for POST /api/teams/save."""
 
