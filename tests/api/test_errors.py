@@ -188,7 +188,16 @@ def test_a_failed_turn_keeps_the_session_alive(make_client, spec_payload, tmp_pa
 
 
 def test_the_exception_is_logged_server_side(make_client, spec_payload, tmp_path, caplog):
-    """"Log the exception server-side; never serialise it" — both halves."""
+    """"Log the exception server-side; never serialise it" — both halves.
+
+    Story 4.1's review (decision D3) tightened "log it" further: a server log
+    is still a leak vector (aggregation services, log file access), so the
+    logging path now redacts secret-shaped content exactly like the client-
+    facing display path does — `POISON` is shaped like a leaked API key, and
+    must now be redacted in the log too, not merely kept out of the response.
+    The surrounding message is still logged verbatim, so a real fault stays
+    diagnosable; only the secret-shaped span is replaced.
+    """
     import logging
 
     harness = make_client([RuntimeError(f"upstream exploded: {POISON}")])
@@ -197,7 +206,10 @@ def test_the_exception_is_logged_server_side(make_client, spec_payload, tmp_path
         response = _start(harness)
 
     assert response.status_code == 502
-    assert POISON in caplog.text, "the exception must still be diagnosable in the server log"
+    assert "upstream exploded" in caplog.text, "the exception must still be diagnosable in the server log"
+    assert "RuntimeError" in caplog.text
+    assert POISON not in caplog.text, "secret-shaped content must be redacted even server-side (D3)"
+    assert "[REDACTED]" in caplog.text
     assert POISON not in response.text
 
 

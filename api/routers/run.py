@@ -38,6 +38,7 @@ from api.schemas import (
 from api.state import AppState, app_state
 from team_maker.domain.models import AgentSpec, GeneratedTeam
 from team_maker.keyconfig import KeyConfig
+from team_maker.utils.text_sanitizer import sanitize_control_characters
 from team_maker.runtime.executor import (
     UnsupportedFrameworkError,
     check_runnable,
@@ -171,7 +172,9 @@ def get_run_transcript(run_id: str, request: Request) -> TranscriptView:
                 kind=entry.kind,
                 agent_role=entry.agent_role,
                 task_name=entry.task_name,
-                content=entry.content,
+                # Sanitize control characters to prevent terminal manipulation attacks
+                # via ANSI/OSC sequences in transcript content
+                content=sanitize_control_characters(entry.content) if entry.content else "",
                 target_role=entry.target_role,
             )
             for entry in entries

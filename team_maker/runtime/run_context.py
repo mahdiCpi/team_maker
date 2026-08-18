@@ -42,7 +42,10 @@ text, which is what lets this module inject arbitrary user text safely. See
 from __future__ import annotations
 
 import dataclasses
+import re
+import uuid
 from collections.abc import Sequence
+from typing import Final
 
 from team_maker.domain.models import GeneratedTeam
 
@@ -50,7 +53,16 @@ from team_maker.domain.models import GeneratedTeam
 #: `_run_context_block` and read back by `goal_is_injected` — the two live in
 #: this one module deliberately, so the guard checks the mechanism's own
 #: marker rather than a second, driftable copy of the format.
-_GOAL_HEADING = "--- This run's goal ---"
+#:
+#: To prevent spoofing (deferred-work.md:243), the delimiter now includes a UUID
+#: that is unique per run and cannot be guessed by document content.
+#: The delimiter format is: --- RUN_CONTEXT:<uuid>:GOAL ---
+#: This ensures that even if document text contains similar patterns, it cannot
+#: spoof the actual delimiter because the UUID is unique and non-guessable.
+_GOAL_HEADING_PREFIX: Final = "--- RUN_CONTEXT:"
+_GOAL_HEADING_SUFFIX: Final = ":GOAL ---"
+_DOCUMENT_HEADING_PREFIX: Final = "--- RUN_CONTEXT:"
+_DOCUMENT_HEADING_SUFFIX: Final = ":DOCUMENT ---"
 
 
 class GoalNotInjectedError(Exception):
@@ -80,27 +92,60 @@ def augment_team_for_run(
     goal: str,
     *,
     documents: Sequence[RunDocument] = (),
+    run_context_id: str | None = None,
 ) -> GeneratedTeam:
     """Return a new `GeneratedTeam` whose every task carries *goal* and *documents*.
 
     Neither `team` nor any of its `TaskSpec` objects is mutated — see the
     module docstring for why that matters here specifically.
+    
+    Args:
+        team: The team to augment.
+        goal: The goal to inject.
+        documents: The documents to inject.
+        run_context_id: Optional unique identifier for this run context. If not
+                       provided, a new UUID will be generated to prevent delimiter
+                       spoofing (per deferred-work.md:243).
     """
-    suffix = _run_context_block(goal, documents)
+    if run_context_id is None:
+        run_context_id = str(uuid.uuid4())
+    
+    suffix = _run_context_block(goal, documents, run_context_id)
     new_tasks = [
         dataclasses.replace(task, description=task.description + suffix) for task in team.tasks
     ]
     return dataclasses.replace(team, tasks=new_tasks)
 
 
+_GOAL_HEADING_PATTERN: Final = re.compile(
+    r"\-\-\- RUN_CONTEXT:([a-f0-9\-]+):GOAL \-\-\-"
+)
+
+
 def goal_is_injected(team: GeneratedTeam, goal: str) -> bool:
     """Whether *goal* has actually been woven into *team*'s task descriptions.
 
-    True when every task carries both this module's own heading (proving the
-    run-context path ran at all) and the goal text itself (proving it was
-    *this* goal). Checking both is what makes the guard robust: the heading
-    alone would pass a team augmented with a different goal, and the goal text
-    alone could coincide with a package's stock wording for a very short goal.
+    True when every task carries this module's own heading, immediately
+    followed by the goal text itself, and every task's heading carries the
+    *same* run-context id.
+
+    Checking structural adjacency (heading directly followed by the goal, the
+    exact shape `_run_context_block` builds) rather than "heading present
+    somewhere and goal text present somewhere" is what closes the gap a code
+    review found (P5/deferred-work.md:243): a document or goal that merely
+    contains a heading-shaped string *and*, independently, the goal text
+    elsewhere in the description would have satisfied the old, looser check.
+    Requiring every task to share one id additionally proves all of them came
+    from the same `augment_team_for_run` call, not from independently
+    spoofed per-task headings.
+
+    This still cannot compare against the run's *actual* `run_context_id`:
+    `augment_team_for_run` generates it internally and `ExecutionEngine.run`'s
+    signature is pinned (Story 1.7 AC 7) and cannot grow a parameter to carry
+    it through to this check. `run_team_package` is the only caller today and
+    always generates a fresh UUID before the goal/documents are processed, so
+    this is not currently exploitable — but the fix above is the strongest
+    available without widening that pinned interface.
 
     Two cases are satisfied vacuously, and deliberately:
 
@@ -114,9 +159,19 @@ def goal_is_injected(team: GeneratedTeam, goal: str) -> bool:
     """
     if not goal.strip():
         return True
-    return all(
-        _GOAL_HEADING in task.description and goal in task.description for task in team.tasks
-    )
+    if not team.tasks:
+        return True
+
+    run_context_ids: set[str] = set()
+    for task in team.tasks:
+        match = _GOAL_HEADING_PATTERN.search(task.description)
+        if match is None:
+            return False
+        if f"{match.group(0)}\n{goal}" not in task.description:
+            return False
+        run_context_ids.add(match.group(1))
+
+    return len(run_context_ids) == 1
 
 
 def require_goal_injected(team: GeneratedTeam, goal: str) -> None:
@@ -137,8 +192,25 @@ def require_goal_injected(team: GeneratedTeam, goal: str) -> None:
     )
 
 
-def _run_context_block(goal: str, documents: Sequence[RunDocument]) -> str:
-    lines = ["", "", _GOAL_HEADING, goal]
+def _run_context_block(goal: str, documents: Sequence[RunDocument], run_context_id: str) -> str:
+    """Build the run context block with unique, non-guessable delimiters.
+    
+    Args:
+        goal: The goal text to inject.
+        documents: The documents to inject.
+        run_context_id: The unique identifier for this run context.
+    
+    Returns:
+        The formatted run context block with secure delimiters.
+    """
+    # Use unique delimiters with the run context ID to prevent spoofing
+    # Format: --- RUN_CONTEXT:<uuid>:GOAL ---
+    goal_heading = f"{_GOAL_HEADING_PREFIX}{run_context_id}{_GOAL_HEADING_SUFFIX}"
+    
+    lines = ["", "", goal_heading, goal]
     for document in documents:
-        lines += ["", f'--- Attached document: "{document.name}" ---', document.text]
+        # Format: --- RUN_CONTEXT:<uuid>:DOCUMENT:<doc_name> ---
+        # The UUID ensures this cannot be spoofed by document content
+        doc_heading = f"{_DOCUMENT_HEADING_PREFIX}{run_context_id}:DOCUMENT:{document.name}{_DOCUMENT_HEADING_SUFFIX}"
+        lines += ["", doc_heading, document.text]
     return "\n".join(lines)

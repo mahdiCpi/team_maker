@@ -21,6 +21,7 @@ import logging
 
 from team_maker.domain.models import ProviderRouting
 from team_maker.schema.request import TeamCreationRequest
+from team_maker.utils.text_sanitizer import log_exception_safely
 
 logger = logging.getLogger("api.routings")
 
@@ -49,8 +50,10 @@ def requested_routings(request: TeamCreationRequest) -> dict[str, ProviderRoutin
         from team_maker.templates.registry import get_template
 
         pre = get_template(_TEMPLATE_ID).generate(request)
-    except Exception:  # never let reporting break a build or a status read
-        logger.exception("could not pre-resolve requested routings")
+    except Exception as exc:  # never let reporting break a build or a status read
+        # Use safe logging to prevent sensitive data from leaking
+        # Per AD-9: keys and sensitive data must never be logged
+        log_exception_safely(logger, "could not pre-resolve requested routings", exc)
         return {}
     return {agent.role: agent.routing for agent in pre.agents}
 

@@ -549,9 +549,15 @@ def test_an_internal_typeerror_during_refinement_is_contained_and_neutral(
     assert readback.json()["spec"] == original_spec
 
     # 4. The exception is diagnosable server-side — the other half of
-    #    "log it, never serialise it".
-    assert poison in caplog.text
+    #    "log it, never serialise it". Story 4.1's review (decision D3)
+    #    tightened this further: the logging path now redacts secret-shaped
+    #    content exactly like the display path does, so the poison itself
+    #    (shaped like a leaked key) is redacted even server-side, while the
+    #    surrounding message and exception type stay diagnosable.
+    assert "unsupported operand type(s) for +: 'int' and 'str'" in caplog.text
     assert "TypeError" in caplog.text
+    assert poison not in caplog.text, "secret-shaped content must be redacted even server-side (D3)"
+    assert "[REDACTED]" in caplog.text
 
 
 def test_the_session_survives_an_internal_error_and_can_still_be_refined(

@@ -29,6 +29,11 @@ from team_maker.runtime.executor import UnsupportedFrameworkError, run_team_pack
 from team_maker.runtime.loader import TeamPackageError
 from team_maker.runtime.preflight import InvalidPackageError, MissingCredentialsError
 from team_maker.schema.request import ProviderConfig, TeamCreationRequest
+from team_maker.utils.text_sanitizer import (
+    sanitize_control_characters,
+    sanitize_exception_for_display,
+    sanitize_text_for_display,
+)
 from team_maker.utils.yaml_utils import dump_yaml, load_yaml
 
 console = Console()
@@ -305,11 +310,16 @@ def compose(
                     try:
                         request = session.refine(line)
                     except ComposerError as exc:
+                        # Sanitize before display to prevent secrets from leaking
+                        # (AD-9) -- this loop shares the exact `ComposerError`
+                        # surface as the handlers below and must not skip the
+                        # same sanitization (code review P6).
+                        sanitized_msg = sanitize_exception_for_display(exc)
                         err_console.print(
-                            f"[bold]Could not apply that change:[/bold] {escape(str(exc))}"
+                            f"[bold]Could not apply that change:[/bold] {escape(sanitized_msg)}"
                         )
                         for error in exc.errors:
-                            err_console.print(f"  • {escape(error)}")
+                            err_console.print(f"  • {escape(sanitize_text_for_display(error))}")
                         continue
                     if request is None:
                         err_console.print(
@@ -322,12 +332,18 @@ def compose(
             else:
                 request = composer.compose(intent)
         except ComposerError as exc:
-            err_console.print(f"[bold]Could not compose a valid team specification:[/bold] {escape(str(exc))}")
+            # Sanitize exception message before display to prevent secrets from leaking
+            # Per AD-9: keys and sensitive data must never be exposed to users
+            sanitized_msg = sanitize_exception_for_display(exc)
+            err_console.print(f"[bold]Could not compose a valid team specification:[/bold] {escape(sanitized_msg)}")
             for error in exc.errors:
-                err_console.print(f"  • {escape(error)}")
+                err_console.print(f"  • {escape(sanitize_text_for_display(error))}")
             sys.exit(2)
         except Exception as exc:
-            err_console.print(f"[bold]Compose failed:[/bold] {escape(str(exc))}")
+            # Sanitize exception message before display to prevent secrets from leaking
+            # Per AD-9: keys and sensitive data must never be exposed to users
+            sanitized_msg = sanitize_exception_for_display(exc)
+            err_console.print(f"[bold]Compose failed:[/bold] {escape(sanitized_msg)}")
             sys.exit(1)
 
         # The spec is the command's actual deliverable — always emit it somewhere,
@@ -700,6 +716,9 @@ def _print_transcript(result) -> None:  # type: ignore[no-untyped-def]
         console.print("[dim]No transcript was captured for this run.[/dim]")
         return
     console.print("\n[bold]Run transcript[/bold]")
-    # escape(): entry content is raw LLM text and will contain brackets.
+    # Sanitize control characters (ANSI/OSC sequences) before displaying to prevent
+    # terminal manipulation attacks. escape() only handles Rich markup brackets.
     # soft_wrap: the text is pre-indented, and re-wrapping destroys the layout.
-    console.print(escape(_format_transcript(result)), soft_wrap=True)
+    transcript_text = _format_transcript(result)
+    sanitized_text = sanitize_control_characters(transcript_text)
+    console.print(escape(sanitized_text), soft_wrap=True)
