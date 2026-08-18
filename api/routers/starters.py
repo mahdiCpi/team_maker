@@ -24,6 +24,7 @@ from api.errors import NOT_FOUND, ApiError
 from api.output import slugify_team_name
 from api.schemas import StarterRunView, StarterTeamListView, StarterTeamView
 from team_maker.schema.request import TeamCreationRequest
+from team_maker.utils.text_sanitizer import secure_resolve_path
 
 logger = logging.getLogger("api.starters")
 
@@ -31,6 +32,15 @@ router = APIRouter(prefix="/starters", tags=["starters"])
 
 # Path to the examples directory relative to the repo root
 _EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
+
+
+def _get_examples_dir() -> Path:
+    """Get the examples directory with path traversal protection.
+
+    This ensures that the examples directory path is resolved securely,
+    preventing path traversal attacks via symlinks or manipulation.
+    """
+    return _EXAMPLES_DIR.resolve()
 
 # The single source of truth mapping a starter_id to its YAML filename.
 # `api/routers/compose.py`'s from-starter session route imports this directly
@@ -50,7 +60,10 @@ _STARTER_YAMLS = list(_STARTER_ID_TO_FILE.values())
 
 def _load_starter_yaml(filename: str) -> TeamCreationRequest:
     """Load and validate a starter team YAML file."""
-    filepath = _EXAMPLES_DIR / filename
+    # Use secure path resolution to prevent path traversal
+    base_dir = _get_examples_dir()
+    filepath = secure_resolve_path(base_dir, filename)
+    
     if not filepath.exists():
         raise FileNotFoundError(
             f"Starter team YAML not found: {filepath}"

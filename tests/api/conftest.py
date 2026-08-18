@@ -40,6 +40,12 @@ SENTINEL_KEYS: dict[str, str] = {
 }
 SENTINEL_VALUES: tuple[str, ...] = tuple(SENTINEL_KEYS.values())
 
+# The teams API now fails closed without a configured key (Story 4.1 review,
+# decision D1): every test process needs one set so `make_client()`'s teams
+# requests keep authenticating, and a fixed, obviously-fake value so a
+# leaked-credential assertion could never mistake it for a real secret.
+TEST_API_KEY: str = "test-only-not-a-real-secret-00000000"
+
 
 def _render_key_config(keys: dict[str, str]) -> str:
     return "".join(f"{name}={value}\n" for name, value in keys.items())
@@ -81,6 +87,7 @@ def isolated_key_config(key_config_path, monkeypatch) -> Iterator[dict[str, str]
     tmp_path = key_config_path.parent
     key_config_path.write_text(_render_key_config(SENTINEL_KEYS), encoding="utf-8")
     monkeypatch.setenv("TEAM_MAKER_KEYS", str(key_config_path))
+    monkeypatch.setenv("TEAM_MAKER_API_KEY", TEST_API_KEY)
     # The API derives `output_path` itself rather than trusting the composer's
     # (code review D2), so builds land under this root. Pointed at `tmp_path`
     # so the suite never writes into the repo's real `generated_teams/`.
@@ -178,6 +185,12 @@ def make_client() -> Iterator[Callable[..., Harness]]:
             create_app(provider_factory=recording_factory, execution_engine=execution_engine),
             raise_server_exceptions=raise_server_exceptions,
         )
+        # The teams routes require authentication (Story 4.1 AC 6, fail-closed
+        # per the review). Set as a client default so every existing test's
+        # `harness.client.get/post/...` call keeps authenticating without
+        # having to pass the header itself; a test of the unauthenticated path
+        # overrides or removes this header explicitly.
+        client.headers["X-API-Key"] = TEST_API_KEY
         client.__enter__()  # runs the lifespan; torn down below
         opened.append(client)
         harness.client = client

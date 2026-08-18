@@ -32,9 +32,13 @@ import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Optional
+
+from fastapi import Request
 
 from api.errors import (
     AUTHORING_UNAVAILABLE,
+    AUTHENTICATION_REQUIRED,
     COMPOSE_FAILED,
     SPEC_INVALID,
     ApiError,
@@ -48,6 +52,80 @@ from team_maker.ports.llm_provider import LLMProvider
 from team_maker.schema.request import ProviderConfig
 
 logger = logging.getLogger("api.deps")
+
+# Basic authentication for the teams API (Story 4.1 AC 6).
+# API key can be provided via:
+# - X-API-Key header
+# - Authorization: Bearer <token> header
+# A query-string `api_key` parameter is deliberately NOT supported: query
+# strings routinely land in access/proxy logs, shell history, and Referer
+# headers, which would contradict AD-9's "keys must never be logged" (code
+# review D2, resolved 2026-08-17).
+_API_KEY_ENV_VAR = "TEAM_MAKER_API_KEY"
+
+
+def _extract_api_key(request: Request) -> Optional[str]:
+    """Extract the API key from request headers only."""
+    x_api_key = request.headers.get("X-API-Key")
+    if x_api_key:
+        return x_api_key
+
+    authorization = request.headers.get("Authorization")
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        if token:
+            return token
+
+    return None
+
+
+def verify_api_key(api_key: Optional[str]) -> bool:
+    """Verify the provided API key against the configured key.
+
+    Fails closed (code review D1, resolved 2026-08-17): if `TEAM_MAKER_API_KEY`
+    is not configured, every request is rejected. A missing server
+    configuration must never make protected endpoints publicly accessible,
+    including on localhost.
+    """
+    expected_key = os.environ.get(_API_KEY_ENV_VAR)
+    if not expected_key:
+        return False
+
+    if api_key is None:
+        return False
+
+    # Constant-time comparison to prevent timing attacks.
+    import hmac
+
+    return hmac.compare_digest(api_key, expected_key)
+
+
+def authenticated_request(request: Request) -> Request:
+    """FastAPI dependency that requires API key authentication.
+
+    Use this as a dependency in route handlers to require authentication.
+
+    Example:
+        @router.get("/teams")
+        def list_teams(request: Request = Depends(authenticated_request)):
+            ...
+    """
+    provided_key = _extract_api_key(request)
+
+    if not verify_api_key(provided_key):
+        # `ApiError`, not a raw `HTTPException` -- every authored route signals
+        # errors through the one envelope (`api/errors.py`'s docstring), and
+        # `AUTHENTICATION_REQUIRED` already existed for exactly this case but
+        # was never actually raised anywhere until now (code review discovery
+        # made while implementing D1/D2).
+        raise ApiError(
+            AUTHENTICATION_REQUIRED,
+            "Authentication required. Provide a valid API key via the X-API-Key "
+            "header or an Authorization: Bearer header. If TEAM_MAKER_API_KEY is "
+            "not set on the server, no key can satisfy this check by design.",
+        )
+
+    return request
 
 # The same default the CLI uses (`cli.py:37-38`), so behaviour is unchanged for
 # a user who configures nothing. This retires the spine's Deferred entry

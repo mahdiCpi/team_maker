@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pydantic import ValidationError
+from team_maker.utils.text_sanitizer import log_exception_safely
 
 logger = logging.getLogger("api.errors")
 
@@ -28,6 +29,7 @@ AUTHORING_UNAVAILABLE = "authoring_unavailable"
 COMPOSE_FAILED = "compose_failed"
 OUTPUT_EXISTS = "output_exists"
 BUILD_FAILED = "build_failed"
+AUTHENTICATION_REQUIRED = "authentication_required"
 
 # Added by the Story 2.0 code review (D3). Not in AC 2's original table: it
 # exists because taking the per-conversation lock is now bounded, and a request
@@ -85,6 +87,7 @@ STATUS_BY_CODE: dict[str, int] = {
     RUN_IN_PROGRESS: 409,
     RUN_NOT_FOUND: 404,
     NOT_FOUND: 404,
+    AUTHENTICATION_REQUIRED: 401,
     METHOD_NOT_ALLOWED: 405,
     INTERNAL_ERROR: 500,
     REQUEST_REJECTED: 400,
@@ -140,10 +143,13 @@ def log_and_wrap(
 ) -> ApiError:
     """Log ``exc`` server-side and return the authored envelope for the client.
 
-    The exception object never leaves this function. ``exc_info=True`` puts the
-    traceback in the server log, which is the only place AC 8 permits it.
+    The exception object never leaves this function. The traceback is logged
+    server-side with sanitized exception message to prevent sensitive data
+    leakage (AD-9).
     """
-    logger.exception("%s: %s", code, exc.__class__.__name__, exc_info=exc)
+    # Use safe logging to prevent sensitive data from leaking
+    # Per AD-9: keys and sensitive data must never be logged
+    log_exception_safely(logger, f"{code}: {exc.__class__.__name__}", exc)
     return ApiError(code, message, fields=fields, cause=exc)
 
 

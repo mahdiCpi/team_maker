@@ -245,3 +245,44 @@ def test_a_team_with_no_tasks_is_satisfied_vacuously():
     team = generated_team([agent_spec("writer")], [])
 
     assert goal_is_injected(team, "ship it")
+
+
+# ---------------------------------------------------------------------------
+# Tightened structural check (Story 4.1 code review P1/decision, deferred-work.md:243)
+#
+# The old check was `heading pattern found somewhere AND goal text found
+# somewhere` -- independently. These pin the gap that closes: a description
+# carrying a heading-shaped string *and* the goal text, but not with the
+# heading immediately followed by the goal (the exact shape
+# `_run_context_block` builds), must not pass.
+# ---------------------------------------------------------------------------
+
+
+def test_a_heading_and_goal_present_but_not_adjacent_fails_the_guard():
+    import dataclasses
+
+    team = _team_with_two_tasks()
+    fake_heading = "--- RUN_CONTEXT:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:GOAL ---"
+    tasks = [
+        dataclasses.replace(
+            task,
+            description=f"{task.description}\n{fake_heading}\nunrelated filler text\n\nship it",
+        )
+        for task in team.tasks
+    ]
+    spoofed = dataclasses.replace(team, tasks=tasks)
+
+    assert not goal_is_injected(spoofed, "ship it")
+
+
+def test_tasks_with_different_run_context_ids_fail_the_guard():
+    """Every task must share one run-context id -- proving they all came from
+    the same `augment_team_for_run` call rather than independently spoofed
+    per-task headings carrying different ids."""
+    import dataclasses
+
+    augmented = augment_team_for_run(_team_with_two_tasks(), "ship it")
+    other = augment_team_for_run(_team_with_two_tasks(), "ship it")
+    mixed = dataclasses.replace(augmented, tasks=[augmented.tasks[0], other.tasks[1]])
+
+    assert not goal_is_injected(mixed, "ship it")

@@ -40,6 +40,7 @@ from typing import Optional
 
 from api.errors import RUN_IN_PROGRESS, RUN_NOT_FOUND, ApiError
 from team_maker.runtime.results import RunResult
+from team_maker.utils.text_sanitizer import log_exception_safely
 
 logger = logging.getLogger("api.runs")
 
@@ -276,7 +277,9 @@ class RunRegistry:
         try:
             result = work()
         except BaseException as exc:
-            logger.exception("run %s failed", record.run_id, exc_info=exc)
+            # Use safe logging to prevent sensitive data (document text, etc.) from leaking
+            # Per AD-9: keys and sensitive data must never be logged
+            log_exception_safely(logger, f"run {record.run_id} failed", exc)
             with self._guard:
                 record.failure_reason = GENERIC_FAILURE_REASON
                 record.finished_at = self._clock()
