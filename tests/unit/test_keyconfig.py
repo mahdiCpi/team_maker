@@ -184,3 +184,141 @@ def test_later_line_wins_between_alias_and_canonical_google_key(tmp_path):
     path = _write(tmp_path, f"GOOGLE_AI_API_KEY={SECRET}\nGOOGLE_API_KEY=later-alias-value\n")
     cfg = KeyConfig.from_file(path, include_env=False)
     assert cfg.keys["google"].get_secret_value() == "later-alias-value"
+
+
+# --- duplicate key handling (Story 4.2) ---
+
+
+def test_duplicate_canonical_and_alias_entries_produce_warning(tmp_path):
+    """AC2: duplicate entries for the same provider produce a warning."""
+    # Use unique sentinel values to verify they never appear in warnings
+    SENTINEL_ANTHROPIC = "ANTHROPIC_SENTINEL_VALUE_123"
+    SENTINEL_ALIAS = "ANTHROPIC_SENTINEL_VALUE_456"
+    
+    path = _write(tmp_path, f"ANTHROPIC_API_KEY={SENTINEL_ANTHROPIC}\nanthropic={SENTINEL_ALIAS}\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    
+    # Must have exactly one warning for the duplicate
+    duplicate_warnings = [w for w in cfg.load_warnings if "Duplicate key entries" in w]
+    assert len(duplicate_warnings) == 1, f"Expected 1 duplicate warning, got {len(duplicate_warnings)}"
+    
+    # Warning must identify the provider
+    assert "anthropic" in duplicate_warnings[0]
+    
+    # Warning must identify the conflicting key names
+    assert "ANTHROPIC_API_KEY" in duplicate_warnings[0]
+    assert "anthropic" in duplicate_warnings[0]
+    
+    # Warning must NOT contain secret values (security check)
+    assert SENTINEL_ANTHROPIC not in duplicate_warnings[0]
+    assert SENTINEL_ALIAS not in duplicate_warnings[0]
+
+
+def test_duplicate_bare_provider_names_produce_warning(tmp_path):
+    """Duplicate bare provider names produce a warning."""
+    SENTINEL_1 = "OPENAI_SENTINEL_1"
+    SENTINEL_2 = "OPENAI_SENTINEL_2"
+    
+    path = _write(tmp_path, f"openai={SENTINEL_1}\nopenai={SENTINEL_2}\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    
+    duplicate_warnings = [w for w in cfg.load_warnings if "Duplicate key entries" in w]
+    assert len(duplicate_warnings) == 1
+    assert "openai" in duplicate_warnings[0]
+    assert SENTINEL_1 not in duplicate_warnings[0]
+    assert SENTINEL_2 not in duplicate_warnings[0]
+
+
+def test_duplicate_warning_includes_line_numbers(tmp_path):
+    """Duplicate warning includes line numbers for better debugging."""
+    path = _write(tmp_path, f"anthropic=value1\nANTHROPIC_API_KEY=value2\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    
+    duplicate_warnings = [w for w in cfg.load_warnings if "Duplicate key entries" in w]
+    assert len(duplicate_warnings) == 1
+    assert "lines [1, 2]" in duplicate_warnings[0]
+
+
+def test_last_recognized_entry_wins_for_duplicates(tmp_path):
+    """Last-recognized entry wins for backward compatibility."""
+    SENTINEL_FIRST = "FIRST_VALUE"
+    SENTINEL_LAST = "LAST_VALUE"
+    
+    path = _write(tmp_path, f"ANTHROPIC_API_KEY={SENTINEL_FIRST}\nanthropic={SENTINEL_LAST}\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    
+    # Last entry should win
+    assert cfg.keys["anthropic"].get_secret_value() == SENTINEL_LAST
+
+
+def test_no_warning_for_non_duplicate_entries(tmp_path):
+    """Non-duplicate entries do not produce duplicate warnings."""
+    path = _write(tmp_path, f"ANTHROPIC_API_KEY=value1\nOPENAI_API_KEY=value2\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    
+    duplicate_warnings = [w for w in cfg.load_warnings if "Duplicate key entries" in w]
+    assert len(duplicate_warnings) == 0
+
+
+def test_duplicate_warning_with_sentinel_secrets_never_leaks(tmp_path):
+    """Security check: sentinel secret values never appear in duplicate warnings."""
+    # Use the specific sentinel from the story requirements
+    SENTINEL = "SK-1234567890ABCDEF"
+    
+    path = _write(tmp_path, f"ANTHROPIC_API_KEY={SENTINEL}\nanthropic={SENTINEL}\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    
+    # Check that sentinel never appears in any warning
+    for warning in cfg.load_warnings:
+        assert SENTINEL not in warning, f"Sentinel secret leaked in warning: {warning}"
+
+
+# --- keyless provider handling (Story 4.2, AC 3) ---
+
+
+def test_keyless_provider_without_key_classified_correctly(tmp_path):
+    """Ollama (keyless_local=True) without key should be classified as keyless-local."""
+    # Empty config - no keys at all
+    path = _write(tmp_path, "# just a comment\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    
+    # No warning should be issued for missing keys on keyless providers
+    keyless_warnings = [w for w in cfg.load_warnings if "keyless-local provider" in w]
+    assert len(keyless_warnings) == 0
+
+
+def test_keyless_provider_with_supplied_key_issues_warning(tmp_path):
+    """Ollama with supplied key issues warning identifying provider and key name only."""
+    SENTINEL_OLLAMA = "OLLAMA_SENTINEL_SECRET"
+    
+    path = _write(tmp_path, f"ollama={SENTINEL_OLLAMA}\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    
+    # Must have exactly one warning for the keyless provider key
+    keyless_warnings = [w for w in cfg.load_warnings if "keyless-local provider" in w]
+    assert len(keyless_warnings) == 1, f"Expected 1 keyless warning, got {len(keyless_warnings)}"
+    
+    # Warning must identify the provider
+    assert "ollama" in keyless_warnings[0]
+    
+    # Warning must identify the key name
+    assert "ollama" in keyless_warnings[0]
+    
+    # Warning must NOT contain secret value (security check)
+    assert SENTINEL_OLLAMA not in keyless_warnings[0]
+
+
+def test_keyless_provider_warning_identifies_provider_and_key_only(tmp_path):
+    """Warning for keyless provider identifies provider name and key name, not value."""
+    SENTINEL = "KEYLESS_SENTINEL_ABC123"
+    
+    path = _write(tmp_path, f"ollama={SENTINEL}\n")
+    cfg = KeyConfig.from_file(path, include_env=False)
+    
+    keyless_warnings = [w for w in cfg.load_warnings if "keyless-local provider" in w]
+    assert len(keyless_warnings) == 1
+    
+    warning = keyless_warnings[0]
+    assert "ollama" in warning  # provider name
+    assert "'ollama'" in warning  # key name in quotes
+    assert SENTINEL not in warning  # never the value

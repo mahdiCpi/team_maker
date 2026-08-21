@@ -167,11 +167,20 @@ so that external developers can safely consume the package.
 As the codebase, I want a single, consistent credential resolution system,
 so that provider/key management is not fragmented across multiple modules.
 **Acceptance Criteria:**
-**Given** the split-brain between keyconfig.py/providers/registry.py and llm/model_resolver.py
+**Given** the split-brain between credential-resolution paths
 **When** this story completes
-**Then** credential loading and availability reporting live in one place behind the provider layer, duplicate key definitions warn instead of silently resolving, keyless-local provider keys are not ignored, OpenRouter gateway uses data flags instead of hardcoded names, dead data fields like ProviderRouting.api_key_env are removed, api/deps.py and cli.py credential logic is consolidated, run goal validation exists, and xai's openrouter_slug/reachable inconsistency is fixed.
+**Then** all credential resolution follows a single documented policy with key loading from Key Config first and environment fallback second, duplicate key definitions produce warnings with identifiers only (never values), keyless-local provider keys are not silently ignored, OpenRouter gateway uses the data-driven `openrouter_reachable` catalog flag, the two distinct `api_key_env` fields in ProviderRouting and ProviderConfig are audited and handled with backward compatibility, api/deps.py and cli.py credential logic is consolidated via shared utilities, xai's `openrouter_slug` and `openrouter_reachable` inconsistency is resolved, OpenRouter model qualification is data-driven, and no credential value appears in any output, log, or serialization.
 
-#### Story 4.3: Transcript and Run Subsystem Hardening
+#### Story 4.3: Credential Architecture Audit Inventory
+As the codebase, I want the pre-unification credential architecture recorded as a reviewed inventory,
+so that the unification work in Story 4.2 has an auditable baseline.
+**Acceptance Criteria:**
+**Given** the credential consumers across CLI, API, key-status, model resolver, runtime, and package generation
+**When** this story completes
+**Then** every credential consumer is mapped to its resolution path with current precedence and environment-mutation behavior, the design audit inventory table is filled for all eight consumers with a compatibility risk per row, the model-resolver precedence divergence and the dead `ProviderRouting.api_key_env` field are called out as findings, and each row is verified by code inspection.
+**Note:** Produced during Story 4.2 Task 1.1/1.2 and renumbered to 4.3 so no two files share the 4.2 number.
+
+#### Story 4.4: Transcript and Run Subsystem Hardening
 As the codebase, I want a robust transcript capture system,
 so that Story 5.2 (HTTP endpoints) can reliably expose transcripts.
 **Acceptance Criteria:**
@@ -179,7 +188,7 @@ so that Story 5.2 (HTTP endpoints) can reliably expose transcripts.
 **When** this story completes
 **Then** partial transcripts are returned on failed runs, concurrent runs in one process no longer corrupt each other's transcripts, the generated crewai_runner.py.j2 template captures transcripts, ANSI/OSC escape sequences are sanitized in display, transcript line format is unambiguous and bounded, and document text cannot spoof run-context delimiters.
 
-#### Story 4.4: API Contract and Error Handling
+#### Story 4.5: API Contract and Error Handling
 As the codebase, I want robust error handling and contract compliance,
 so that external developers have a reliable API experience.
 **Acceptance Criteria:**
@@ -187,15 +196,15 @@ so that external developers have a reliable API experience.
 **When** this story completes
 **Then** SDK-embedded secrets cannot echo in compose exceptions, per-role provider keys are bridged in compose --build, schema-level validation exists for all request fields, spec round-trip no longer mutates on PUT, empty desired_roles are guarded in build path, second builds in same session no longer fail, and fields[].message contains authored copy not pydantic-derived text.
 
-#### Story 4.5: Template and Starter System Hardening
+#### Story 4.6: Template and Starter System Hardening
 As the codebase, I want all gaps in the starter template system closed,
 so that Epic 3's starter teams are production-ready.
 **Acceptance Criteria:**
 **Given** the current starter template system
 **When** this story completes
-**Then** template_id has schema-level validation, starter YAMLs are discovered dynamically not hardcoded, template existence is checked at request time, path traversal risks are fixed, YAML structure and content are validated, duplicate template IDs are prevented, thread safety tests exist for registry, error handling exists for corrupt/empty YAMLs, and YAML filename vs template_id sync is validated.
+**Then** template_id has schema-level validation, starter YAMLs are discovered dynamically not hardcoded, template existence is checked at request time, path traversal risks are fixed, YAML structure and content are validated, duplicate template IDs are prevented, thread safety tests exist for registry, error handling exists for corrupt/empty YAMLs, YAML filename vs template_id sync is validated, and the hardcoded `_TEMPLATE_ID` in `api/routings.py` is replaced with dynamic template resolution.
 
-#### Story 4.6: Testing Infrastructure
+#### Story 4.7: Testing Infrastructure
 As the codebase, I want proper CI and test coverage,
 so that regressions are caught automatically.
 **Acceptance Criteria:**

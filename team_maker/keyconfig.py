@@ -15,6 +15,10 @@ matched pair of surrounding quotes is removed. Keys map to providers via the
 provider catalog (env-var form ``ANTHROPIC_API_KEY`` or bare name ``anthropic``).
 The file is read as ``utf-8-sig`` so a BOM does not corrupt the first key. The file
 should be git-ignored.
+
+Duplicate key handling (Story 4.2): When multiple entries map to the same provider,
+a warning is issued identifying only the provider name and conflicting key names,
+never the secret values. Last-recognized entry wins for backward compatibility.
 """
 from __future__ import annotations
 
@@ -74,6 +78,9 @@ class KeyConfig(BaseModel):
         mapping = env_to_provider()
         keys: dict[str, SecretStr] = {}
         warnings: list[str] = []
+        
+        # Track config entries per provider for duplicate detection (Story 4.2)
+        provider_to_entries: dict[str, list[tuple[str, int]]] = {}
 
         if target.exists() and target.is_file():
             try:
@@ -83,7 +90,7 @@ class KeyConfig(BaseModel):
                     f"Could not read Key Config at {target}: {exc.__class__.__name__}"
                 )
                 text = ""
-            for raw in text.splitlines():
+            for line_num, raw in enumerate(text.splitlines(), 1):
                 line = raw.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
@@ -97,7 +104,44 @@ class KeyConfig(BaseModel):
                         f"Unrecognized key name '{name.strip()}' in Key Config (ignored)"
                     )
                     continue
+                
+                # Track entries for duplicate detection
+                if provider not in provider_to_entries:
+                    provider_to_entries[provider] = []
+                provider_to_entries[provider].append((name.strip(), line_num))
+                
+                # Always overwrite with last-recognized entry (backward compatibility)
                 keys[provider] = SecretStr(value)
+        
+        # Issue duplicate warnings after processing all file entries (Story 4.2)
+        for provider, entries in provider_to_entries.items():
+            if len(entries) > 1:
+                key_names = [name for name, _ in entries]
+                line_numbers = [line_num for _, line_num in entries]
+                # Never include secret values in warning - only identifiers
+                warnings.append(
+                    f"Duplicate key entries for provider '{provider}': {key_names} "
+                    f"at lines {line_numbers} in Key Config. Last entry wins."
+                )
+        
+        # Warn about keys supplied for keyless providers (Story 4.2, AC 3)
+        for provider in PROVIDERS:
+            if provider.keyless_local and provider.name in keys:
+                # Find which key name was used for this keyless provider
+                key_name_for_provider = None
+                if provider.name in provider_to_entries:
+                    # Last-recognized entry wins (matches the resolution rule above),
+                    # so the warning must name the entry that is actually in effect.
+                    key_name_for_provider = provider_to_entries[provider.name][-1][0]
+                else:
+                    # Could have come from env fallback, but that's less likely for keyless
+                    continue
+                
+                # Issue warning identifying provider and key name only, never value
+                warnings.append(
+                    f"Key supplied for keyless-local provider '{provider.name}' "
+                    f"via '{key_name_for_provider}' in Key Config (ignored)"
+                )
 
         # Env-var fallback — file has priority; only fill providers not set from the file.
         # Checks the canonical env_var first, then each alias (Story 2.9) — same

@@ -2,7 +2,7 @@
 baseline_commit: 0cc0c7d
 ---
 
-# Story 4.3: Transcript and Run Subsystem Hardening
+# Story 4.4: Transcript and Run Subsystem Hardening
 
 Status: backlog
 
