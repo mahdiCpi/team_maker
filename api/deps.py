@@ -46,6 +46,10 @@ from api.errors import (
     log_and_wrap,
 )
 from team_maker.adapters.providers import create_provider, supported_providers
+from team_maker.adapters.providers.credential_utils import (
+    bridge_all_credentials,
+    find_stale_bridged_providers,
+)
 from team_maker.adapters.providers.registry import PROVIDERS, Provider, get_provider
 from team_maker.keyconfig import KeyConfig
 from team_maker.ports.llm_provider import LLMProvider
@@ -329,26 +333,11 @@ def bridge_credentials(key_config: KeyConfig) -> list[str]:
     internally, so this is the point where `.get_secret_value()` is called
     (AD-9). Returns the provider *names* bridged — never the values — so the
     caller can log what is available without logging a secret.
+    
+    Uses shared credential utilities from adapters/providers/credential_utils.py
+    (Story 4.2) for consistency with CLI credential resolution.
     """
-    bridged: list[str] = []
-    for row in PROVIDERS:
-        if row.env_var and key_config.has(row.name):
-            secret = key_config.keys[row.name].get_secret_value()
-            existing = os.environ.get(row.env_var)
-            if existing is not None and existing != secret:
-                # The CLI's `_bridged_credential` restored the prior value on
-                # exit; this holds for the process lifetime and never restores,
-                # so an operator who exported a different key deserves to be
-                # told it stopped being used. Names only, never values (AD-9).
-                logger.warning(
-                    "%s was already set to a different value in the environment and has "
-                    "been replaced by the Key Config entry for '%s' for the lifetime of "
-                    "this process",
-                    row.env_var,
-                    row.name,
-                )
-            os.environ[row.env_var] = secret
-            bridged.append(row.name)
+    bridged, _ = bridge_all_credentials(key_config, warn_on_replacement=True)
     return bridged
 
 
@@ -371,17 +360,11 @@ def providers_needing_restart(
     in `api/` that unwraps a secret, and the comparison must stay inside it.
     Returns provider *names* only — no value is returned, logged or compared into
     any message (AD-9).
+    
+    Uses shared credential utilities from adapters/providers/credential_utils.py
+    (Story 4.2) for consistency.
     """
-    stale: list[str] = []
-    for row in PROVIDERS:
-        if not row.env_var or not key_config.has(row.name):
-            continue
-        if row.name not in bridged:
-            stale.append(row.name)  # added since startup
-            continue
-        if os.environ.get(row.env_var) != key_config.keys[row.name].get_secret_value():
-            stale.append(row.name)  # changed in place since startup
-    return stale
+    return find_stale_bridged_providers(key_config, bridged)
 
 
 def default_provider_factory() -> ProviderFactory:

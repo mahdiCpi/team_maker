@@ -20,6 +20,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from team_maker.adapters.providers import create_provider
+from team_maker.adapters.providers.credential_utils import bridged_credential_context
 from team_maker.adapters.providers.registry import PROVIDERS
 from team_maker.composer.composer import Composer, ComposerError
 from team_maker.composer.session import ComposerSession
@@ -203,19 +204,12 @@ def _bridged_credential(key_config: KeyConfig, provider: str, env_var: Optional[
     internally, so this is the point where `.get_secret_value()` is called (AD-9),
     only for the duration of the wrapped block — whatever was in `env_var` before
     is restored on exit, so the secret never persists past this single CLI call.
+    
+    Uses shared credential utilities from adapters/providers/credential_utils.py
+    (Story 4.2) for consistency with API credential resolution.
     """
-    if not env_var or not key_config.has(provider):
+    with bridged_credential_context(key_config, provider, env_var):
         yield
-        return
-    previous = os.environ.get(env_var)
-    os.environ[env_var] = key_config.keys[provider].get_secret_value()
-    try:
-        yield
-    finally:
-        if previous is None:
-            os.environ.pop(env_var, None)
-        else:
-            os.environ[env_var] = previous
 
 
 @main.command()

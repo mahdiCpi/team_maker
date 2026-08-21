@@ -179,8 +179,8 @@ def test_openrouter_hint_offered_only_for_reachable_providers():
 
     by_provider = {u.provider: u for u in exc_info.value.unresolved}
     assert "OpenRouter" in by_provider["openai"].reason
-    # xai is not openrouter_reachable in the catalog — do not suggest it.
-    assert "OpenRouter" not in by_provider["xai"].reason
+    # xai IS openrouter_reachable in the catalog (fixed in Story 4.2 Task 5.1)
+    assert "OpenRouter" in by_provider["xai"].reason
 
 
 def test_a_provider_the_engine_cannot_construct_is_refused_without_asking_for_a_key():

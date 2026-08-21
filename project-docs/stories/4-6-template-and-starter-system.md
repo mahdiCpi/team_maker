@@ -2,7 +2,7 @@
 baseline_commit: 0cc0c7d
 ---
 
-# Story 4.5: Template and Starter System Hardening
+# Story 4.6: Template and Starter System Hardening
 
 Status: backlog
 
@@ -19,6 +19,8 @@ so that Epic 3's starter teams are production-ready.
 Story 3.1 and 3.2 shipped the baseline starter teams feature, but multiple validation, security,
 and robustness gaps were deferred. These must be addressed to ensure the starter system is reliable.
 
+**Note:** Acceptance Criterion 3 (hardcoded `_TEMPLATE_ID`) was moved here from Story 4.2: Credential Architecture Unification. While the symptom (a hardcoded template ID) was discovered during credential work, the actual fix belongs in the template system, not credential architecture. Story 4.2 references this transfer in its non-goals section (as Story 4.6, following the Epic 4 renumbering).
+
 **What this story is NOT:**
 - Adding new starter teams (only fixing the system that loads them)
 - Changing the YAML format (only validation and loading improvements)
@@ -28,6 +30,8 @@ and robustness gaps were deferred. These must be addressed to ensure the starter
 1. **Given** a request with a `template_id` field, **When** it is validated, **Then** only registered template IDs are accepted, **And** invalid template IDs are rejected with a clear error. (deferred-work.md:316)
 
 2. **Given** a request with a `template_id`, **When** it is processed, **Then** the template's existence is verified before processing, **And** a missing template results in a fast-fail error. (deferred-work.md:318)
+
+3. **Given** the hardcoded `_TEMPLATE_ID = "software_delivery_team"` in `api/routings.py` (moved from Story 4.2), **When** requested routings are pre-resolved for key-check or build reporting, **Then** the template ID is determined dynamically from the pipeline's template selection logic or from request configuration, **And** builds are not hardcoded to the software_delivery_team template, **And** the same template resolution logic is used for both reporting and actual builds so they cannot diverge. (deferred-work.md:237)
 
 3. **Given** the starter teams endpoint, **When** listing available starters, **Then** YAML files are discovered from a designated directory dynamically, **And** adding a new starter requires only adding a YAML file, not code changes. (deferred-work.md:317)
 
@@ -61,6 +65,13 @@ and robustness gaps were deferred. These must be addressed to ensure the starter
   - [ ] Verify template exists in catalog before processing requests
   - [ ] Return clear error for missing templates (404 or 422)
   - [ ] Add fast-fail behavior
+
+- [ ] **Task 9 — Fix hardcoded _TEMPLATE_ID in routings (moved from Story 4.2)**
+  - [ ] Replace hardcoded `_TEMPLATE_ID = "software_delivery_team"` in `api/routings.py` with dynamic template resolution
+  - [ ] Use same template selection logic as the pipeline (get_template() from registry)
+  - [ ] Ensure reporting and builds use identical template resolution
+  - [ ] Add tests verifying template is resolved dynamically
+  - [ ] **Test:** Verify routings are resolved from actual template, not hardcoded value
 
 - [ ] **Task 4 — Fix path traversal in starter router**
   - [ ] Add secure path resolution in `api/routers/starters.py`

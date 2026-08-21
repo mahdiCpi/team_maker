@@ -1,5 +1,12 @@
 # Deferred Work
 
+## Deferred from: code review of story-4.2 (2026-08-17)
+
+- **Unguarded concurrent `os.environ` mutation in credential bridging** — `team_maker/adapters/providers/credential_utils.py`'s `bridge_provider_credential`/`bridged_credential_context` read-modify-write `os.environ[env_var]` with no locking. Pre-existing: the prior `_bridged_credential` (CLI) and `bridge_credentials` (API) implementations had the same unguarded pattern; this refactor preserves rather than introduces the risk.
+- **Two catalog providers sharing an `env_var` would clobber `bridge_all_credentials`'s `previous_values` entries** — `team_maker/adapters/providers/credential_utils.py`. Not currently reachable: no two entries in the `PROVIDERS` catalog share an `env_var` today. Revisit if a future provider reuses an existing `env_var`.
+- **Keyless-provider "key ignored" warning only checks file-sourced keys** — `team_maker/keyconfig.py`'s warning loop runs before the env-var fallback block, so a keyless provider's key supplied only via process environment would bypass the AC3 warning. Not currently reachable: the only keyless provider (`ollama`) has `env_var=None` and no aliases, so env fallback can never populate its key. Revisit if a future keyless provider gains an `env_var`/alias.
+- **Duplicate-key detection doesn't track recognized-but-empty-value lines** — `team_maker/keyconfig.py:99`'s `if not value: continue` skips such lines before they reach the new duplicate-tracking dict. Pre-existing behavior, unrelated to this story's new dedup feature; an operator's attempt to blank out an alias key produces no warning.
+
 ## Deferred from: reconciliation (2026-07-12)
 
 See [reconciliation-notes.md](reconciliation-notes.md) for full context. The `guru-explore` merge

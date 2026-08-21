@@ -129,14 +129,19 @@ def test_openrouter_vendor_slug_comes_from_the_catalog_not_the_provider_name():
     assert anthropic.openrouter_model_prefix() == "anthropic"
 
 
-def test_provider_not_reachable_via_openrouter_is_not_routed_there():
+def test_xai_is_reachable_via_openrouter_after_catalog_fix():
     """Only providers the catalog marks `openrouter_reachable` may fall back to
-    the gateway; ollama is keyless-local and never needs it."""
+    the gateway. Story 4.2 Task 5.1 gave xai `openrouter_reachable=True` to match
+    its existing `openrouter_slug="x-ai"`, so it is now reachable via OpenRouter
+    when an OpenRouter key is present (see the sibling `test_provider_not_reachable...`
+    -style coverage for a still-unreachable provider in the availability/preflight
+    test suites)."""
     key_config = KeyConfig(keys={"openrouter": SecretStr("sk-or-real")})
 
     resolved = resolve_credential(_routing("xai", "grok-4"), key_config)
-
-    assert resolved is None
+    assert resolved is not None
+    assert resolved.via_openrouter is True
+    assert resolved.model == "openrouter/x-ai/grok-4"
 
 
 def test_unknown_provider_resolves_to_none():
@@ -212,16 +217,25 @@ def test_resolution_matches_an_independently_written_expectation_table():
         ("openai", all_own, True),
         ("openrouter", all_own, True),
         # ...but a key does not help these three; only the gateway can.
-        ("groq", all_own, False),
-        ("xai", all_own, False),
+        # Updated for Story 4.2: xai now has openrouter_reachable=True to match its
+        # openrouter_slug="x-ai", so it IS reachable via OpenRouter when an OpenRouter
+        # key is present. However, xai has runtime_supported=False, so its own key
+        # doesn't help - only OpenRouter can reach it.
+        ("groq", all_own, False),  # inference host, no OpenRouter vendor namespace
+        ("xai", all_own, True),   # runtime unsupported, but openrouter_reachable=True + OR key
         ("google", all_own, True),  # all_own includes the OpenRouter key
         ("groq", or_only, False),  # inference host, no OpenRouter vendor namespace
-        ("xai", or_only, False),  # not marked openrouter_reachable
+        ("xai", or_only, True),   # Story 4.2 fix: now marked openrouter_reachable=True
         ("google", or_only, True),  # reachable via the gateway
     ]
 
     for provider_name, key_config, expected_usable in expectations:
-        resolved = resolve_credential(_routing(provider_name), key_config)
+        # A direct `openrouter` routing entry needs a qualifiable (or already-
+        # qualified) model since Story 4.2 AC8 -- "some-model" is a placeholder
+        # irrelevant to every other provider's availability check here, so give
+        # `openrouter` an already-qualified one to keep this table availability-only.
+        model = "openrouter/openai/gpt-4o" if provider_name == "openrouter" else "some-model"
+        resolved = resolve_credential(_routing(provider_name, model), key_config)
         assert (resolved is not None) is expected_usable, (
             f"{provider_name} with keys {sorted(key_config.keys)}: "
             f"expected usable={expected_usable}"

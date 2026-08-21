@@ -2,7 +2,7 @@
 baseline_commit: 0cc0c7d
 ---
 
-# Story 4.4: API Contract and Error Handling
+# Story 4.5: API Contract and Error Handling
 
 Status: backlog
 
