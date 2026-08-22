@@ -12,7 +12,6 @@ from fastapi import HTTPException
 
 from tests.api.test_review_patches_base import _start
 
-
 # ---------------------------------------------------------------------------
 # P3 — a catalog provider with no authoring adapter
 # ---------------------------------------------------------------------------

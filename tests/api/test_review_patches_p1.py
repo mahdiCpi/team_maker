@@ -13,7 +13,6 @@ from api.main import health
 from api.routers import compose
 from tests.api.test_review_patches_base import SENTINEL_VALUES, _start, assert_no_sentinels
 
-
 # ---------------------------------------------------------------------------
 # P1 — liveness does not share the compose threadpool
 # ---------------------------------------------------------------------------

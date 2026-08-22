@@ -10,7 +10,6 @@ import pytest
 
 from tests.api.test_review_patches_base import _start
 
-
 # ---------------------------------------------------------------------------
 # P6 / P10 — bounded, non-empty client input
 # ---------------------------------------------------------------------------

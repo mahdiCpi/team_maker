@@ -9,10 +9,14 @@ from __future__ import annotations
 
 import logging
 
-import pytest
-
-from tests.api.test_review_patches_base import NEUTRAL_COMPOSE_FAILURE, SENTINEL_VALUES, _start, assert_envelope, assert_no_exception_leak, assert_no_sentinels
-
+from tests.api.test_review_patches_base import (
+    NEUTRAL_COMPOSE_FAILURE,
+    SENTINEL_VALUES,
+    _start,
+    assert_envelope,
+    assert_no_exception_leak,
+    assert_no_sentinels,
+)
 
 # ---------------------------------------------------------------------------
 # An internal bug during refinement — contained, and not blamed on the upstream

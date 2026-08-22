@@ -1,15 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
-
-/**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv#how-does-it-work
- */
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
+// `import.meta.url` doesn't parse here: this repo's package.json has no
+// `"type": "module"`, so Playwright's config loader requires this file as
+// CommonJS, where `__dirname` (not `import.meta`) is the module-relative path.
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
 /**
@@ -42,41 +36,15 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
 
-  /* Configure projects for major browsers */
+  /* Only chromium: `package.json`'s `playwright:install` script (and the CI
+   * step that runs it) installs `chromium` alone. A wider project matrix
+   * here without a matching install step means every other project fails on
+   * a missing browser binary on the very first run. Widen both together if
+   * cross-browser coverage is wanted later. */
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-    },
-
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
-
-    /* Test against mobile viewports. */
-    {
-      name: 'Mobile Chrome',
-      use: { ...devices['Pixel 5'] },
-    },
-    {
-      name: 'Mobile Safari',
-      use: { ...devices['iPhone 12'] },
-    },
-
-    /* Test against branded browsers. */
-    {
-      name: 'Microsoft Edge',
-      use: { ...devices['Desktop Edge'], channel: 'msedge' },
-    },
-    {
-      name: 'Google Chrome',
-      use: { ...devices['Desktop Chrome'], channel: 'chrome' },
     },
   ],
 

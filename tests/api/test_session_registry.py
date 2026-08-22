@@ -47,31 +47,15 @@ def _add(registry: SessionRegistry):
 
 def test_the_policy_constants_are_named_not_magic():
     """AC 7 requires both the cap and the TTL to be named constants.
-    
-    Assert that policy constants have expected values and relationships.
-    These constants govern session registry behavior and should fail if changed.
+
+    Pinned to their exact current values, which is strictly more falsifiable
+    than a loose range with no cited requirement behind its bounds — any
+    change to these constants is a deliberate capacity/policy decision that
+    should touch this test too.
     """
-    from api.sessions import MAX_TURNS_PER_SESSION, SESSION_IDLE_TTL_SECONDS, MAX_ACTIVE_SESSIONS
-    
-    # Assert MAX_TURNS_PER_SESSION has a reasonable positive value
-    assert MAX_TURNS_PER_SESSION > 0
-    assert MAX_TURNS_PER_SESSION == 20  # Current expected value - change if the constant changes
-    
-    # Assert SESSION_IDLE_TTL_SECONDS has a reasonable positive value
-    assert SESSION_IDLE_TTL_SECONDS > 0
-    assert SESSION_IDLE_TTL_SECONDS == 30 * 60.0  # Current expected value: 30 minutes
-    
-    # Assert MAX_ACTIVE_SESSIONS has a reasonable positive value
-    assert MAX_ACTIVE_SESSIONS > 0
-    assert MAX_ACTIVE_SESSIONS == 32  # Current expected value - change if the constant changes
-    
-    # Assert relationships: idle TTL should be reasonable for a session
-    assert SESSION_IDLE_TTL_SECONDS >= 60.0  # At least 1 minute
-    assert SESSION_IDLE_TTL_SECONDS <= 3600.0  # At most 1 hour
-    
-    # Assert MAX_TURNS_PER_SESSION is reasonable
-    assert MAX_TURNS_PER_SESSION >= 5  # At least 5 turns
-    assert MAX_TURNS_PER_SESSION <= 100  # At most 100 turns
+    assert MAX_TURNS_PER_SESSION == 20
+    assert SESSION_IDLE_TTL_SECONDS == 30 * 60.0
+    assert MAX_ACTIVE_SESSIONS == 32
 
 
 def test_created_sessions_are_retrievable_and_have_unique_ids(registry):

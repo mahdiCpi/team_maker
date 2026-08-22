@@ -17,6 +17,7 @@ import pytest
 from api.errors import ApiError
 from api.runs import (
     GENERIC_FAILURE_REASON,
+    MAX_STORED_RUNS,
     RUN_IDLE_TTL_SECONDS,
     STATUS_COMPLETE,
     STATUS_FAILED,
@@ -82,25 +83,14 @@ def _wait_for_completion(registry: RunRegistry, run_id: str) -> None:
 
 
 def test_the_policy_constants_are_named_not_magic():
-    """Assert that policy constants have expected values and relationships.
-    
-    This test ensures that constants governing run registry behavior are explicit
-    and can fail if their values change unexpectedly. MAX_STORED_RUNS is the bound
-    that the ghost-record finding showed could be exceeded.
+    """Pinned to exact current values — MAX_STORED_RUNS is the bound the
+    ghost-record finding showed could be exceeded. An exact-value assertion is
+    strictly more falsifiable than a loose range with no cited requirement
+    behind its bounds; any change to these constants is a deliberate
+    capacity/policy decision that should touch this test too.
     """
-    from api.runs import MAX_STORED_RUNS
-    
-    # Assert MAX_STORED_RUNS has a reasonable positive value
-    assert MAX_STORED_RUNS > 0
-    assert MAX_STORED_RUNS == 32  # Current expected value - change this if the constant changes
-    
-    # Assert RUN_IDLE_TTL_SECONDS has a reasonable positive value
-    assert RUN_IDLE_TTL_SECONDS > 0
-    assert RUN_IDLE_TTL_SECONDS == 30 * 60.0  # Current expected value: 30 minutes
-    
-    # Assert that the idle TTL is long enough to be useful but not infinite
-    assert RUN_IDLE_TTL_SECONDS >= 60.0  # At least 1 minute
-    assert RUN_IDLE_TTL_SECONDS <= 3600.0  # At most 1 hour
+    assert MAX_STORED_RUNS == 32
+    assert RUN_IDLE_TTL_SECONDS == 30 * 60.0
 
 
 def test_a_started_run_is_retrievable_with_a_unique_id(registry):

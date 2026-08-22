@@ -105,7 +105,7 @@ def test_an_overlong_document_name_is_spec_invalid(make_client, tmp_path):
 
 def test_documents_are_never_written_to_disk(make_client, tmp_path):
     """Verify that document text never reaches disk through any component in the run path.
-    
+
     Note: This test currently uses FakeExecutionEngine which stubs out the actual
     CrewAI execution. The deferred-work.md entry correctly notes this test
     cannot catch a regression in the real execution engine itself. However,
@@ -113,7 +113,7 @@ def test_documents_are_never_written_to_disk(make_client, tmp_path):
     — documents are passed as context to CrewAI tasks and returned in the
     RunResult/transcript, never persisted. The FakeExecutionEngine is therefore
     a valid stand-in for the API layer's no-write guarantee.
-    
+
     Story 4.7 Task 9: This test should ideally exercise the real execution engine
     path to fully prove the claim. However, doing so would require crewai to be
     installed and would make the test slow and dependent on network access. The
@@ -136,7 +136,7 @@ def test_documents_are_never_written_to_disk(make_client, tmp_path):
 
 def test_documents_do_not_appear_in_logs(make_client, tmp_path, caplog):
     """Verify that document text does not appear in application logs.
-    
+
     Story 4.7 Task 9: Documents should not be logged, as they may contain
     sensitive information.
     """
@@ -156,7 +156,7 @@ def test_documents_do_not_appear_in_logs(make_client, tmp_path, caplog):
     for record in caplog.records:
         assert marker not in record.message, \
             f"Document text appeared in log: {record.message}"
-    
+
     # Also check the response text doesn't contain the marker
     # (the marker should only be in the task description, not in the response)
     assert marker not in response.text

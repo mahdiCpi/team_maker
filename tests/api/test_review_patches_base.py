@@ -5,17 +5,22 @@ See test_review_patches_*.py for the actual tests.
 """
 from __future__ import annotations
 
-import threading
-
-import pytest
-from fastapi import HTTPException
-
-from api.errors import STATUS_BY_CODE
-from api.output import derive_output_path, slugify_team_name
-from api.sessions import SessionRegistry
 from tests.api.conftest import SENTINEL_VALUES
 from tests.api.containment import assert_envelope, assert_no_exception_leak, assert_no_sentinels
 
+# Re-exported for the split test_review_patches_*.py files (see their imports
+# `from tests.api.test_review_patches_base import ...`) — declared explicitly
+# so a lint pass that removes "unused" imports doesn't silently break them.
+__all__ = [
+    "NEUTRAL_COMPOSE_FAILURE",
+    "SENTINEL_VALUES",
+    "_FakeClock",
+    "_choice",
+    "_start",
+    "assert_envelope",
+    "assert_no_exception_leak",
+    "assert_no_sentinels",
+]
 
 # The exact copy the 502 must carry. Pinned as a literal so a well-meaning
 # rewrite back towards "the provider could not be reached" fails here.

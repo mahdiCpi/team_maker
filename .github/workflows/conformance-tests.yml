@@ -29,12 +29,9 @@ jobs:
 
       - name: Verify conformance tests execute
         run: |
-          # These tests must fail explicitly if crewai is not installed
-          # With the runtime extra, they should run and pass
+          # Task 2 replaced pytest.importorskip with explicit pytest.fail() calls,
+          # so a missing/broken crewai install now fails this step directly instead
+          # of skipping — no separate "did it skip" check is needed or possible to
+          # implement safely with a piped grep (an earlier version of this step did
+          # exactly that, and it masked real pytest failures behind grep's exit code).
           python -m pytest tests/conformance/ -v --tb=short
-
-      - name: Ensure conformance tests do not skip
-        run: |
-          # This checks that importorskip has been replaced with explicit failures
-          # If any test was skipped due to missing crewai, this will catch it
-          python -m pytest tests/conformance/ -v --tb=short -p no:cacheprovider | grep -q "skipped" && exit 1 || exit 0

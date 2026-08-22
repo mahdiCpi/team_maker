@@ -11,8 +11,7 @@ from __future__ import annotations
 import pytest
 
 from api.output import derive_output_path, slugify_team_name
-from tests.api.test_review_patches_base import NEUTRAL_COMPOSE_FAILURE, _start
-
+from tests.api.test_review_patches_base import _start
 
 # ---------------------------------------------------------------------------
 # D1 — task names reach the filesystem

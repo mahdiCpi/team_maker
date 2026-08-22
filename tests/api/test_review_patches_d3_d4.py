@@ -14,8 +14,7 @@ import pytest
 
 from api.errors import STATUS_BY_CODE
 from api.sessions import SessionRegistry
-from tests.api.test_review_patches_base import _FakeClock, _choice
-
+from tests.api.test_review_patches_base import _choice, _FakeClock
 
 # ---------------------------------------------------------------------------
 # D3 — the per-conversation lock is bounded

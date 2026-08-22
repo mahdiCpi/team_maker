@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from tests.api.test_review_patches_base import _start
 
-
 # ---------------------------------------------------------------------------
 # P7 / P8 — task edits the core would have discarded silently
 # ---------------------------------------------------------------------------

@@ -76,9 +76,9 @@ export function createRunFetchQueue(): RunFetchQueue {
 
           if (path.startsWith("/api/runs/teams/")) return answer(planQueue, path);
           if (path === "/api/runs" && method === "POST") return answer(createQueue, path);
-          if (\/api\/runs\/[^/]+\/transcript$\/.test(path)) return answer(transcriptQueue, path);
+          if (/\/api\/runs\/[^/]+\/transcript$/.test(path)) return answer(transcriptQueue, path);
           if (/^\/api\/runs\/[^/]+$/.test(path)) return answer(getRunQueue, path);
-          if (\/api\/teams\/[^/]+\/record-run$\/.test(path) && method === "POST") {
+          if (/\/api\/teams\/[^/]+\/record-run$/.test(path) && method === "POST") {
             return answer(recordRunQueue, path);
           }
           unexpectedRequests.push(path);
@@ -89,6 +89,14 @@ export function createRunFetchQueue(): RunFetchQueue {
   };
 
   return api;
+}
+
+/**
+ * Reset the unexpected-requests tracker. Call this in `beforeEach` so a
+ * request from one test can't fail every later test's assertion in the same run.
+ */
+export function resetUnexpectedRequests(): void {
+  unexpectedRequests.length = 0;
 }
 
 /**
