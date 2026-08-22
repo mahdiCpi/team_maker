@@ -404,8 +404,12 @@ class TeamCreationRequest(BaseModel):
         if v is None:
             return v
         p = Path(v).expanduser()
-        if not p.is_dir():
-            raise ValueError(f"context_dir must be an existing directory, got: {v!r}")
+        # Note: We no longer require the directory to exist at validation time
+        # (Task 4, Story 4.5: Fix spec round-trip mutation). The existence check
+        # happens at runtime when the directory is actually used (see llm/prompts.py:
+        # _load_context_files returns "" if the directory doesn't exist).
+        # This allows the spec to round-trip cleanly even if the context_dir
+        # is removed after the spec is created.
         return str(p.resolve())
 
     @model_validator(mode="after")
