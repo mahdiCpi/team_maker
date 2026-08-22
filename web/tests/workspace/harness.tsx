@@ -30,6 +30,9 @@ export type RunFetchQueue = {
   install: () => void;
 };
 
+// Track unexpected requests for validation in tests
+export const unexpectedRequests: string[] = [];
+
 export function createRunFetchQueue(): RunFetchQueue {
   const planQueue: Queued[] = [];
   const createQueue: Queued[] = [];
@@ -43,7 +46,10 @@ export function createRunFetchQueue(): RunFetchQueue {
     // Loud on purpose (harness.tsx precedent): a silent default would make a
     // component that stopped calling the API — or called an unexpected one
     // — look like a passing test.
-    if (!queued) throw new Error(`unexpected request to ${path}`);
+    if (!queued) {
+      unexpectedRequests.push(path);
+      throw new Error(`unexpected request to ${path}`);
+    }
     if (queued.kind === "reject") throw queued.error;
     return {
       ok: queued.status < 400,
@@ -70,11 +76,12 @@ export function createRunFetchQueue(): RunFetchQueue {
 
           if (path.startsWith("/api/runs/teams/")) return answer(planQueue, path);
           if (path === "/api/runs" && method === "POST") return answer(createQueue, path);
-          if (/\/api\/runs\/[^/]+\/transcript$/.test(path)) return answer(transcriptQueue, path);
+          if (\/api\/runs\/[^/]+\/transcript$\/.test(path)) return answer(transcriptQueue, path);
           if (/^\/api\/runs\/[^/]+$/.test(path)) return answer(getRunQueue, path);
-          if (/\/api\/teams\/[^/]+\/record-run$/.test(path) && method === "POST") {
+          if (\/api\/teams\/[^/]+\/record-run$\/.test(path) && method === "POST") {
             return answer(recordRunQueue, path);
           }
+          unexpectedRequests.push(path);
           throw new Error(`unexpected request to ${path}`);
         })
       );
@@ -82,4 +89,19 @@ export function createRunFetchQueue(): RunFetchQueue {
   };
 
   return api;
+}
+
+/**
+ * Assert that no unexpected requests were made during a test.
+ * This ensures the "loud on unexpected request" property holds for Workspace tests.
+ * Call this at the end of each test that uses the harness.
+ */
+export function assertNoUnexpectedRequests(): void {
+  if (unexpectedRequests.length > 0) {
+    throw new Error(
+      `Unexpected requests were made: ${unexpectedRequests.join(", ")}\n` +
+      "This means the component made API calls that were not queued in the test. " +
+      "Either queue the expected requests or fix the component to stop making unexpected calls."
+    );
+  }
 }

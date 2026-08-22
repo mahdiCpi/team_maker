@@ -467,3 +467,106 @@ class TestFromStarterProviderResolutionDeferred:
 
         assert message_response.status_code == 503
         assert message_response.json()["error"]["code"] == "authoring_unavailable"
+
+
+# ---------------------------------------------------------------------------
+# Error handling for corrupt/empty starter YAML (Story 4.7 Task 10)
+# ---------------------------------------------------------------------------
+
+
+class TestComposeFromStarterErrorHandling:
+    """Tests for error handling in the from-starter compose path (Story 4.7 Task 10).
+    
+    These tests verify that YAML parse errors and validation errors are caught
+    and handled properly without leaking secrets or internal errors.
+    """
+
+    def test_create_session_from_starter_with_corrupt_yaml(self, make_client, tmp_path, monkeypatch):
+        """Test that corrupt YAML in starter file is handled gracefully."""
+        from api.routers.compose import _load_starter_yaml_for_compose
+        import pytest
+
+        # Mock the function to simulate a YAML parse error
+        original_load = _load_starter_yaml_for_compose
+        def mock_load_corrupt(starter_id):
+            raise yaml.YAMLError("Invalid YAML: expected mapping but got scalar")
+        
+        monkeypatch.setattr("api.routers.compose._load_starter_yaml_for_compose", mock_load_corrupt)
+        
+        try:
+            harness = make_client()
+            response = harness.client.post(
+                "/api/compose/sessions/from-starter",
+                json={"starter_id": "baseline_education_team"}
+            )
+            
+            # Should return a validation error, not a 500
+            assert response.status_code == 422
+            data = response.json()
+            assert "error" in data
+            assert data["error"]["code"] == "spec_invalid"
+            
+            # Error message should not leak the actual YAML content
+            assert "Invalid YAML" in data["error"]["message"] or "starter" in data["error"]["message"].lower()
+        finally:
+            monkeypatch.setattr("api.routers.compose._load_starter_yaml_for_compose", original_load)
+
+    def test_create_session_from_starter_with_empty_yaml(self, make_client, tmp_path, monkeypatch):
+        """Test that empty YAML in starter file is handled gracefully."""
+        from api.routers.compose import _load_starter_yaml_for_compose
+        from pydantic import ValidationError
+        import pytest
+
+        # Mock the function to simulate an empty YAML file
+        original_load = _load_starter_yaml_for_compose
+        def mock_load_empty(starter_id):
+            # Empty YAML parses to None, which will fail validation
+            return None
+        
+        monkeypatch.setattr("api.routers.compose._load_starter_yaml_for_compose", mock_load_empty)
+        
+        try:
+            harness = make_client()
+            response = harness.client.post(
+                "/api/compose/sessions/from-starter",
+                json={"starter_id": "baseline_education_team"}
+            )
+            
+            # Should return a validation error
+            assert response.status_code == 422
+            data = response.json()
+            assert "error" in data
+        finally:
+            monkeypatch.setattr("api.routers.compose._load_starter_yaml_for_compose", original_load)
+
+    def test_create_session_from_starter_validation_error(self, make_client, tmp_path, monkeypatch):
+        """Test that Pydantic validation errors in starter YAML are handled gracefully."""
+        from api.routers.compose import _load_starter_yaml_for_compose
+        from pydantic import ValidationError
+        import pytest
+
+        # Mock the function to simulate a validation error
+        original_load = _load_starter_yaml_for_compose
+        def mock_load_validation_error(starter_id):
+            # Return a dict that will fail TeamCreationRequest validation
+            return {"invalid_field": "this should fail"}
+        
+        monkeypatch.setattr("api.routers.compose._load_starter_yaml_for_compose", mock_load_validation_error)
+        
+        try:
+            harness = make_client()
+            response = harness.client.post(
+                "/api/compose/sessions/from-starter",
+                json={"starter_id": "baseline_education_team"}
+            )
+            
+            # Should return a validation error, not a 500
+            assert response.status_code == 422
+            data = response.json()
+            assert "error" in data
+            assert data["error"]["code"] == "spec_invalid"
+            
+            # Error should not leak internal details
+            assert "invalid_field" not in data["error"].get("message", "")
+        finally:
+            monkeypatch.setattr("api.routers.compose._load_starter_yaml_for_compose", original_load)

@@ -2,6 +2,9 @@
 
 Tests for POST /api/starters/{starter_id}/run endpoint.
 
+**Network Dependencies:** NONE - All tests use FastAPI TestClient (in-memory)
+**External Services:** NONE - No live network calls are made
+
 `_load_and_build_starter` (`api/routers/starters.py`) builds each starter into
 its YAML's own literal, relative `output_path` (e.g.
 `./generated_teams/baseline_education_team`) — unlike the Composer's build

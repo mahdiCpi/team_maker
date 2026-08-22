@@ -1,0 +1,40 @@
+name: Conformance Tests (Runtime)
+
+on:
+  push:
+    branches: [main, epic_*, develop]
+  pull_request:
+    branches: [main, epic_*, develop]
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies with runtime extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[runtime,dev]"
+
+      - name: Verify conformance tests execute
+        run: |
+          # These tests must fail explicitly if crewai is not installed
+          # With the runtime extra, they should run and pass
+          python -m pytest tests/conformance/ -v --tb=short
+
+      - name: Ensure conformance tests do not skip
+        run: |
+          # This checks that importorskip has been replaced with explicit failures
+          # If any test was skipped due to missing crewai, this will catch it
+          python -m pytest tests/conformance/ -v --tb=short -p no:cacheprovider | grep -q "skipped" && exit 1 || exit 0

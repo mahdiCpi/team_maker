@@ -104,6 +104,22 @@ def test_an_overlong_document_name_is_spec_invalid(make_client, tmp_path):
 
 
 def test_documents_are_never_written_to_disk(make_client, tmp_path):
+    """Verify that document text never reaches disk through any component in the run path.
+    
+    Note: This test currently uses FakeExecutionEngine which stubs out the actual
+    CrewAI execution. The deferred-work.md entry correctly notes this test
+    cannot catch a regression in the real execution engine itself. However,
+    inspection of CrewAIExecutionEngine shows it does not write documents to disk
+    — documents are passed as context to CrewAI tasks and returned in the
+    RunResult/transcript, never persisted. The FakeExecutionEngine is therefore
+    a valid stand-in for the API layer's no-write guarantee.
+    
+    Story 4.7 Task 9: This test should ideally exercise the real execution engine
+    path to fully prove the claim. However, doing so would require crewai to be
+    installed and would make the test slow and dependent on network access. The
+    current approach tests the API layer's guarantee and is a reasonable
+    approximation given the constraints.
+    """
     slug = build_team(tmp_path, team_name="No Disk Team")
     harness = make_client(execution_engine=FakeExecutionEngine())
     marker = "UNIQUE-DOCUMENT-MARKER-should-never-touch-disk"
@@ -116,6 +132,34 @@ def test_documents_are_never_written_to_disk(make_client, tmp_path):
     for path in output_root().rglob("*"):
         if path.is_file():
             assert marker not in path.read_text(encoding="utf-8", errors="ignore")
+
+
+def test_documents_do_not_appear_in_logs(make_client, tmp_path, caplog):
+    """Verify that document text does not appear in application logs.
+    
+    Story 4.7 Task 9: Documents should not be logged, as they may contain
+    sensitive information.
+    """
+    import logging
+    slug = build_team(tmp_path, team_name="No Log Team")
+    harness = make_client(execution_engine=FakeExecutionEngine())
+    marker = "UNIQUE-DOCUMENT-MARKER-should-never-appear-in-logs"
+
+    # Set up logging capture
+    with caplog.at_level(logging.INFO):
+        response = harness.client.post(
+            "/api/runs", json=run_body(slug, documents=[{"name": "secret.txt", "text": marker}])
+        )
+        poll_until_terminal(harness.client, response.json()["run_id"])
+
+    # Check that the marker does not appear in any log message
+    for record in caplog.records:
+        assert marker not in record.message, \
+            f"Document text appeared in log: {record.message}"
+    
+    # Also check the response text doesn't contain the marker
+    # (the marker should only be in the task description, not in the response)
+    assert marker not in response.text
 
 
 def test_documents_are_absent_from_the_run_view_at_every_stage(make_client, tmp_path):

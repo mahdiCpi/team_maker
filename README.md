@@ -1,5 +1,7 @@
 # team_maker
 
+![Python Tests](https://github.com/owner/repo/actions/workflows/python-tests.yml/badge.svg) ![Frontend Tests](https://github.com/owner/repo/actions/workflows/frontend-tests.yml/badge.svg) ![E2E Tests](https://github.com/owner/repo/actions/workflows/e2e-tests.yml/badge.svg) ![Conformance Tests](https://github.com/owner/repo/actions/workflows/conformance-tests.yml/badge.svg)
+
 A production-style Python factory that generates — and runs — **standalone multi-agent team
 packages**.
 

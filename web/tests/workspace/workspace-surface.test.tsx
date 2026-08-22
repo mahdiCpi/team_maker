@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WorkspaceSurface } from "@/components/workspace/workspace-surface";
 
-import { createRunFetchQueue, type RunFetchQueue } from "./harness";
+import { createRunFetchQueue, assertNoUnexpectedRequests, type RunFetchQueue } from "./harness";
 import {
   errorRunBlocked,
   errorRunInProgress,
@@ -35,6 +35,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // Validate that no unexpected requests were made (Task 8 - Workspace harness)
+  assertNoUnexpectedRequests();
 });
 
 async function renderWorkspace(planBody: unknown = teamPlan) {

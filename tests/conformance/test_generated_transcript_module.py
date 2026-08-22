@@ -30,7 +30,15 @@ import sys
 
 import pytest
 
-pytest.importorskip("crewai")
+# AD-7 conformance gate: crewai is required for these tests.
+# If crewai is not installed, the tests must fail explicitly, not skip.
+try:
+    import crewai  # noqa: F401
+except ImportError:
+    pytest.fail(
+        "crewai is required for generated transcript module tests. "
+        "Install with: pip install -e \".[runtime]\""
+    )
 
 from team_maker.runtime.executor import run_team_package  # noqa: E402
 from team_maker.runtime.loader import load_team_package  # noqa: E402
