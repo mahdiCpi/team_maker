@@ -24,7 +24,7 @@ from team_maker.adapters.runtime_crewai.transcript_capture import TranscriptReco
 from team_maker.domain.models import AgentSpec, GeneratedTeam, ResolvedCredential
 from team_maker.ports.execution_engine import ExecutionEngine
 from team_maker.runtime.ordering import topological_sort
-from team_maker.runtime.results import RunResult, TaskResult
+from team_maker.runtime.results import RunResult, TaskResult, TranscriptEntry
 from team_maker.runtime.run_context import require_goal_injected
 
 
@@ -87,24 +87,44 @@ class CrewAIExecutionEngine(ExecutionEngine):
         # that owns the task rather than to the manager crewai rebinds onto it
         # in a hierarchical crew — which would contradict `task_results`.
         task_owners = {spec.name: spec.agent_role for spec in ordered_tasks}
-        with TranscriptRecorder(task_owners) as recorder:
-            # No `inputs=` (Story 2.4 AC 5): the goal already lives in every
-            # task's `description` by the time this method runs
-            # (`run_context.augment_team_for_run`, called from
-            # `executor.run_team_package` before the engine is ever reached).
-            # Measured against the installed crewai: passing `inputs=` here
-            # runs crewai's own `{token}` template interpolation over every
-            # description, and an unrelated, unmatched brace in user-typed
-            # text raises `ValueError` — exactly the shape of text a pasted
-            # goal or document can contain. Omitting `inputs=` disables that
-            # interpolation entirely, so literal braces survive as plain
-            # text. `goal` stays a parameter of this method only because
-            # `ExecutionEngine.run`'s signature is pinned (Story 1.7 AC 7, for
-            # the v2 streaming retrofit); it is not read here, and the guard at
-            # the top of this method is what stops that from meaning "silently
-            # discarded".
-            output = crew.kickoff()
-        transcript = recorder.entries()
+
+        # AC 1: Return partial transcript on failed runs (Story 4.4). The
+        # recorder variable is assigned by __enter__ before the block executes,
+        # so it remains accessible even if kickoff raises.
+        recorder = None
+        try:
+            with TranscriptRecorder(task_owners) as recorder:
+                # No `inputs=` (Story 2.4 AC 5): the goal already lives in every
+                # task's `description` by the time this method runs
+                # (`run_context.augment_team_for_run`, called from
+                # `executor.run_team_package` before the engine is ever reached).
+                # Measured against the installed crewai: passing `inputs=` here
+                # runs crewai's own `{token}` template interpolation over every
+                # description, and an unrelated, unmatched brace in user-typed
+                # text raises `ValueError` — exactly the shape of text a pasted
+                # goal or document can contain. Omitting `inputs=` disables that
+                # interpolation entirely, so literal braces survive as plain
+                # text. `goal` stays a parameter of this method only because
+                # `ExecutionEngine.run`'s signature is pinned (Story 1.7 AC 7, for
+                # the v2 streaming retrofit); it is not read here, and the guard at
+                # the top of this method is what stops that from meaning "silently
+                # discarded".
+                output = crew.kickoff()
+            transcript: list[TranscriptEntry] = recorder.entries() if recorder else []
+        except Exception as exc:
+            # Kickoff failed: return the partial transcript (AC 1) *and* the
+            # failure itself via `RunResult.error` — a caller must still learn
+            # the run failed (Story 4.4 review finding). Even though kickoff
+            # raised, the context manager's __exit__ has already run, flushing
+            # the bus and unsubscribing, so the entries collected before the
+            # failure are safe to read from `recorder`.
+            partial_transcript: list[TranscriptEntry] = recorder.entries() if recorder else []
+            return RunResult(
+                final_output="",
+                task_results=[],
+                transcript=partial_transcript,
+                error=str(exc),
+            )
 
         if len(output.tasks_output) != len(ordered_tasks):
             raise RuntimeError(

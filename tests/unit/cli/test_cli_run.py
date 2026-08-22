@@ -246,6 +246,25 @@ def test_run_execution_failure_exits_1_with_plain_message_not_a_traceback(tmp_pa
     assert "Traceback" not in result.output
 
 
+def test_run_result_with_error_set_exits_1_instead_of_reporting_success(tmp_path, monkeypatch):
+    """Story 4.4 AC 1 / review fix: `run_team_package` can now return normally
+    with `result.error` set (a partial-transcript failure) instead of
+    raising — the CLI must still treat this as a failed run, not silently
+    print an empty "success" panel and exit 0."""
+    fake_result = RunResult(
+        final_output="",
+        task_results=[],
+        error="model provider returned 401 Unauthorized",
+    )
+    monkeypatch.setattr("team_maker.cli.run_team_package", lambda package, goal, key_config, engine=None: fake_result)
+
+    result = CliRunner().invoke(main, ["run", "--package", str(tmp_path), "ship it"])
+
+    assert result.exit_code == 1, result.output
+    assert "Run failed" in result.output
+    assert "401 Unauthorized" in result.output
+
+
 def test_run_success_prints_final_output_and_per_task_breakdown(tmp_path, monkeypatch):
     fake_result = RunResult(
         final_output="the app is done",

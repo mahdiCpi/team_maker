@@ -500,8 +500,17 @@ def run(
         err_console.print(f"[bold]Run failed:[/bold] {escape(str(exc))}")
         sys.exit(1)
 
+    # AC 1 (Story 4.4): a run that failed partway through returns normally,
+    # with `result.error` set, rather than raising — so its partial
+    # transcript below is still shown/written rather than lost with an
+    # exception. `result.error` must be checked before treating this as a
+    # success. Printed regardless of `--quiet`, matching every other failure
+    # path above.
+    if result.error is not None:
+        err_console.print(f"[bold]Run failed:[/bold] {escape(result.error)}")
     if not quiet:
-        _print_run_result(result)
+        if result.error is None:
+            _print_run_result(result)
         if transcript:
             _print_transcript(result)
 
@@ -519,7 +528,12 @@ def run(
             sys.exit(1)
         try:
             transcript_out.parent.mkdir(parents=True, exist_ok=True)
-            transcript_out.write_text(_format_transcript(result), encoding="utf-8")
+            # Sanitized like the console path (`_print_transcript`, below):
+            # a saved transcript file is a deliverable a user opens or `cat`s
+            # later, the same terminal-manipulation exposure AC 4 closes for
+            # the console (Story 4.4 review).
+            sanitized = sanitize_control_characters(_format_transcript(result))
+            transcript_out.write_text(sanitized, encoding="utf-8")
         # ValueError covers UnicodeEncodeError: raw model output can contain
         # lone surrogates, which encode() rejects — and that is a far likelier
         # failure here than a disk error.
@@ -530,6 +544,9 @@ def run(
             sys.exit(1)
         if not quiet:
             console.print(f"[dim]Transcript written to {escape(str(transcript_out))}[/dim]")
+
+    if result.error is not None:
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -689,17 +706,25 @@ def _format_transcript(result) -> str:  # type: ignore[no-untyped-def]
 
     One line per entry so the output stays greppable and diffable, and so the
     written file is the same thing the user saw on screen.
+
+    AC 5: Header format uses '::' delimiter to prevent spoofing, and content is
+    length-capped to prevent unbounded lines (Story 4.4 Task 5).
     """
     lines: list[str] = []
     # `or []` rather than assuming a list: RunResult is a plain dataclass with
     # no validation, and any ExecutionEngine implementation may hand back None.
     for entry in result.transcript or []:
         target = f" -> {entry.target_role}" if entry.target_role else ""
-        header = f"[{entry.sequence}] {entry.task_name} / {entry.agent_role}{target} ({entry.kind})"
+        # AC 5: Use '::' delimiter in header to prevent spoofing by content
+        # Format: [seq] task_name / agent_role(target) :: kind
+        # This ensures content cannot spoof a header line
+        header = f"[{entry.sequence}] {entry.task_name} / {entry.agent_role}{target} :: {entry.kind}"
         lines.append(header)
         content = (entry.content or "").strip()
+        # AC 5: Length cap on transcript content (10,000 chars per entry)
         if content:
-            lines.extend(f"    {line}" for line in content.splitlines())
+            capped_content = content[:10000]
+            lines.extend(f"    {line}" for line in capped_content.splitlines())
     return "\n".join(lines)
 
 

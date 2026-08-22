@@ -1,5 +1,10 @@
 # Deferred Work
 
+## Deferred from: code review of story-4.4 (2026-08-22)
+
+- **AC 5's `::` delimiter is a relabeling, not a structural fix** — `team_maker/cli.py`'s `_format_transcript` and its duplicate in `team_maker/codegen/templates/crewai_runner.py.j2` both changed the header separator from `(` to `::`, but transcript `content` is unconstrained LLM-generated free text with no per-run secret distinguishing a genuine header from spoofed content — unlike AC 6's per-run UUID delimiter for run-context injection. Task 5 already deferred the structured/JSON serialization option as "not required per AC," so this is a known v1 limitation of the human-readable format, not a regression. Revisit if a structured (JSON) transcript format is ever required.
+- **`SimpleTranscriptRecorder` duplicates `TranscriptRecorder`/`TranscriptEntry`** — `team_maker/codegen/templates/crewai_runner.py.j2` reimplements team_maker's `TranscriptRecorder` (from `team_maker/adapters/runtime_crewai/transcript_capture.py`) and `TranscriptEntry` (from `team_maker/runtime/results.py`) nearly line-for-line, because the generated `run_example.py` must run standalone without the `team_maker` package installed. Newly introduced by this story (not pre-existing), and the duplication has already drifted from the original in two ways: a flush-ordering bug on the success path, and a weaker/buggy `sanitize_control_characters` regex (both filed as patch items on story 4.4's review findings). Revisit if the codegen system ever gains a way to vendor a shared helper module into generated packages instead of re-authoring logic per template.
+
 ## Deferred from: code review of story-4.2 (2026-08-17)
 
 - **Unguarded concurrent `os.environ` mutation in credential bridging** — `team_maker/adapters/providers/credential_utils.py`'s `bridge_provider_credential`/`bridged_credential_context` read-modify-write `os.environ[env_var]` with no locking. Pre-existing: the prior `_bridged_credential` (CLI) and `bridge_credentials` (API) implementations had the same unguarded pattern; this refactor preserves rather than introduces the risk.

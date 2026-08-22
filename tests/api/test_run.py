@@ -421,6 +421,43 @@ def test_run_transitions_from_running_to_failed_with_an_authored_reason(make_cli
     assert_no_exception_leak(body["failure_reason"])
 
 
+def test_run_with_a_partial_transcript_failure_still_reports_failed(make_client, tmp_path):
+    """Story 4.4 AC 1 / review fix: `CrewAIExecutionEngine.run()` can now
+    return a `RunResult` with `error` set (a partial-transcript failure)
+    instead of raising. The registry must still surface this as a failed run
+    with a generic, non-leaking reason (AD-9) — while still exposing the
+    partial transcript this whole mechanism exists to preserve."""
+    slug = build_team(tmp_path, team_name="Partial Failure Team")
+    result = RunResult(
+        final_output="",
+        task_results=[],
+        transcript=[
+            TranscriptEntry(
+                sequence=1,
+                kind="task_started",
+                agent_role="writer",
+                task_name="draft",
+                content="starting",
+            )
+        ],
+        error="sk-ant-SECRET-DO-NOT-LEAK",
+    )
+    harness = make_client(execution_engine=FakeExecutionEngine(result=result))
+
+    created = harness.client.post("/api/runs", json=run_body(slug))
+    body = poll_until_terminal(harness.client, created.json()["run_id"])
+
+    assert body["status"] == "failed"
+    assert body["transcript_available"] is True
+    assert body["failure_reason"]
+    assert "sk-ant-SECRET-DO-NOT-LEAK" not in body["failure_reason"]
+    assert_no_exception_leak(body["failure_reason"])
+
+    transcript = harness.client.get(f"/api/runs/{created.json()['run_id']}/transcript").json()
+    assert transcript["available"] is True
+    assert transcript["entries"][0]["task_name"] == "draft"
+
+
 # ---------------------------------------------------------------------------
 # GET /api/runs/{run_id}/transcript
 # ---------------------------------------------------------------------------

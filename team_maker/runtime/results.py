@@ -64,8 +64,16 @@ class RunResult:
     ``transcript`` is additive (Story 1.7): it widens this object rather than
     introducing a second run path, and it is independently omittable so an API
     caller can drop it from a response without reshaping anything else.
+
+    ``error`` is additive too (Story 4.4 AC 1): a run that fails partway
+    through returns normally, with this set, rather than raising — so its
+    ``transcript`` (collected before the failure) is never discarded along
+    with an exception. ``None`` means the run succeeded; every other field is
+    then fully populated. A caller MUST check this field before treating a
+    returned `RunResult` as a success.
     """
 
     final_output: str
     task_results: list[TaskResult]
     transcript: list[TranscriptEntry] = field(default_factory=list)
+    error: str | None = None
