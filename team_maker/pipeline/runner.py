@@ -102,8 +102,8 @@ class PipelineRunner:
 
     @staticmethod
     def _generate_from_template(request: TeamCreationRequest) -> GeneratedTeam:
-        from team_maker.templates.registry import get_template
-        template_id = request.template_id or "software_delivery_team"
+        from team_maker.templates.registry import DEFAULT_TEMPLATE_ID, get_template
+        template_id = request.template_id or DEFAULT_TEMPLATE_ID
         template = get_template(template_id)
         team = template.generate(request)
         # Populate framework fields from request
