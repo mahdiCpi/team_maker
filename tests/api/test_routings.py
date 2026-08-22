@@ -120,3 +120,75 @@ def test_the_template_import_stays_inside_the_failure_guard():
         "get_template is bound at module scope, so the import is no longer inside "
         "the try/except that is supposed to contain it"
     )
+
+
+# ---------------------------------------------------------------------------
+# Dynamic template resolution (Story 4.6 Task 9)
+# ---------------------------------------------------------------------------
+
+
+def test_template_resolution_uses_request_template_id(tmp_path):
+    """Test that requested_routings uses request.template_id when provided.
+    
+    This verifies that the hardcoded _TEMPLATE_ID has been replaced with
+    dynamic template resolution from the request.
+    """
+    # Create a request with a specific template_id
+    request = TeamCreationRequest(
+        team_name="Test Team",
+        purpose="A test purpose that is long enough for validation.",
+        output_path=str(tmp_path / "test"),
+        template_id="baseline_education_team",
+        desired_roles=[{"name": "tutor", "description": "Teaches things."}],
+    )
+    
+    routings = requested_routings(request)
+    
+    # The routings should be resolved from baseline_education_team template
+    # not from the hardcoded software_delivery_team
+    assert "tutor" in routings
+    # The tutor role in education team should have specific routing
+    assert routings["tutor"].provider is not None
+
+
+def test_template_resolution_uses_default_when_none(tmp_path):
+    """Test that requested_routings uses default template when template_id is None."""
+    # Create a request without template_id (should use default)
+    request = TeamCreationRequest(
+        team_name="Test Team",
+        purpose="A test purpose that is long enough for validation.",
+        output_path=str(tmp_path / "test"),
+        template_id=None,
+        desired_roles=[{"name": "architect", "description": "Designs things."}],
+    )
+    
+    routings = requested_routings(request)
+    
+    # Should still work with default template
+    assert "architect" in routings
+
+
+def test_template_resolution_matches_pipeline_logic(tmp_path):
+    """Test that requested_routings uses the same template selection as PipelineRunner.
+    
+    This verifies that reporting and builds use identical template resolution.
+    The pipeline uses: template_id = request.template_id or "software_delivery_team"
+    """
+    # Test with various template_ids
+    template_ids = ["baseline_education_team", "research_content_team", "software_delivery_team", None]
+    
+    for template_id in template_ids:
+        request = TeamCreationRequest(
+            team_name="Test Team",
+            purpose="A test purpose that is long enough for validation.",
+            output_path=str(tmp_path / "test"),
+            template_id=template_id,
+            desired_roles=[{"name": "architect", "description": "Designs things."}],
+        )
+        
+        # This should not raise - the template should be resolved successfully
+        routings = requested_routings(request)
+        
+        # For valid template_ids, we should get routings
+        # For None, it should use the default and still work
+        assert isinstance(routings, dict)

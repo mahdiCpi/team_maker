@@ -61,18 +61,61 @@ class TestCreateSessionFromStarter:
         assert "Research Content Team-adapted" in data["spec"]["team_name"]
 
     def test_create_session_from_starter_not_found(self, make_client):
-        """Test that requesting a non-existent starter returns 404."""
+        """Test that requesting a non-existent starter returns 422 validation error."""
         harness = make_client()
         response = harness.client.post(
             "/api/compose/sessions/from-starter",
             json={"starter_id": "nonexistent"}
         )
 
-        assert response.status_code == 404
+        # With schema-level validation, invalid starter_id is caught at validation
+        # time and returns 422 Unprocessable Entity
+        assert response.status_code == 422
 
         data = response.json()
         assert "error" in data
-        assert data["error"]["code"] == "not_found"
+        assert data["error"]["code"] == "spec_invalid"
+        # Check that the error mentions starter_id in the fields
+        assert any(
+            err["path"] == "starter_id" for err in data["error"]["fields"]
+        )
+
+    def test_create_session_from_starter_invalid_id_schema_validation(self, make_client):
+        """Test that schema validation rejects invalid starter_id with 422.
+        
+        This tests the Literal type validation added in Story 4.6 Task 1.
+        """
+        harness = make_client()
+        # Test various invalid starter IDs
+        invalid_ids = ["nonexistent", "invalid", "software_delivery", ""]
+        
+        for invalid_id in invalid_ids:
+            response = harness.client.post(
+                "/api/compose/sessions/from-starter",
+                json={"starter_id": invalid_id}
+            )
+            assert response.status_code == 422, f"Expected 422 for {invalid_id!r}"
+            data = response.json()
+            assert data["error"]["code"] == "spec_invalid"
+
+    def test_create_session_from_starter_valid_ids(self, make_client):
+        """Test that valid starter IDs pass schema validation.
+
+        Valid IDs are dynamically discovered from examples/starters/*.yaml files.
+        """
+        harness = make_client()
+        # Test valid starter IDs - these are the template_ids from examples/starters/*.yaml files
+        valid_ids = ["baseline_education_team", "research_content_team"]
+        
+        for valid_id in valid_ids:
+            response = harness.client.post(
+                "/api/compose/sessions/from-starter",
+                json={"starter_id": valid_id}
+            )
+            # Should not return validation error (422)
+            # It may return 201 (created) or other success codes, or 404/500 if the file doesn't exist
+            # but schema validation should pass
+            assert response.status_code != 422, f"Schema validation failed for valid ID {valid_id!r}"
 
     def test_create_session_from_starter_costs_no_llm_call(self, make_client):
         """Test that creating a session from a starter doesn't cost an LLM call.

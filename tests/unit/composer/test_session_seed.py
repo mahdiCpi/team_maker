@@ -53,7 +53,7 @@ def sample_spec() -> TeamCreationRequest:
                 dependencies=[],
             ),
         ],
-        template_id="test_template",
+        template_id="software_delivery_team",
         output_path="./output/test_team",
         overwrite=False,
     )
@@ -216,7 +216,7 @@ class TestMultipleSeeds:
             purpose="First purpose",
             desired_roles=[],
             desired_tasks=[],
-            template_id="test",
+            template_id="software_delivery_team",
             output_path="./output/first",
             overwrite=False,
         )
@@ -225,7 +225,7 @@ class TestMultipleSeeds:
             purpose="Second purpose",
             desired_roles=[],
             desired_tasks=[],
-            template_id="test",
+            template_id="software_delivery_team",
             output_path="./output/second",
             overwrite=False,
         )

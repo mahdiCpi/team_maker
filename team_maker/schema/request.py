@@ -295,6 +295,30 @@ class TeamCreationRequest(BaseModel):
         description="Optional template ID to use for team generation. If not provided, defaults to 'software_delivery_team'.",
     )
 
+    @field_validator("template_id")
+    @classmethod
+    def validate_template_id_exists(cls, v: Optional[str]) -> Optional[str]:
+        """Validate that template_id, if provided, exists in the registry.
+        
+        This provides fast-fail validation at request time rather than waiting
+        for get_template() to be called at runtime.
+        
+        Story 4.6 Task 3: Template existence check at request time
+        """
+        if v is None:
+            return v
+        
+        # Import here to avoid circular imports
+        from team_maker.templates.registry import list_templates
+        
+        valid_templates = list_templates()
+        if v not in valid_templates:
+            available = sorted(valid_templates.keys())
+            raise ValueError(
+                f"Unknown template_id '{v}'. Available templates: {available}"
+            )
+        return v
+
     @model_validator(mode="before")
     @classmethod
     def _pre_process(cls, values: Any) -> Any:
@@ -317,6 +341,10 @@ class TeamCreationRequest(BaseModel):
         # 2. Map auxiliary_resources_dir → context_dir (alternative field name).
         if "auxiliary_resources_dir" in values and "context_dir" not in values:
             values["context_dir"] = values["auxiliary_resources_dir"]
+
+        # 2.5. Map template → template_id (alternative field name for backwards compatibility).
+        if "template" in values and "template_id" not in values:
+            values["template_id"] = values["template"]
 
         # 3. Map notification_channels.telegram → notifications.telegram_* fields.
         nc = values.get("notification_channels")
