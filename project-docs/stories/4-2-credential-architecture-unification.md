@@ -141,84 +141,84 @@ The current `team_maker/adapters/providers/resolution.py` already provides a cle
 Each acceptance criterion below maps to at least one implementation task and at least one automated test task.
 
 ### Task 1: Credential-path audit and inventory
-- [ ] **Task 1.1** — Document all credential consumers and their current resolution paths
-  - [ ] Map: CLI -> keyconfig.py, registry.py, cli._bridged_credential
-  - [ ] Map: API -> keyconfig.py, registry.py, deps.bridge_credentials, deps.providers_needing_restart
-  - [ ] Map: Key-status -> registry.report_availability, registry.classify
-  - [ ] Map: Model resolver -> model_resolver._resolve_key, model_resolver.resolve_routing
-  - [ ] Map: Runtime preflight -> resolution.resolve_credential
-  - [ ] Map: Runtime execution -> resolution.resolve_credential (same as preflight)
-  - [ ] Map: Generated packages -> ProviderRouting.api_key_env in routing_config.yaml
-  - [ ] **Test 1.1** — Verify inventory is complete by tracing all imports of KeyConfig, Provider, ProviderRouting, ResolvedCredential
+- [x] **Task 1.1** — Document all credential consumers and their current resolution paths
+  - [x] Map: CLI -> keyconfig.py, registry.py, cli._bridged_credential
+  - [x] Map: API -> keyconfig.py, registry.py, deps.bridge_credentials, deps.providers_needing_restart
+  - [x] Map: Key-status -> registry.report_availability, registry.classify
+  - [x] Map: Model resolver -> model_resolver._resolve_key, model_resolver.resolve_routing
+  - [x] Map: Runtime preflight -> resolution.resolve_credential
+  - [x] Map: Runtime execution -> resolution.resolve_credential (same as preflight)
+  - [x] Map: Generated packages -> ProviderRouting.api_key_env in routing_config.yaml
+  - [x] **Test 1.1** — Verify inventory is complete by tracing all imports of KeyConfig, Provider, ProviderRouting, ResolvedCredential
 
-- [ ] **Task 1.2** — Complete the required design audit inventory table
-  - [ ] Fill every row of the Design Audit table (below) before any code changes
-  - [ ] Identify compatibility risks for each consumer
-  - [ ] Document current precedence for each path
-  - [ ] **Test 1.2** — Verify table accuracy by checking each listed consumer
+- [x] **Task 1.2** — Complete the required design audit inventory table
+  - [x] Fill every row of the Design Audit table (below) before any code changes
+  - [x] Identify compatibility risks for each consumer
+  - [x] Document current precedence for each path
+  - [x] **Test 1.2** — Verify table accuracy by checking each listed consumer
 
 ### Task 2: Define and document unified resolution policy
-- [ ] **Task 2.1** — Write the unified policy specification in a single location
-  - [ ] Location: extend `team_maker/adapters/providers/resolution.py` docstring or create `CREDENTIAL_RESOLUTION_POLICY.md`
-  - [ ] Include: key loading, mapping, precedence, classification, gateway detection, model qualification, warning behavior
-  - [ ] **Test 2.1** — Verify policy document covers all AC requirements
+- [x] **Task 2.1** — Write the unified policy specification in a single location
+  - [x] Location: extend `team_maker/adapters/providers/resolution.py` docstring or create `CREDENTIAL_RESOLUTION_POLICY.md`
+  - [x] Include: key loading, mapping, precedence, classification, gateway detection, model qualification, warning behavior
+  - [x] **Test 2.1** — Verify policy document covers all AC requirements
 
-- [ ] **Task 2.2** — Verify policy aligns with AD-8 (data-driven provider selection) and AD-9 (no secret leakage)
-  - [ ] **Compatibility check 2.2** — Confirm no new hardcoded provider branches
-  - [ ] **Security check 2.2** — Confirm policy explicitly forbids secret leakage
+- [x] **Task 2.2** — Verify policy aligns with AD-8 (data-driven provider selection) and AD-9 (no secret leakage)
+  - [x] **Compatibility check 2.2** — Confirm no new hardcoded provider branches
+  - [x] **Security check 2.2** — Confirm policy explicitly forbids secret leakage
 
 ### Task 3: Implement unified duplicate key handling
-- [ ] **Task 3.1** — Add duplicate key detection to KeyConfig.from_file()
-  - [ ] Track which config entries map to the same provider
-  - [ ] Detect both canonical env-var and bare provider name duplicates
-  - [ ] **Test 3.1a** — Key Config with duplicate canonical and alias entries produces warning
-  - [ ] **Test 3.1b** — Key Config with duplicate bare provider names produces warning
-  - [ ] **Test 3.1c** — Warning identifies provider and conflicting key names
+- [x] **Task 3.1** — Add duplicate key detection to KeyConfig.from_file()
+  - [x] Track which config entries map to the same provider
+  - [x] Detect both canonical env-var and bare provider name duplicates
+  - [x] **Test 3.1a** — Key Config with duplicate canonical and alias entries produces warning
+  - [x] **Test 3.1b** — Key Config with duplicate bare provider names produces warning
+  - [x] **Test 3.1c** — Warning identifies provider and conflicting key names
 
-- [ ] **Task 3.2** — Implement safe duplicate warning (identifiers only, no values)
-  - [ ] Warning message format: "Duplicate key entries for provider '{name}': {key_names} in Key Config at lines {line_numbers}. Last entry wins."
-  - [ ] Never include secret values in warning
-  - [ ] Optionally include line numbers if available from parsing
-  - [ ] **Security check 3.2** — Verify warning string contains no secrets
-  - [ ] **Test 3.2a** — Warning output captured and asserted to contain no secret values
-  - [ ] **Test 3.2b** — Sentinel secret value 'SK-1234567890ABCDEF' never appears in warning
+- [x] **Task 3.2** — Implement safe duplicate warning (identifiers only, no values)
+  - [x] Warning message format: "Duplicate key entries for provider '{name}': {key_names} in Key Config at lines {line_numbers}. Last entry wins."
+  - [x] Never include secret values in warning
+  - [x] Optionally include line numbers if available from parsing
+  - [x] **Security check 3.2** — Verify warning string contains no secrets
+  - [x] **Test 3.2a** — Warning output captured and asserted to contain no secret values
+  - [x] **Test 3.2b** — Sentinel secret value 'SK-1234567890ABCDEF' never appears in warning
 
-- [ ] **Task 3.3** — Document and preserve last-recognized-entry-wins behavior
-  - [ ] Update docstrings to document backward-compatible resolution order
-  - [ ] **Test 3.3** — Verify last duplicate entry wins for each provider
+- [x] **Task 3.3** — Document and preserve last-recognized-entry-wins behavior
+  - [x] Update docstrings to document backward-compatible resolution order
+  - [x] **Test 3.3** — Verify last duplicate entry wins for each provider
 
 ### Task 4: Strengthen keyless-provider behavior
-- [ ] **Task 4.1** — Audit keyless provider handling in classify() and resolve_credential()
-  - [ ] Verify `ollama` (keyless_local=True, env_var=None) is classified correctly
-  - [ ] Check if any keyless provider supports optional auth
-  - [ ] **Test 4.1** — Keyless provider without key classified as keyless-local
+- [x] **Task 4.1** — Audit keyless provider handling in classify() and resolve_credential()
+  - [x] Verify `ollama` (keyless_local=True, env_var=None) is classified correctly
+  - [x] Check if any keyless provider supports optional auth
+  - [x] **Test 4.1** — Keyless provider without key classified as keyless-local
 
-- [ ] **Task 4.2** — Implement warning for unsupported keys on keyless providers
-  - [ ] If key is supplied for provider with env_var=None, issue warning
-  - [ ] Warning identifies provider and key name only
-  - [ ] **Security check 4.2** — Verify warning contains no secret
-  - [ ] **Test 4.2a** — Keyless provider with supplied key issues warning
-  - [ ] **Test 4.2b** — Warning identifies provider and key name, not value
+- [x] **Task 4.2** — Implement warning for unsupported keys on keyless providers
+  - [x] If key is supplied for provider with env_var=None, issue warning
+  - [x] Warning identifies provider and key name only
+  - [x] **Security check 4.2** — Verify warning contains no secret
+  - [x] **Test 4.2a** — Keyless provider with supplied key issues warning
+  - [x] **Test 4.2b** — Warning identifies provider and key name, not value
 
 ### Task 5: Fix xAI catalog inconsistency
-- [ ] **Task 5.1** — Update xai Provider catalog entry
-  - [ ] Set openrouter_reachable=True to match openrouter_slug="x-ai"
-  - [ ] **Test 5.1a** — xai with OpenRouter key classified as via-openrouter
-  - [ ] **Test 5.1b** — xai without OpenRouter key classified as unsupported-by-runtime
-  - [ ] **Test 5.1c** — xai openrouter_model_prefix() returns "x-ai"
+- [x] **Task 5.1** — Update xai Provider catalog entry
+  - [x] Set openrouter_reachable=True to match openrouter_slug="x-ai"
+  - [x] **Test 5.1a** — xai with OpenRouter key classified as via-openrouter
+  - [x] **Test 5.1b** — xai without OpenRouter key classified as unsupported-by-runtime
+  - [x] **Test 5.1c** — xai openrouter_model_prefix() returns "x-ai"
 
-- [ ] **Task 5.2** — Add catalog consistency validation
-  - [ ] Add test that checks all providers: if openrouter_slug is set, openrouter_reachable should be True
-  - [ ] **Test 5.2** — Catalog validation test runs in CI
+- [x] **Task 5.2** — Add catalog consistency validation
+  - [x] Add test that checks all providers: if openrouter_slug is set, openrouter_reachable should be True
+  - [x] **Test 5.2** — Catalog validation test runs in CI
 
 ### Task 6: Make OpenRouter model qualification data-driven
-- [ ] **Task 6.1** — Update OpenRouter model qualification in resolution and model_resolver
-  - [ ] Use provider.openrouter_model_prefix() for vendor namespace
-  - [ ] Qualify unqualified models to openrouter/<prefix>/<model>
-  - [ ] Detect and avoid double-prefixing already-qualified models
-  - [ ] **Test 6.1a** — Unqualified model "gpt-4o" qualified to "openrouter/openai/gpt-4o"
-  - [ ] **Test 6.1b** — Already-qualified "openrouter/openai/gpt-4o" unchanged
-  - [ ] **Test 6.1c** — Unknown unqualified model rejected with ValidationError
+- [x] **Task 6.1** — Update OpenRouter model qualification in resolution and model_resolver
+  - [x] Use provider.openrouter_model_prefix() for vendor namespace
+  - [x] Qualify unqualified models to openrouter/<prefix>/<model>
+  - [x] Detect and avoid double-prefixing already-qualified models
+  - [x] **Test 6.1a** — Unqualified model "gpt-4o" qualified to "openrouter/openai/gpt-4o"
+  - [x] **Test 6.1b** — Already-qualified "openrouter/openai/gpt-4o" unchanged
+  - [x] **Test 6.1c** — Unknown unqualified model rejected with ValidationError
 
 ### Task 7: Migrate ProviderRouting.api_key_env handling
 
@@ -230,78 +230,78 @@ Each acceptance criterion below maps to at least one implementation task and at 
 > - Do NOT break existing Team Packages or custom environment-variable behavior
 > - If the audit recommends deprecation or removal, do NOT perform that change in Story 4.2. Create a separate, explicitly approved deprecation and migration story instead.
 
-- [ ] **Task 7.1** — Audit all readers and writers of ProviderRouting.api_key_env
-  - [ ] Search codebase: grep -r "ProviderRouting" --include="*.py" | grep api_key_env
-  - [ ] Search codebase: grep -r "api_key_env" --include="*.py" --include="*.yaml.j2"
-  - [ ] Document: who writes it, who reads it, who requires it
-  - [ ] **Compatibility check 7.1** — Verify no runtime code actually uses api_key_env from ProviderRouting
+- [x] **Task 7.1** — Audit all readers and writers of ProviderRouting.api_key_env
+  - [x] Search codebase: grep -r "ProviderRouting" --include="*.py" | grep api_key_env
+  - [x] Search codebase: grep -r "api_key_env" --include="*.py" --include="*.yaml.j2"
+  - [x] Document: who writes it, who reads it, who requires it
+  - [x] **Compatibility check 7.1** — Verify no runtime code actually uses api_key_env from ProviderRouting
 
-- [ ] **Task 7.2** — Ensure backward compatibility for existing packages
-  - [ ] Existing Team Packages with ProviderRouting.api_key_env continue to load
-  - [ ] api_key_env field is safely ignored during resolution
-  - [ ] **Test 7.2a** — Load legacy Team Package with ProviderRouting.api_key_env
-  - [ ] **Test 7.2b** — Legacy package resolves to same credential as if field were absent
+- [x] **Task 7.2** — Ensure backward compatibility for existing packages
+  - [x] Existing Team Packages with ProviderRouting.api_key_env continue to load
+  - [x] api_key_env field is safely ignored during resolution
+  - [x] **Test 7.2a** — Load legacy Team Package with ProviderRouting.api_key_env
+  - [x] **Test 7.2b** — Legacy package resolves to same credential as if field were absent
 
-- [ ] **Task 7.3** — Decide field disposition (this story vs future deprecation)
-  - [ ] If keeping: document why it's necessary for forward compatibility
+- [x] **Task 7.3** — Decide field disposition (this story vs future deprecation)
+  - [x] If keeping: document why it's necessary for forward compatibility
   - [ ] If deprecating: create separate deprecation story (DO NOT implement deprecation in Story 4.2)
   - [ ] If removing: ensure removal is gated on all consumers being updated (DO NOT remove in Story 4.2)
-  - [ ] **Compatibility check 7.3** — Verify decision doesn't break existing workflows
+  - [x] **Compatibility check 7.3** — Verify decision doesn't break existing workflows
 
 ### Task 8: Consolidate CLI and API credential logic
-- [ ] **Task 8.1** — Extract shared utilities to adapters/providers/
-  - [ ] Create team_maker/adapters/providers/credential_utils.py or extend resolution.py
-  - [ ] Extract: key-to-provider mapping from env_to_provider()
-  - [ ] Extract: shared resolution helper that both CLI and API can call
-  - [ ] **Test 8.1** — Shared utilities produce same results as previous implementations
+- [x] **Task 8.1** — Extract shared utilities to adapters/providers/
+  - [x] Create team_maker/adapters/providers/credential_utils.py or extend resolution.py
+  - [x] Extract: key-to-provider mapping from env_to_provider()
+  - [x] Extract: shared resolution helper that both CLI and API can call
+  - [x] **Test 8.1** — Shared utilities produce same results as previous implementations
 
-- [ ] **Task 8.2** — Update api/deps.py to use shared utilities
-  - [ ] Replace bridge_credentials() duplication with shared call
-  - [ ] Preserve API-specific no-mutation behavior
-  - [ ] **Test 8.2a** — API credential resolution unchanged after refactor
-  - [ ] **Test 8.2b** — API still does not mutate process environment
+- [x] **Task 8.2** — Update api/deps.py to use shared utilities
+  - [x] Replace bridge_credentials() duplication with shared call
+  - [x] Preserve API-specific no-mutation behavior
+  - [x] **Test 8.2a** — API credential resolution unchanged after refactor
+  - [x] **Test 8.2b** — API still does not mutate process environment
 
-- [ ] **Task 8.3** — Update cli.py to use shared utilities
-  - [ ] Replace _bridged_credential() duplication with shared call
-  - [ ] Preserve CLI-specific temporary environment mutation
-  - [ ] **Test 8.3a** — CLI credential resolution unchanged after refactor
-  - [ ] **Test 8.3b** — CLI still restores environment on exit
+- [x] **Task 8.3** — Update cli.py to use shared utilities
+  - [x] Replace _bridged_credential() duplication with shared call
+  - [x] Preserve CLI-specific temporary environment mutation
+  - [x] **Test 8.3a** — CLI credential resolution unchanged after refactor
+  - [x] **Test 8.3b** — CLI still restores environment on exit
 
-- [ ] **Task 8.4** — Verify CLI and API parity
-  - [ ] **Test 8.4a** — CLI and API report identical availability for same config
-  - [ ] **Test 8.4b** — CLI and API resolve identical credentials for same inputs
+- [x] **Task 8.4** — Verify CLI and API parity
+  - [x] **Test 8.4a** — CLI and API report identical availability for same config
+  - [x] **Test 8.4b** — CLI and API resolve identical credentials for same inputs
 
 ### Task 9: Security regression testing
-- [ ] **Task 9.1** — Create comprehensive secret-leakage test suite
-  - [ ] Use unique sentinel secret values: ANTHROPIC_SENTINEL, OPENAI_SENTINEL, etc.
-  - [ ] **Test 9.1a** — Sentinel secrets never appear in captured log output
-  - [ ] **Test 9.1b** — Sentinel secrets never appear in warning messages
-  - [ ] **Test 9.1c** — Sentinel secrets never appear in exception strings
-  - [ ] **Test 9.1d** — Sentinel secrets never appear in API responses
-  - [ ] **Test 9.1e** — Sentinel secrets never appear in CLI output
-  - [ ] **Test 9.1f** — Sentinel secrets never appear in serialized objects
-  - [ ] **Test 9.1g** — ResolvedCredential.__repr__ does not expose api_key
+- [x] **Task 9.1** — Create comprehensive secret-leakage test suite
+  - [x] Use unique sentinel secret values: ANTHROPIC_SENTINEL, OPENAI_SENTINEL, etc.
+  - [x] **Test 9.1a** — Sentinel secrets never appear in captured log output
+  - [x] **Test 9.1b** — Sentinel secrets never appear in warning messages
+  - [x] **Test 9.1c** — Sentinel secrets never appear in exception strings
+  - [x] **Test 9.1d** — Sentinel secrets never appear in API responses
+  - [x] **Test 9.1e** — Sentinel secrets never appear in CLI output
+  - [x] **Test 9.1f** — Sentinel secrets never appear in serialized objects
+  - [x] **Test 9.1g** — ResolvedCredential.__repr__ does not expose api_key
 
-- [ ] **Task 9.2** — Verify Story 4.1 protections remain active
-  - [ ] **Test 9.2a** — All Story 4.1 security tests still pass
-  - [ ] **Test 9.2b** — text_sanitizer utilities still used in all credential paths
-  - [ ] **Security check 9.2** — No regression in secret handling
+- [x] **Task 9.2** — Verify Story 4.1 protections remain active
+  - [x] **Test 9.2a** — All Story 4.1 security tests still pass
+  - [x] **Test 9.2b** — text_sanitizer utilities still used in all credential paths
+  - [x] **Security check 9.2** — No regression in secret handling
 
 ### Task 10: Legacy compatibility verification
-- [ ] **Task 10.1** — Test existing Team Package loading
-  - [ ] **Test 10.1a** — Load Team Package generated by current version with api_key_env
-  - [ ] **Test 10.1b** — Verify credential resolution matches original behavior
+- [x] **Task 10.1** — Test existing Team Package loading
+  - [x] **Test 10.1a** — Load Team Package generated by current version with api_key_env
+  - [x] **Test 10.1b** — Verify credential resolution matches original behavior
 
-- [ ] **Task 10.2** — Test new Team Package generation
-  - [ ] **Test 10.2** — New packages work correctly with unified resolution
+- [x] **Task 10.2** — Test new Team Package generation
+  - [x] **Test 10.2** — New packages work correctly with unified resolution
 
 ### Task 11: Concurrency and thread-safety testing
-- [ ] **Task 11.1** — Test concurrent API requests
-  - [ ] **Test 11.1a** — 10 concurrent credential resolution requests don't interfere
-  - [ ] **Test 11.1b** — No environment variables mutated during concurrent requests
+- [x] **Task 11.1** — Test concurrent API requests
+  - [x] **Test 11.1a** — 10 concurrent credential resolution requests don't interfere
+  - [x] **Test 11.1b** — No environment variables mutated during concurrent requests
 
-- [ ] **Task 11.2** — Test CLI isolation
-  - [ ] **Test 11.2** — Sequential CLI commands don't leak credentials between invocations
+- [x] **Task 11.2** — Test CLI isolation
+  - [x] **Test 11.2** — Sequential CLI commands don't leak credentials between invocations
 
 ## Required Design Audit
 
