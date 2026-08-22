@@ -343,3 +343,24 @@ def test_task_output_count_mismatch_raises_clear_error_instead_of_silent_truncat
 
     with pytest.raises(RuntimeError, match="task output"):
         CrewAIExecutionEngine().run(_runnable(team, "goal"), _creds(team, _ANTHROPIC_KEYS), "goal")
+
+
+def test_kickoff_failure_returns_a_run_result_with_error_set_instead_of_raising(monkeypatch):
+    """Story 4.4 AC 1 / review fix: a run that fails partway through must still
+    tell its caller it failed (`result.error`), not go quiet behind an
+    empty-but-successful-shaped `RunResult` — swallowing the exception
+    entirely was the bug this guards against (both the CLI's exit code and
+    the API's run status depend on this field)."""
+    team = _team([_agent("architect")], [_task("design", "architect")])
+
+    def _raising_kickoff(self, inputs=None):
+        raise RuntimeError("kaboom: provider rejected the request")
+
+    monkeypatch.setattr(Crew, "kickoff", _raising_kickoff)
+
+    result = CrewAIExecutionEngine().run(_runnable(team, "goal"), _creds(team, _ANTHROPIC_KEYS), "goal")
+
+    assert result.error == "kaboom: provider rejected the request"
+    assert result.final_output == ""
+    assert result.task_results == []
+    assert result.transcript == []

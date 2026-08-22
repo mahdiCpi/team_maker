@@ -14,9 +14,21 @@ process-global event bus, `emission_sequence` colliding across runs (it is
 ContextVar-scoped and restarts at 1 per run, so sorting cannot separate two
 runs), and `TranscriptRecorder.__exit__`'s `flush()` waiting on every
 process-wide pending future. A process-wide lock is the only fix that closes
-all three without touching `team_maker/`, and the API is already pinned
-single-worker (`main.py:_warn_on_multiple_workers`), so a process-wide lock
-*is* a system-wide lock. This registry is that lock's one home.
+all three, and the API is already pinned single-worker
+(`main.py:_warn_on_multiple_workers`), so a process-wide lock *is* a
+system-wide lock.
+
+Story 4.4 added a second, independent lock at `team_maker/runtime/executor.py`
+(`run_team_package`'s own `_run_lock`), so this registry's lock is no longer
+the *only* home — the two now serve different purposes and both stay. This
+one is non-blocking (`_run_lock.acquire(blocking=False)` below): it exists to
+fail a concurrent `POST /api/runs` fast, with a clean `run_blocked` response,
+rather than making the client wait. The runtime-level lock is a correctness
+guarantee for *every* caller of `run_team_package` — including a future
+non-API embedder (Epic 5, Story 5.3) that would never pass through this
+registry at all — and blocks with no timeout, which is a deliberate v1
+limitation (Story 4.4 Task 2): a caller sharing a process with a hung run has
+no way to not wait for it.
 
 ## Why a run's own idle clock starts only at completion
 
@@ -40,7 +52,7 @@ from typing import Optional
 
 from api.errors import RUN_IN_PROGRESS, RUN_NOT_FOUND, ApiError
 from team_maker.runtime.results import RunResult
-from team_maker.utils.text_sanitizer import log_exception_safely
+from team_maker.utils.text_sanitizer import log_exception_safely, sanitize_text_for_display
 
 logger = logging.getLogger("api.runs")
 
@@ -287,6 +299,21 @@ class RunRegistry:
             if not isinstance(exc, Exception):
                 raise
         else:
+            # AC 1 (Story 4.4): `work()` (== `run_team_package`) can now
+            # return normally with `result.error` set instead of raising —
+            # so its partial transcript is preserved rather than discarded
+            # with an exception. This is still a failed run: the client must
+            # see `status=failed`, exactly as the `except BaseException`
+            # branch above already promises for every other failure shape.
+            # `result` itself is still `Optional` per `work`'s declared type
+            # (test doubles that don't care about the outcome return `None`).
+            failed = result is not None and result.error is not None
+            if failed:
+                logger.error(
+                    "run %s failed: %s",
+                    record.run_id,
+                    sanitize_text_for_display(result.error),
+                )
             with self._guard:
                 # `status` is assigned *last*, after the fields a terminal
                 # status promises are already in place. Readers go through
@@ -295,7 +322,11 @@ class RunRegistry:
                 # future reader that does not.
                 record.result = result
                 record.finished_at = self._clock()
-                record.status = STATUS_COMPLETE
+                if failed:
+                    record.failure_reason = GENERIC_FAILURE_REASON
+                    record.status = STATUS_FAILED
+                else:
+                    record.status = STATUS_COMPLETE
         finally:
             self._run_lock.release()
 
