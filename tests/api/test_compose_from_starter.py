@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 class TestCreateSessionFromStarter:
     """Tests for POST /api/compose/sessions/from-starter endpoint."""
@@ -82,13 +84,13 @@ class TestCreateSessionFromStarter:
 
     def test_create_session_from_starter_invalid_id_schema_validation(self, make_client):
         """Test that schema validation rejects invalid starter_id with 422.
-        
+
         This tests the Literal type validation added in Story 4.6 Task 1.
         """
         harness = make_client()
         # Test various invalid starter IDs
         invalid_ids = ["nonexistent", "invalid", "software_delivery", ""]
-        
+
         for invalid_id in invalid_ids:
             response = harness.client.post(
                 "/api/compose/sessions/from-starter",
@@ -106,7 +108,7 @@ class TestCreateSessionFromStarter:
         harness = make_client()
         # Test valid starter IDs - these are the template_ids from examples/starters/*.yaml files
         valid_ids = ["baseline_education_team", "research_content_team"]
-        
+
         for valid_id in valid_ids:
             response = harness.client.post(
                 "/api/compose/sessions/from-starter",
@@ -467,3 +469,104 @@ class TestFromStarterProviderResolutionDeferred:
 
         assert message_response.status_code == 503
         assert message_response.json()["error"]["code"] == "authoring_unavailable"
+
+
+# ---------------------------------------------------------------------------
+# Error handling for corrupt/empty starter YAML (Story 4.7 Task 10)
+# ---------------------------------------------------------------------------
+
+
+class TestComposeFromStarterErrorHandling:
+    """Tests for error handling in the from-starter compose path (Story 4.7 Task 10).
+
+    These exercise the real `_load_starter_yaml`/`_get_starters_dir` path (the
+    same helpers `create_session_from_starter` actually calls — see
+    api/routers/compose.py:484-485), not a monkeypatch of a function that
+    doesn't exist. `create_session_from_starter` only catches
+    `FileNotFoundError` and `ApiError` (api/routers/compose.py:498-511); a
+    `yaml.YAMLError` or Pydantic `ValidationError` from the real parse/validate
+    call falls through to the app's defense-in-depth `Exception` handler
+    (api/main.py's `_handle_unexpected`), which returns a safe 500
+    `internal_error` rather than a clean 422 — that is the actual current
+    behavior this story's non-goal ("No changes to production code") leaves
+    in place. These tests prove that fallback stays safe (no YAML content,
+    field names, or stack trace in the response), not that it is a 422.
+    """
+
+    @pytest.fixture()
+    def _redirect_baseline_starter(self, tmp_path, monkeypatch):
+        """Point `_get_starters_dir` at a temp dir seeded with a stand-in file
+        for the real `baseline_education_team` starter, so `_get_starter_filename`
+        (unaffected — it reads the module-level `_STARTER_ID_TO_FILE` built at
+        import time from the real starters) still resolves a filename that
+        `_load_starter_yaml` then reads from our temp dir instead of the repo's.
+        """
+        from api.routers import starters as starters_module
+
+        filename = starters_module._get_starter_filename("baseline_education_team")
+        starters_dir = tmp_path / "starters"
+        starters_dir.mkdir()
+        monkeypatch.setattr(starters_module, "_get_starters_dir", lambda: starters_dir)
+        return starters_dir / filename
+
+    def test_create_session_from_starter_with_corrupt_yaml(
+        self, make_client, _redirect_baseline_starter
+    ):
+        """A YAML syntax error in the starter file is a safe 500, not a leak or crash."""
+        _redirect_baseline_starter.write_text("template_id: test\nteam_name: [invalid")
+
+        # `raise_server_exceptions=False`: this test exercises the app's real
+        # unhandled-exception path (`_handle_unexpected`), not the TestClient's
+        # default of re-raising server errors for debuggability.
+        harness = make_client(raise_server_exceptions=False)
+        response = harness.client.post(
+            "/api/compose/sessions/from-starter",
+            json={"starter_id": "baseline_education_team"}
+        )
+
+        assert response.status_code == 500
+        data = response.json()
+        assert data["error"]["code"] == "internal_error"
+        # The parse error / raw YAML fragment must not leak into the response.
+        assert "invalid" not in data["error"]["message"].lower()
+        assert "yaml" not in data["error"]["message"].lower()
+
+    def test_create_session_from_starter_with_empty_yaml(
+        self, make_client, _redirect_baseline_starter
+    ):
+        """An empty starter YAML (parses to None) is a safe 500, not a leak or crash."""
+        _redirect_baseline_starter.write_text("")
+
+        # `raise_server_exceptions=False`: this test exercises the app's real
+        # unhandled-exception path (`_handle_unexpected`), not the TestClient's
+        # default of re-raising server errors for debuggability.
+        harness = make_client(raise_server_exceptions=False)
+        response = harness.client.post(
+            "/api/compose/sessions/from-starter",
+            json={"starter_id": "baseline_education_team"}
+        )
+
+        assert response.status_code == 500
+        data = response.json()
+        assert data["error"]["code"] == "internal_error"
+
+    def test_create_session_from_starter_validation_error(
+        self, make_client, _redirect_baseline_starter
+    ):
+        """A syntactically valid but schema-invalid starter YAML is a safe 500."""
+        _redirect_baseline_starter.write_text("invalid_field: this should fail\n")
+
+        # `raise_server_exceptions=False`: this test exercises the app's real
+        # unhandled-exception path (`_handle_unexpected`), not the TestClient's
+        # default of re-raising server errors for debuggability.
+        harness = make_client(raise_server_exceptions=False)
+        response = harness.client.post(
+            "/api/compose/sessions/from-starter",
+            json={"starter_id": "baseline_education_team"}
+        )
+
+        assert response.status_code == 500
+        data = response.json()
+        assert data["error"]["code"] == "internal_error"
+        # The rejected field name must not leak into the response.
+        assert "invalid_field" not in data["error"]["message"]

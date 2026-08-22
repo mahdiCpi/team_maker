@@ -51,7 +51,17 @@ import os
 
 import pytest
 
-pytest.importorskip("crewai")
+# AD-7 conformance gate: crewai is required for these tests.
+# If crewai is not installed, the tests must fail explicitly, not skip.
+try:
+    import crewai  # noqa: F401
+except ImportError:
+    pytest.fail(
+        "crewai is required for AD-7 conformance tests. "
+        "Install with: pip install -e \".[runtime]\""
+    )
+
+# Document dependency requirement in test file header
 
 from pydantic import SecretStr  # noqa: E402
 

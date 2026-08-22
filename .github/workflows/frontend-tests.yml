@@ -1,0 +1,32 @@
+name: Frontend Tests
+
+on:
+  push:
+    branches: [main, epic_*, develop]
+  pull_request:
+    branches: [main, epic_*, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
+      - name: Install frontend dependencies
+        run: |
+          npm --prefix web ci
+
+      - name: Run frontend tests
+        run: |
+          make web-test
+
+      - name: Run frontend linting
+        run: |
+          make web-lint
