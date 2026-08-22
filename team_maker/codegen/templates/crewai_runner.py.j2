@@ -9,299 +9,16 @@ Usage:
 """
 from __future__ import annotations
 
-import json
 import os
-import re
-import threading
 import yaml
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
 from crewai import Agent, Task, Crew, Process, LLM
 
 from tools import get_tools_for
+from transcript import TranscriptRecorder, print_transcript
 
 {% include '_notify_helper.j2' %}
 
-
-# =============================================================================
-# Control Character Sanitization (Story 4.4 Task 4)
-# =============================================================================
-# Removes ANSI escape sequences, OSC sequences, and other control characters
-# to prevent terminal manipulation attacks when displaying transcript content.
-
-def sanitize_control_characters(text: str) -> str:
-    """Remove ANSI escape sequences, OSC sequences, and control characters from text.
-
-    This prevents terminal manipulation attacks via control sequences in transcript content.
-    Preserves printable characters, tabs, newlines, and carriage returns.
-
-    Mirrors `team_maker/utils/text_sanitizer.py::sanitize_control_characters`'s
-    patterns exactly (this template runs standalone, without team_maker
-    installed, so it cannot import that module) — including the 8-bit
-    CSI/OSC/ST equivalents (`\\x9b`/`\\x9d`/`\\x9c`) and the C1 control block
-    (`\\x80-\\x9f`) that would otherwise bypass the ESC-prefixed patterns.
-    """
-    if not text:
-        return text
-
-    ansi_pattern = re.compile(r'(?:\x1b\[|\x9b)[0-9;:*]*[a-zA-Z]')
-    osc_pattern = re.compile(r'(?:\x1b\]|\x9d)[^\x07\x1b\x9c]*(?:\x07|\x1b\x5c|\x9c)')
-    control_pattern = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
-
-    result = ansi_pattern.sub('', text)
-    result = osc_pattern.sub('', result)
-    result = control_pattern.sub('', result)
-    return result
-
-
-def _print_transcript_entries(transcript: list["TranscriptEntry"], heading: str) -> None:
-    """Print a transcript in the AC 4/5 hardened format: sanitized content,
-    an unambiguous `::` header delimiter, and a length cap per entry."""
-    if not transcript:
-        return
-    print(heading)
-    for entry in transcript:
-        sanitized_content = sanitize_control_characters(entry.content)
-        target = f" -> {entry.target_role}" if entry.target_role else ""
-        header = f"[{entry.sequence}] {entry.task_name} / {entry.agent_role}{target} :: {entry.kind}"
-        print(header)
-        capped_content = sanitized_content[:10000]
-        if capped_content.strip():
-            for line in capped_content.splitlines():
-                print(f"    {line}")
-
-
-# =============================================================================
-# Transcript Capture (Story 4.4 Task 3)
-# =============================================================================
-# Minimal in-template transcript capture matching the in-process Runtime
-# behavior. This allows standalone run_example.py to capture and display
-# transcripts just like the in-process execution does.
-
-if TYPE_CHECKING:
-    from crewai.events.types.agent_events import AgentExecutionStartedEvent
-    from crewai.events.types.logging_events import AgentLogsExecutionEvent
-    from crewai.events.types.task_events import TaskCompletedEvent, TaskStartedEvent
-    from crewai.events.types.tool_usage_events import (
-        ToolUsageFinishedEvent,
-        ToolUsageStartedEvent,
-    )
-
-
-# Transcript entry kinds - match team_maker/runtime/results.py constants
-ENTRY_TASK_STARTED = "task_started"
-ENTRY_TASK_COMPLETED = "task_completed"
-ENTRY_AGENT_MESSAGE = "agent_message"
-ENTRY_AGENT_ACTION = "agent_action"
-ENTRY_DELEGATION = "delegation"
-ENTRY_DELEGATION_RESULT = "delegation_result"
-
-
-@dataclass
-class TranscriptEntry:
-    """One ordered, attributed moment in a run."""
-    sequence: int
-    kind: str
-    agent_role: str
-    task_name: str
-    content: str
-    target_role: Optional[str] = None
-
-
-class SimpleTranscriptRecorder:
-    """Captures an ordered, attributed transcript from one crew run.
-    
-    This is a simplified version of team_maker's TranscriptRecorder, suitable
-    for standalone use in generated run_example.py templates. It subscribes
-    to the crewai event bus to capture transcript entries.
-    
-    Usage:
-        with SimpleTranscriptRecorder(task_owners) as recorder:
-            result = crew.kickoff(...)
-        transcript = recorder.entries()
-    """
-
-    def __init__(self, task_owners: Optional[dict[str, str]] = None) -> None:
-        self._task_owners = dict(task_owners or {})
-        self._pending: list[TranscriptEntry] = []
-        self._lock = threading.Lock()
-        self._registered: list[tuple[type, Callable]] = []
-
-    def __enter__(self) -> "SimpleTranscriptRecorder":
-        self._subscribe()
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        from crewai.events import crewai_event_bus
-        try:
-            crewai_event_bus.flush()
-        except Exception:
-            pass
-        finally:
-            self._unsubscribe()
-
-    def entries(self) -> list[TranscriptEntry]:
-        """Return all captured entries, ordered by emission sequence."""
-        with self._lock:
-            pending = list(self._pending)
-        return sorted(pending, key=lambda entry: entry.sequence)
-
-    def _subscribe(self) -> None:
-        from crewai.events import crewai_event_bus
-        from crewai.events.types.agent_events import AgentExecutionStartedEvent
-        from crewai.events.types.logging_events import AgentLogsExecutionEvent
-        from crewai.events.types.task_events import TaskCompletedEvent, TaskStartedEvent
-        from crewai.events.types.tool_usage_events import (
-            ToolUsageFinishedEvent,
-            ToolUsageStartedEvent,
-        )
-        
-        handlers = [
-            (TaskStartedEvent, self._on_task_started),
-            (TaskCompletedEvent, self._on_task_completed),
-            (AgentExecutionStartedEvent, self._on_agent_started),
-            (AgentLogsExecutionEvent, self._on_agent_turn),
-            (ToolUsageStartedEvent, self._on_tool_started),
-            (ToolUsageFinishedEvent, self._on_tool_finished),
-        ]
-        try:
-            for event_type, handler in handlers:
-                crewai_event_bus.on(event_type)(handler)
-                self._registered.append((event_type, handler))
-        except Exception:
-            self._unsubscribe()
-            raise
-
-    def _unsubscribe(self) -> None:
-        from crewai.events import crewai_event_bus
-        while self._registered:
-            event_type, handler = self._registered.pop()
-            try:
-                crewai_event_bus.off(event_type, handler)
-            except Exception:
-                pass
-
-    def _add(self, kind: str, content: str, *, sequence: int, task_name: Optional[str] = None,
-             agent_role: Optional[str] = None, target_role: Optional[str] = None) -> None:
-        if not isinstance(sequence, int):
-            return
-        entry = TranscriptEntry(
-            sequence=sequence,
-            kind=kind,
-            agent_role=agent_role or "unknown",
-            task_name=task_name or "unknown",
-            content=content,
-            target_role=target_role,
-        )
-        with self._lock:
-            self._pending.append(entry)
-
-    def _on_task_started(self, source, event) -> None:
-        task = getattr(event, "task", None)
-        task_name = getattr(event, "task_name", None) or getattr(task, "name", None)
-        self._add(
-            ENTRY_TASK_STARTED,
-            getattr(task, "description", "") or task_name or "",
-            sequence=getattr(event, "emission_sequence", None),
-            task_name=task_name,
-            agent_role=getattr(getattr(task, "agent", None), "role", None),
-        )
-
-    def _on_task_completed(self, source, event) -> None:
-        task = getattr(event, "task", None)
-        task_name = getattr(event, "task_name", None) or getattr(task, "name", None)
-        raw = ""
-        output = getattr(event, "output", None)
-        if output:
-            raw = getattr(output, "raw", str(output))
-        self._add(
-            ENTRY_TASK_COMPLETED,
-            str(raw)[:2000] if raw else "",
-            sequence=getattr(event, "emission_sequence", None),
-            task_name=task_name,
-            agent_role=getattr(getattr(task, "agent", None), "role", None),
-        )
-
-    def _on_agent_started(self, source, event) -> None:
-        # Exists to attribute turns; emits no entry itself
-        pass
-
-    def _on_agent_turn(self, source, event) -> None:
-        agent_role = getattr(event, "agent_role", None)
-        formatted = getattr(event, "formatted_answer", None)
-        # AgentAction names a tool; AgentFinish is the turn's answer
-        kind = ENTRY_AGENT_ACTION if getattr(formatted, "tool", None) else ENTRY_AGENT_MESSAGE
-        text = ""
-        if formatted:
-            text = getattr(formatted, "text", None) or getattr(formatted, "output", None) or ""
-        if isinstance(text, str):
-            text = text[:2000]
-        else:
-            text = ""
-        self._add(
-            kind,
-            text,
-            sequence=getattr(event, "emission_sequence", None),
-            task_name=getattr(event, "task_name", None),
-            agent_role=agent_role,
-        )
-
-    def _on_tool_started(self, source, event) -> None:
-        task_name = getattr(event, "task_name", None)
-        agent_role = getattr(event, "agent_role", None)
-        tool_name = getattr(event, "tool_name", None)
-        # Check if this is a delegation tool
-        if tool_name and str(tool_name).lower() in ("delegate_work_to_coworker", "ask_question_to_coworker"):
-            args = self._parse_tool_args(getattr(event, "tool_args", None))
-            target = args.get("coworker") or args.get("agent")
-            if target and isinstance(target, str):
-                delegated_task = args.get("task", "")
-                if not isinstance(delegated_task, str):
-                    delegated_task = str(delegated_task)
-                self._add(
-                    ENTRY_DELEGATION,
-                    delegated_task[:500],
-                    sequence=getattr(event, "emission_sequence", None),
-                    task_name=task_name,
-                    agent_role=agent_role,
-                    target_role=target,
-                )
-
-    def _on_tool_finished(self, source, event) -> None:
-        task_name = getattr(event, "task_name", None)
-        agent_role = getattr(event, "agent_role", None)
-        tool_name = getattr(event, "tool_name", None)
-        if tool_name and str(tool_name).lower() in ("delegate_work_to_coworker", "ask_question_to_coworker"):
-            args = self._parse_tool_args(getattr(event, "tool_args", None))
-            target = args.get("coworker") or args.get("agent")
-            if target and isinstance(target, str):
-                output = getattr(event, "output", "")
-                if isinstance(output, str):
-                    output = output[:2000]
-                else:
-                    output = str(output)[:2000] if output else ""
-                self._add(
-                    ENTRY_DELEGATION_RESULT,
-                    output,
-                    sequence=getattr(event, "emission_sequence", None),
-                    task_name=task_name,
-                    agent_role=agent_role,
-                    target_role=target,
-                )
-
-    @staticmethod
-    def _parse_tool_args(raw) -> dict[str, Any]:
-        """Parse tool_args which may be a JSON string or dict."""
-        if isinstance(raw, dict):
-            return raw
-        if isinstance(raw, str) and raw.strip():
-            try:
-                parsed = json.loads(raw)
-                return parsed if isinstance(parsed, dict) else {}
-            except ValueError:
-                return {}
-        return {}
 
 # ── Langfuse observability (optional) ────────────────────────────────────────
 # Set LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY + LANGFUSE_HOST to enable.
@@ -484,24 +201,24 @@ def main() -> None:
             os.environ["LANGFUSE_TRACE_ID"] = _lf_trace.id
         except Exception:
             pass
-    
-    # AC 3: Capture transcript (Story 4.4 Task 3)
-    # Use SimpleTranscriptRecorder to capture transcript entries during execution
-    transcript: list[TranscriptEntry] = []
-    recorder: Optional[SimpleTranscriptRecorder] = None
+
+    # Transcript capture (Story 4.4). `entries()` is read *after* the `with`
+    # block exits: `__exit__` flushes the event bus, and kickoff flushes
+    # internally before its final event, so the tail can still be in flight
+    # when kickoff returns. Every exit path below re-reads it, so a run that
+    # fails or is interrupted still shows what happened before it stopped.
+    transcript = []
+    recorder = None
     try:
-        with SimpleTranscriptRecorder(task_owners) as recorder:
+        with TranscriptRecorder(task_owners) as recorder:
             result = crew.kickoff(inputs={"goal": goal})
-        # Read after `__exit__` (which flushes the event bus), matching the
-        # failure path below and CrewAIExecutionEngine — reading inside the
-        # `with` block can miss events the bus delivers asynchronously.
         transcript = recorder.entries()
 
         if _lf_trace:
             _lf_trace.update(output=str(result)[:2000])
             _LANGFUSE.flush()
 
-        _print_transcript_entries(transcript, "\n--- TRANSCRIPT ---")
+        print_transcript(transcript, "\n--- TRANSCRIPT ---")
 
         _notify(
             "Run completed successfully",
@@ -510,11 +227,11 @@ def main() -> None:
         print("\n--- RESULT ---")
         print(result)
     except KeyboardInterrupt:
-        # AC 1: Preserve the partial transcript on this failure path too — an
-        # interrupted run is a failed run, same as any exception below.
+        # An interrupted run is a failed run: it keeps its partial transcript
+        # for the same reason the exception path below does.
         if recorder is not None:
             transcript = recorder.entries()
-        _print_transcript_entries(transcript, "\n--- PARTIAL TRANSCRIPT (run interrupted) ---")
+        print_transcript(transcript, "\n--- PARTIAL TRANSCRIPT (run interrupted) ---")
         if _lf_trace:
             _lf_trace.update(output="interrupted")
             _LANGFUSE.flush()
@@ -526,15 +243,13 @@ def main() -> None:
         )
         raise SystemExit(1)
     except Exception as exc:
-        # AC 3: Return partial transcript on failed runs (Story 4.4 Task 3)
-        # Even on failure, the recorder has captured entries up to the failure point
-        # Retrieve them before handling the exception
+        # The recorder captured entries up to the failure point; show them
+        # before the error, since they are what explains it.
         if recorder is not None:
             transcript = recorder.entries()
 
-        _print_transcript_entries(transcript, "\n--- PARTIAL TRANSCRIPT (run failed) ---")
+        print_transcript(transcript, "\n--- PARTIAL TRANSCRIPT (run failed) ---")
 
-        # Continue with existing error handling
         err_type = type(exc).__name__
         err_msg = str(exc)
         is_auth = any(x in err_msg.lower() or x in err_type.lower()

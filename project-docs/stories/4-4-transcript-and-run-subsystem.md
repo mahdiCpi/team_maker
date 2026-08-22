@@ -89,8 +89,38 @@ This story hardens the transcript subsystem before Epic 5 exposes it via HTTP.
 - [x] [Review][Patch] `except KeyboardInterrupt:` doesn't preserve the partial transcript [team_maker/codegen/templates/crewai_runner.py.j2] — only the generic `except Exception:` branch retrieves/prints it; a user-cancelled run gets none, inconsistent with this story's own intent. **Fixed (2026-08-22):** the `KeyboardInterrupt` branch now retrieves and prints the partial transcript too, via a shared `_print_transcript_entries` helper (also used by the success and generic-exception paths, replacing the triplicated inline formatting).
 - [x] [Review][Patch] Type-guard asymmetry between `_on_tool_started`/`_on_tool_finished` [team_maker/codegen/templates/crewai_runner.py.j2] — `_on_tool_finished` guards `output` with `isinstance(output, str)` before slicing; `_on_tool_started` does `args.get("task", "")[:500]` with no type guard, so a non-string `"task"` in a malformed tool call raises inside an event-bus callback. **Fixed (2026-08-22):** `_on_tool_started` now coerces a non-string `task` argument to `str` before slicing.
 - [x] [Review][Patch] Stale "one home" claim for the process-wide lock [api/runs.py:19] — the module docstring says "This registry is that lock's one home," which is no longer true now that `team_maker/runtime/executor.py` adds its own independent `_run_lock`. Update the comment to explain both locks (registry lock: non-blocking, fast-fails a concurrent API request with `RUN_IN_PROGRESS`; runtime lock: correctness guarantee for every caller, including future non-API embedders per Epic 5 Story 5.3) and document the no-timeout tradeoff on the new lock as the deliberate v1 limitation the story's Task 2 already calls out. **Fixed (2026-08-22):** updated both `api/runs.py`'s and `team_maker/runtime/executor.py`'s module docstrings to cross-reference each other and explain why both locks exist.
-- [x] [Review][Defer] AC 5's `::` delimiter is a relabeling, not a structural fix [team_maker/cli.py, team_maker/codegen/templates/crewai_runner.py.j2] — deferred, pre-existing scope limitation: `content` is unconstrained LLM free text with no per-run secret differentiating a real header from spoofed content (contrast AC 6's UUID approach); Task 5 already deferred the structured/JSON option as "not required per AC," so this is a known v1 human-format limitation, not a regression.
-- [x] [Review][Defer] `SimpleTranscriptRecorder` fully duplicates `TranscriptRecorder`/`TranscriptEntry` [team_maker/codegen/templates/crewai_runner.py.j2] — deferred: likely unavoidable since generated `run_example.py` must run standalone without `team_maker` installed, but the duplication has already drifted (see the flush-ordering and OSC-regex patch items above) and should be tracked so future fixes touch both copies.
+- [x] [Review][Patch] AC 5's `::` delimiter was a relabeling, not a structural fix [team_maker/cli.py, generated `transcript.py`] — `content` is unconstrained LLM free text, and the ambiguous line `deferred-work.md:111` cites is an *indented* one, so indentation alone did not separate structure from output. **Fixed (2026-08-22):** content lines now carry a `"  | "` gutter, which a header can never start with (a header always starts with `[`), so the two are unambiguous by construction rather than by convention. Covered by `test_content_lines_carry_a_gutter_so_they_cannot_impersonate_a_header`.
+- [x] [Review][Patch] Silent truncation at the 10,000-char cap [team_maker/cli.py, generated `transcript.py`] — under-reported in the original review: `content[:10000]` gave no indication a cut had happened, unlike the codebase's own `sanitize_text_for_display`, so a truncated entry was indistinguishable from a genuinely short one — worst on the partial transcript of a failed run. **Fixed (2026-08-22):** both formatters append `"... [truncated]"`. Covered by `test_over_long_content_is_truncated_visibly_rather_than_silently`.
+- [x] [Review][Patch] **Generated runner lost task attribution on every agent turn** [team_maker/codegen/templates/crewai_runner.py.j2] — originally filed as "duplication, deferred"; re-examination showed it was a live correctness defect, not a cleanliness nit. `SimpleTranscriptRecorder` omitted the lazy `parent_event_id` walk that the real `TranscriptRecorder` performs, and read `event.task_name` directly — which crewai 1.14.6 documents (and `model_fields` confirms) is always `None` on `AgentLogsExecutionEvent`. Every `agent_message`/`agent_action` entry in a generated `run_example.py` transcript therefore came back as `task_name="unknown"`, the exact sentinel `test_transcript_conformance.py:166-167` guards against — violating AC 3's "matching in-process Runtime behavior". It was invisible because `tests/unit/test_codegen.py` only `compile()`s the rendered template; **no test ever executed the generated recorder**. **Fixed (2026-08-22):** see the Remediation section below.
+
+### Remediation — generated transcript recorder (2026-08-22)
+
+Closing the two items the review had parked. No deferred work remains for this story.
+
+**New extension point.** `RuntimeEngine.extra_modules() -> dict[str, str]` (concrete,
+returns `{}` by default, so `autogen`/`langgraph` are untouched). `PipelineRunner._build_manifest`
+merges the result into the manifest and raises on a collision with a core artifact, so extra
+modules follow the same write/validate path as everything else and nothing new touches disk
+(honours the "only `ArtifactWriter.write()` touches disk" and "extend the manifest" invariants).
+
+**`transcript.py` is now a generated artifact.** `CrewAIAdapter.extra_modules()` renders
+`codegen/templates/_transcript_module.py.j2`, a faithful standalone port of
+`adapters/runtime_crewai/transcript_capture.py` — including the `_remember`/`_walk`
+attribution the inline version lacked. `run_example.py` shrank by ~280 lines and now does
+`from transcript import TranscriptRecorder, print_transcript`. The duplication is inherent
+(a generated package cannot import `team_maker`), so it is now *tested* rather than tolerated.
+
+**The generated recorder is executed by tests for the first time.**
+`tests/conformance/test_generated_transcript_module.py` subscribes it to crewai's
+process-global event bus alongside the runtime's own recorder during **one real (offline)
+crewai run**, then asserts the two produce byte-identical entries — sequence, kind,
+agent_role, task_name, target_role, and content — across a sequential run, a hierarchical
+run with a delegation, and a handler-cleanup check. Mutation-verified: reintroducing the
+original defect (dropping the parent walk) fails the suite with
+`task_name: 'unknown' != 'design'`, so the guard is not vacuous.
+
+`tests/unit/cli/test_cli_run_transcript.py` gained a matching drift guard asserting the CLI
+formatter and the generated one render identical output for the same entries.
 
 ## Dev Notes
 
@@ -184,11 +214,18 @@ This story hardens the transcript subsystem before Epic 5 exposes it via HTTP.
 - `team_maker/adapters/runtime_crewai/crewai_execution_engine.py` — Modified to return partial transcripts on failed runs (Task 1)
 - `team_maker/runtime/executor.py` — Added process-wide run lock to prevent concurrent run corruption (Task 2)
 - `team_maker/codegen/templates/crewai_runner.py.j2` — Added transcript capture, sanitization, and unambiguous formatting for standalone runs (Tasks 3, 4, 5)
-- `team_maker/cli.py` — Updated transcript formatting to use unambiguous delimiter and length cap (Task 5)
+- `team_maker/cli.py` — Transcript formatting: unambiguous content gutter, visible truncation marker (Task 5, review remediation)
+- `team_maker/ports/runtime_engine.py` — New `extra_modules()` extension point (review remediation)
+- `team_maker/adapters/runtime_engines/crewai_engine.py` — Emits `transcript.py` via `extra_modules()` (review remediation)
+- `team_maker/pipeline/runner.py` — Merges adapter extra modules into the manifest, with collision guard (review remediation)
+- `team_maker/codegen/templates/_transcript_module.py.j2` — NEW: generated `transcript.py`, a correct standalone port of `TranscriptRecorder` (review remediation)
+- `tests/conformance/test_generated_transcript_module.py` — NEW: parity between the generated recorder and the runtime recorder over one real crewai run
 
 ## Change Log
 
 - 2026-08-22: Completed implementation of Story 4.4 (Tasks 1-6)
+- 2026-08-22: Code review — 7 patches applied, 2 decisions resolved
+- 2026-08-22: Review remediation — closed both deferred items; generated `transcript.py` extracted as its own artifact with correct attribution, and covered by an executing parity test. No deferred work remains.
 
 ## References
 - [deferred-work.md](../deferred-work.md) — Entries from Stories 1.7, 2.4

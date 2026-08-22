@@ -27,3 +27,21 @@ class RuntimeEngine(ABC):
     def extra_requirements(self) -> list[str]:
         """Additional pip packages beyond the base set."""
         ...
+
+    def extra_modules(self) -> dict[str, str]:
+        """Extra ``{relative_path: content}`` modules this runner imports.
+
+        Concrete (not abstract) and empty by default: a framework whose runner
+        is a single self-contained file needs no opt-in. `PipelineRunner`
+        merges the result into the manifest, so these follow the same
+        write/validate path as every other artifact — nothing here touches
+        disk itself.
+
+        Exists because a generated package runs *without* ``team_maker``
+        installed, so a runner that needs non-trivial shared logic (crewai's
+        transcript recorder, Story 4.4) cannot import it and must ship it. A
+        separate module rather than more inline template text: it keeps
+        ``run_example.py`` readable and gives the logic an import surface a
+        test can execute.
+        """
+        return {}
