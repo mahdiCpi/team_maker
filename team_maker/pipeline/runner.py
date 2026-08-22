@@ -102,8 +102,8 @@ class PipelineRunner:
 
     @staticmethod
     def _generate_from_template(request: TeamCreationRequest) -> GeneratedTeam:
-        from team_maker.templates.registry import get_template
-        template_id = request.template_id or "software_delivery_team"
+        from team_maker.templates.registry import DEFAULT_TEMPLATE_ID, get_template
+        template_id = request.template_id or DEFAULT_TEMPLATE_ID
         template = get_template(template_id)
         team = template.generate(request)
         # Populate framework fields from request
@@ -171,7 +171,19 @@ class PipelineRunner:
         # Phase 3: state store module
         manifest["state_store.py"] = self._render_state_store(request.state_backend)
 
-        # Phase 4: framework-specific runner
+        # Phase 4: framework-specific runner, plus any modules it imports.
+        # `extra_modules` is merged before the runner is placed so a framework
+        # can never silently shadow a core artifact above: a collision here is
+        # a bug in that adapter, and failing loudly beats overwriting
+        # `routing_config.yaml` with something a runner happened to name the same.
+        for relative_path, content in adapter.extra_modules().items():
+            if relative_path in manifest:
+                raise ValueError(
+                    f"Runtime engine {adapter.name!r} declares an extra module "
+                    f"{relative_path!r}, which collides with a core artifact."
+                )
+            manifest[relative_path] = content
+
         manifest["run_example.py"] = adapter.render_runner(team, request.notifications)
 
         # Runtime requirements (framework + state backend aware)

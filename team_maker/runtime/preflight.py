@@ -25,7 +25,7 @@ from team_maker.adapters.providers.registry import (
     get_provider,
     provider_names,
 )
-from team_maker.adapters.providers.resolution import resolve_credential
+from team_maker.adapters.providers.resolution import UnqualifiedModelError, resolve_credential
 from team_maker.domain.models import GeneratedTeam, ResolvedCredential
 from team_maker.keyconfig import KeyConfig
 
@@ -105,20 +105,36 @@ def check_credentials(
 
     resolved: dict[str, ResolvedCredential] = {}
     failed_roles: dict[str, list[str]] = {}
+    unqualified: list[UnresolvedProvider] = []
 
     for agent in team.agents:
-        credential = resolve_credential(agent.routing, key_config)
+        try:
+            credential = resolve_credential(agent.routing, key_config)
+        except UnqualifiedModelError as exc:
+            # A usable credential exists, but the model string itself could not
+            # be safely qualified (AC8) -- distinct from a missing key, so it
+            # gets its own reason rather than being folded into "add a key".
+            unqualified.append(
+                UnresolvedProvider(
+                    provider=agent.routing.provider,
+                    roles=(agent.role,),
+                    expected_key=None,
+                    reason=str(exc),
+                )
+            )
+            continue
         if credential is None:
             failed_roles.setdefault(agent.routing.provider, []).append(agent.role)
         else:
             resolved[agent.role] = credential
 
-    if failed_roles:
+    if failed_roles or unqualified:
         raise MissingCredentialsError(
             [
                 describe_unresolved_provider(provider_name, roles)
                 for provider_name, roles in failed_roles.items()
             ]
+            + unqualified
         )
 
     return resolved

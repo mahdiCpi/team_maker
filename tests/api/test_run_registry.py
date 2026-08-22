@@ -17,6 +17,7 @@ import pytest
 from api.errors import ApiError
 from api.runs import (
     GENERIC_FAILURE_REASON,
+    MAX_STORED_RUNS,
     RUN_IDLE_TTL_SECONDS,
     STATUS_COMPLETE,
     STATUS_FAILED,
@@ -82,7 +83,14 @@ def _wait_for_completion(registry: RunRegistry, run_id: str) -> None:
 
 
 def test_the_policy_constants_are_named_not_magic():
-    assert RUN_IDLE_TTL_SECONDS > 0
+    """Pinned to exact current values — MAX_STORED_RUNS is the bound the
+    ghost-record finding showed could be exceeded. An exact-value assertion is
+    strictly more falsifiable than a loose range with no cited requirement
+    behind its bounds; any change to these constants is a deliberate
+    capacity/policy decision that should touch this test too.
+    """
+    assert MAX_STORED_RUNS == 32
+    assert RUN_IDLE_TTL_SECONDS == 30 * 60.0
 
 
 def test_a_started_run_is_retrievable_with_a_unique_id(registry):

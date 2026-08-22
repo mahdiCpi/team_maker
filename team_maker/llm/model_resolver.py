@@ -11,6 +11,7 @@ import os
 import sys
 from functools import lru_cache
 
+from team_maker.adapters.providers.credential_utils import resolve_default_provider_key
 from team_maker.adapters.providers.registry import PROVIDERS
 from team_maker.domain.models import GeneratedTeam, ProviderRouting
 from team_maker.keyconfig import KeyConfig
@@ -116,20 +117,36 @@ _FETCHER_MAP: dict[str, tuple] = {
 # ---------------------------------------------------------------------------
 
 def _resolve_key(provider: str, api_key_env: str, config: KeyConfig) -> str:
-    """Resolve a provider's key: Key Config file first, `os.environ` fallback.
+    """Resolve a provider's key using the unified resolution policy (Story 4.2).
 
-    Strictly additive — the fallback path is unchanged from before this story;
-    the only new behavior is that a key living solely in the Key Config file
-    now also gets used. A per-agent *custom* `api_key_env` (naming a non-default
-    env var) always reads that env var directly — it must never be shadowed by a
-    KeyConfig entry that was only auto-filled from the provider's standard env var.
+    A per-agent *custom* `api_key_env` (naming a non-default env var) always reads
+    that env var directly — it must never be shadowed by a KeyConfig entry that
+    was only auto-filled from the provider's standard env var. This override
+    behavior is `ProviderRouting.api_key_env`-specific and is preserved as-is
+    per Task 7's blocking design gate (no behavior change to that field pending
+    its audit).
+
+    For the standard (non-override) case, resolution delegates to
+    `credential_utils.resolve_default_provider_key()` — the single shared
+    implementation of the Key-Config-first, environment-fallback precedence
+    rule — instead of reimplementing it here (AC1: no duplicated resolution
+    policy across consumers).
+
+    Args:
+        provider: The provider name (canonical, from catalog)
+        api_key_env: The environment variable name to use (from ProviderRouting)
+        config: Loaded KeyConfig with provider credentials
+
+    Returns:
+        The resolved API key value as a string, or empty string if not available.
     """
     is_custom_override = bool(api_key_env) and api_key_env != _DEFAULT_ENV_BY_PROVIDER.get(
         provider
     )
-    if not is_custom_override and config.has(provider):
-        return config.keys[provider].get_secret_value()
-    return os.environ.get(api_key_env, "")
+    if is_custom_override:
+        return os.environ.get(api_key_env, "")
+
+    return resolve_default_provider_key(provider, config)
 
 
 def resolve_routing(

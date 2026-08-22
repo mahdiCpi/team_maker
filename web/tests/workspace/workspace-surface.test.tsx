@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WorkspaceSurface } from "@/components/workspace/workspace-surface";
 
-import { createRunFetchQueue, type RunFetchQueue } from "./harness";
+import {
+  createRunFetchQueue,
+  assertNoUnexpectedRequests,
+  resetUnexpectedRequests,
+  type RunFetchQueue,
+} from "./harness";
 import {
   errorRunBlocked,
   errorRunInProgress,
@@ -29,12 +34,15 @@ import {
 let queue: RunFetchQueue;
 
 beforeEach(() => {
+  resetUnexpectedRequests();
   queue = createRunFetchQueue();
   queue.install();
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // Validate that no unexpected requests were made (Task 8 - Workspace harness)
+  assertNoUnexpectedRequests();
 });
 
 async function renderWorkspace(planBody: unknown = teamPlan) {
@@ -154,6 +162,13 @@ describe("the accent pulse", () => {
         expect(document.querySelector('[data-slot="run-status-dot"]')).toHaveClass("bg-signal");
       });
 
+      // A completed run with `transcript_available: true` (`runComplete`)
+      // fires two best-effort/eager side calls this test doesn't otherwise
+      // care about — `recordTeamRun` (Story 2.8 AC 3) and an eager transcript
+      // fetch. Queued here and awaited below so both settle inside this
+      // test's own lifecycle instead of leaking into the next test's mock.
+      queue.queueRecordRun(200, {});
+      queue.queueTranscript(200, transcriptAvailable);
       queue.queueGetRun(200, runComplete);
       await waitFor(
         () => {
@@ -164,6 +179,10 @@ describe("the accent pulse", () => {
         { timeout: 5000 }
       );
       expect(document.querySelector('[data-slot="run-status-dot"]')).not.toHaveClass("bg-signal");
+      await waitFor(() => {
+        expect(queue.requests.some((r) => r.url.includes("record-run"))).toBe(true);
+        expect(queue.requests.some((r) => r.url.includes("/transcript"))).toBe(true);
+      });
     },
     // RUN_POLL_INTERVAL_MS (2000ms) plus render/typing overhead exceeds
     // vitest's default 5000ms per-test timeout.
@@ -185,6 +204,11 @@ describe("polling", () => {
       await user.click(screen.getByRole("button", { name: "Run" }));
       await screen.findByText("ship it");
 
+      // See "the accent pulse" above: queued and drained so the completed
+      // run's best-effort `recordTeamRun` POST and eager transcript fetch
+      // don't leak into the next test.
+      queue.queueRecordRun(200, {});
+      queue.queueTranscript(200, transcriptAvailable);
       queue.queueGetRun(200, runComplete);
       await waitFor(
         () => {
@@ -194,6 +218,10 @@ describe("polling", () => {
         },
         { timeout: 5000 }
       );
+      await waitFor(() => {
+        expect(queue.requests.some((r) => r.url.includes("record-run"))).toBe(true);
+        expect(queue.requests.some((r) => r.url.includes("/transcript"))).toBe(true);
+      });
 
       const countAfterComplete = queue.requests.filter((r) => /^\/api\/runs\/[^/]+$/.test(r.url))
         .length;
@@ -291,6 +319,9 @@ describe("the transcript dialog", () => {
       await user.click(screen.getByRole("button", { name: "Run" }));
       await screen.findByText("ship it");
 
+      // See "the accent pulse" (above): queued and drained so the completed
+      // run's best-effort `recordTeamRun` POST doesn't leak into the next test.
+      queue.queueRecordRun(200, {});
       queue.queueGetRun(200, runComplete);
       queue.queueTranscript(200, transcriptAvailable);
       await waitFor(
@@ -299,6 +330,9 @@ describe("the transcript dialog", () => {
         },
         { timeout: 5000 }
       );
+      await waitFor(() => {
+        expect(queue.requests.some((r) => r.url.includes("record-run"))).toBe(true);
+      });
       await user.click(screen.getByRole("button", { name: "View transcript" }));
 
       const dialog = await screen.findByRole("dialog");
@@ -503,6 +537,9 @@ describe("a transcript that could not be fetched", () => {
 
       // The run completes with `transcript_available: true`, so the surface
       // fetches the transcript eagerly — and that fetch fails.
+      // See "the accent pulse" (above): queued and drained so the completed
+      // run's best-effort `recordTeamRun` POST doesn't leak into the next test.
+      queue.queueRecordRun(200, {});
       queue.queueTranscript(500, { error: { code: "internal_error", message: "boom" } });
       queue.queueGetRun(200, runComplete);
       await waitFor(
@@ -513,7 +550,14 @@ describe("a transcript that could not be fetched", () => {
         },
         { timeout: 5000 }
       );
+      await waitFor(() => {
+        expect(queue.requests.some((r) => r.url.includes("record-run"))).toBe(true);
+      });
 
+      // Opening the dialog bumps `transcriptAttempt`, which retries the load
+      // (`workspace-state.ts`'s `transcript_dialog_opened` — "open it again
+      // to retry" has to actually retry) — a second failure to queue for.
+      queue.queueTranscript(500, { error: { code: "internal_error", message: "boom" } });
       await user.click(screen.getByRole("button", { name: "View transcript" }));
 
       await waitFor(() => {

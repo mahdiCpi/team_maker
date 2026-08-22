@@ -565,6 +565,17 @@ def test_delete_team_by_query_param_not_found(make_client):
     assert response.status_code == 404
 
 
+def test_delete_team_by_query_param_missing_returns_422_not_500(make_client):
+    """Regression for code review P4: `team_name` was made `str = None` only
+    to satisfy Python's param-ordering rule once `Depends(authenticated_request)`
+    was added, which silently turned this required query parameter into an
+    optional one -- an omitted `team_name` crashed with an unhandled 500
+    (`TypeError` in `safe_label`) instead of FastAPI's normal 422."""
+    harness = make_client()
+    response = harness.client.delete("/api/teams/delete")
+    assert response.status_code == 422
+
+
 # ---------------------------------------------------------------------------
 # Test: Record a recent team without saving it (POST /api/teams/recent)
 # ---------------------------------------------------------------------------

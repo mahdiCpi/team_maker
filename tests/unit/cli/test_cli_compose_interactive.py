@@ -159,6 +159,42 @@ def test_interactive_eof_on_first_prompt_ends_loop_without_building(tmp_path, mo
     assert "Team generated" not in result.output
 
 
+def test_interactive_refine_error_sanitizes_message_and_errors_list(tmp_path, monkeypatch):
+    """Regression for the Story 4.1 code review (P5/P6): this loop's
+    `ComposerError` handler printed `str(exc)` raw (no `sanitize_exception_for_display`
+    call at all) and its `.errors` loop was never sanitized either, unlike the
+    equivalent top-level handlers elsewhere in `compose()`."""
+    from team_maker.composer.composer import ComposerError
+    from team_maker.composer.session import ComposerSession
+
+    _isolate_keys(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        # Story 2.10: `start()` classifies before composing.
+        "team_maker.cli.create_provider",
+        lambda cfg: _FakeProvider([{"is_team": True}, _valid_payload(tmp_path)]),
+    )
+    secret = "sk-ant-SUPER-SECRET-REFINE-KEY-1234567890"
+
+    def _boom(self, message):
+        raise ComposerError(
+            f"the provider rejected the request: {secret}",
+            errors=[f"role.llm.api_key_env: leaked {secret}"],
+        )
+
+    monkeypatch.setattr(ComposerSession, "refine", _boom)
+
+    result = CliRunner().invoke(
+        main,
+        ["compose", "a team to write docs", "--interactive"],
+        input="do something\ndone\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Could not apply that change" in result.output
+    assert secret not in result.output
+    assert "[REDACTED]" in result.output
+
+
 def test_compose_without_interactive_flag_is_unchanged(tmp_path, monkeypatch):
     """AC7 regression guard: no --interactive means the exact Story 1.2 one-shot path."""
     _isolate_keys(monkeypatch, tmp_path)

@@ -277,3 +277,101 @@ def test_an_invalid_package_is_reported_separately_from_missing_credentials(
     assert "Invalid package" in result.output
     assert "design" in result.output
     assert "Missing credentials" not in result.output
+
+
+def test_content_lines_carry_a_gutter_so_they_cannot_impersonate_a_header():
+    """AC 5. Indentation alone was not enough: the ambiguous line
+    `deferred-work.md:111` cites is an *indented* one, so agent output could
+    still read as structure. A header always starts with `[`; a content line
+    always starts with the gutter, so the two can never be confused."""
+    from team_maker.cli import _CONTENT_GUTTER, _format_transcript
+
+    spoof = "[1] design / architect :: agent_message"
+    rendered = _format_transcript(
+        RunResult(
+            final_output="",
+            task_results=[],
+            transcript=[
+                TranscriptEntry(
+                    sequence=1,
+                    kind=ENTRY_AGENT_MESSAGE,
+                    agent_role="architect",
+                    task_name="design",
+                    content=spoof,
+                )
+            ],
+        )
+    )
+
+    lines = rendered.splitlines()
+    assert sum(1 for line in lines if line.startswith("[")) == 1, (
+        "content was readable as a second header"
+    )
+    # The text still survives verbatim — it is neutralised, not censored.
+    assert _CONTENT_GUTTER + spoof in rendered
+
+
+def test_over_long_content_is_truncated_visibly_rather_than_silently():
+    """A silent cut is indistinguishable from genuinely short content, which
+    matters most on the partial transcript of a failed run."""
+    from team_maker.cli import _MAX_ENTRY_CONTENT, _TRUNCATION_MARKER, _format_transcript
+
+    rendered = _format_transcript(
+        RunResult(
+            final_output="",
+            task_results=[],
+            transcript=[
+                TranscriptEntry(
+                    sequence=1,
+                    kind=ENTRY_AGENT_MESSAGE,
+                    agent_role="architect",
+                    task_name="design",
+                    content="x" * (_MAX_ENTRY_CONTENT + 500),
+                )
+            ],
+        )
+    )
+
+    assert rendered.endswith(_TRUNCATION_MARKER)
+    assert rendered.count("x") == _MAX_ENTRY_CONTENT
+
+
+def test_cli_and_generated_package_render_a_transcript_identically():
+    """The CLI's formatter and the one shipped into generated packages are two
+    copies (a generated package cannot import `team_maker`). This fails if they
+    drift. Content is control-character-free on purpose: the generated copy
+    sanitizes inside `format_transcript` while the CLI sanitizes at its call
+    sites, so only clean input is directly comparable."""
+    from team_maker.adapters.runtime_engines.crewai_engine import CrewAIAdapter
+    from team_maker.cli import _format_transcript
+
+    entries = [
+        TranscriptEntry(
+            sequence=2,
+            kind=ENTRY_AGENT_MESSAGE,
+            agent_role="architect",
+            task_name="design",
+            content="line one\nline two",
+        ),
+        TranscriptEntry(
+            sequence=5,
+            kind=ENTRY_DELEGATION,
+            agent_role="coordinator",
+            task_name="design",
+            content="do the thing",
+            target_role="architect",
+        ),
+    ]
+
+    namespace: dict = {}
+    exec(  # noqa: S102
+        compile(CrewAIAdapter().extra_modules()["transcript.py"], "<transcript.py>", "exec"),
+        namespace,
+    )
+    generated = namespace["format_transcript"](
+        [namespace["TranscriptEntry"](**vars(entry)) for entry in entries]
+    )
+
+    assert generated == _format_transcript(
+        RunResult(final_output="", task_results=[], transcript=entries)
+    )

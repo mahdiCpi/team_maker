@@ -28,6 +28,7 @@ from api.errors import (
     ApiError,
     fields_from_error_list,
 )
+from team_maker.utils.text_sanitizer import log_exception_safely
 from api.routers.compose import router as compose_router
 from api.routers.keys import router as keys_router
 from api.routers.run import router as run_router
@@ -232,7 +233,9 @@ def _handle_http_exception(request: Request, exc: Exception) -> JSONResponse:
 
 
 def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("unhandled error serving %s", request.url.path, exc_info=exc)
+    # Use safe logging to prevent sensitive data from leaking
+    # Per AD-9: keys and sensitive data must never be logged
+    log_exception_safely(logger, f"unhandled error serving {request.url.path}", exc)
     return _envelope(
         ApiError(
             INTERNAL_ERROR,

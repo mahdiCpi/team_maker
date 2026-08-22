@@ -46,10 +46,16 @@ def _add(registry: SessionRegistry):
 
 
 def test_the_policy_constants_are_named_not_magic():
-    """AC 7 requires both the cap and the TTL to be named constants."""
-    assert MAX_TURNS_PER_SESSION > 0
-    assert SESSION_IDLE_TTL_SECONDS > 0
-    assert MAX_ACTIVE_SESSIONS > 0
+    """AC 7 requires both the cap and the TTL to be named constants.
+
+    Pinned to their exact current values, which is strictly more falsifiable
+    than a loose range with no cited requirement behind its bounds — any
+    change to these constants is a deliberate capacity/policy decision that
+    should touch this test too.
+    """
+    assert MAX_TURNS_PER_SESSION == 20
+    assert SESSION_IDLE_TTL_SECONDS == 30 * 60.0
+    assert MAX_ACTIVE_SESSIONS == 32
 
 
 def test_created_sessions_are_retrievable_and_have_unique_ids(registry):

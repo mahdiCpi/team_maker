@@ -17,9 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Depends, Request, status
 
-from api.deps import safe_label
+from api.deps import authenticated_request, safe_label
 from api.errors import (
     INTERNAL_ERROR,
     NOT_FOUND,
@@ -312,12 +312,16 @@ def _remove_from_recent(team_name: str) -> None:
 
 
 @router.get("/recent", response_model=List[TeamView])
-def list_recent_teams(request: Request) -> List[TeamView]:
+def list_recent_teams(
+    request: Request = Depends(authenticated_request)
+) -> List[TeamView]:
     """List recently accessed teams (transient, not persisted).
 
     A name with no matching DB row — recorded via `POST /recent` for a run
     whose save was declined — still gets an entry, using its recorded-at time
     and zeroed metadata rather than being silently dropped.
+    
+    Requires authentication (Story 4.1 AC 6).
     """
     state = app_state(request)
     with _recent_teams_lock:
@@ -351,12 +355,17 @@ def list_recent_teams(request: Request) -> List[TeamView]:
 
 
 @router.post("/recent", response_model=MessageView)
-def add_recent_team(payload: TeamRecentRequest, request: Request) -> MessageView:
+def add_recent_team(
+    payload: TeamRecentRequest,
+    request: Request = Depends(authenticated_request)
+) -> MessageView:
     """Record a team as recently accessed without saving it.
 
     Backs the AC "declining the save prompt persists nothing beyond a
     recent-teams entry": a completed-but-unsaved run has no DB row, so before
     this endpoint existed it could never appear in `_recent_teams` at all.
+    
+    Requires authentication (Story 4.1 AC 6).
     """
     state = app_state(request)
     name = payload.team_name.strip()
@@ -375,8 +384,13 @@ def add_recent_team(payload: TeamRecentRequest, request: Request) -> MessageView
 
 @router.get("", response_model=TeamListView)
 @router.get("/browse", response_model=TeamListView)
-def list_teams(request: Request) -> TeamListView:
-    """List all saved teams with metadata."""
+def list_teams(
+    request: Request = Depends(authenticated_request)
+) -> TeamListView:
+    """List all saved teams with metadata.
+    
+    Requires authentication (Story 4.1 AC 6).
+    """
     state = app_state(request)
 
     conn = _get_connection()
@@ -406,8 +420,14 @@ def list_teams(request: Request) -> TeamListView:
 
 
 @router.get("/{team_name}", response_model=TeamView)
-def get_team(team_name: str, request: Request) -> TeamView:
-    """Get metadata for a specific team."""
+def get_team(
+    team_name: str,
+    request: Request = Depends(authenticated_request)
+) -> TeamView:
+    """Get metadata for a specific team.
+    
+    Requires authentication (Story 4.1 AC 6).
+    """
     state = app_state(request)
 
     conn = _get_connection()
@@ -437,7 +457,10 @@ def get_team(team_name: str, request: Request) -> TeamView:
 
 
 @router.post("/save", response_model=TeamSaveResponse, status_code=status.HTTP_201_CREATED)
-def save_team(payload: TeamSaveRequest, request: Request) -> TeamSaveResponse:
+def save_team(
+    payload: TeamSaveRequest,
+    request: Request = Depends(authenticated_request)
+) -> TeamSaveResponse:
     """Save a team and its results under a user-provided name.
 
     Accepts:
@@ -446,6 +469,8 @@ def save_team(payload: TeamSaveRequest, request: Request) -> TeamSaveResponse:
     - run_results: optional run results to store alongside the team
 
     Returns the saved team's metadata.
+    
+    Requires authentication (Story 4.1 AC 6).
     """
     state = app_state(request)
 
@@ -523,8 +548,14 @@ def save_team(payload: TeamSaveRequest, request: Request) -> TeamSaveResponse:
 
 
 @router.put("/rename", response_model=TeamView)
-def rename_team(payload: TeamRenameRequest, request: Request) -> TeamView:
-    """Rename a team. New name must be case-insensitively unique and not reserved."""
+def rename_team(
+    payload: TeamRenameRequest,
+    request: Request = Depends(authenticated_request)
+) -> TeamView:
+    """Rename a team. New name must be case-insensitively unique and not reserved.
+    
+    Requires authentication (Story 4.1 AC 6).
+    """
     state = app_state(request)
 
     old_name = payload.old_name.strip()
@@ -612,20 +643,38 @@ def rename_team(payload: TeamRenameRequest, request: Request) -> TeamView:
 
 
 @router.delete("/delete", response_model=MessageView)
-def delete_team_by_name(request: Request, team_name: str) -> MessageView:
+def delete_team_by_name(
+    team_name: str,
+    request: Request = Depends(authenticated_request),
+) -> MessageView:
     """Delete a team, addressed by a `team_name` query parameter.
 
     A query parameter rather than a request body: `httpx`/`TestClient.delete()`
     (and several browser `fetch` configurations) do not send a body on DELETE,
     so a body-based design here would be a real interoperability trap.
+
+    `team_name` is declared first, kept a required `str` with no default --
+    the previous version put it after `request: Request = Depends(...)` and
+    gave it `= None` only to satisfy Python's "no required parameter after a
+    defaulted one" rule, which silently turned a required query parameter
+    into an optional one that crashed downstream instead of 422ing at the
+    edge (code review P4).
+
+    Requires authentication (Story 4.1 AC 6).
     """
     state = app_state(request)
     return _delete_team(team_name)
 
 
 @router.delete("/{team_name}", response_model=MessageView)
-def delete_team(team_name: str, request: Request) -> MessageView:
-    """Delete a team and all its saved runs/results."""
+def delete_team(
+    team_name: str,
+    request: Request = Depends(authenticated_request)
+) -> MessageView:
+    """Delete a team and all its saved runs/results.
+    
+    Requires authentication (Story 4.1 AC 6).
+    """
     state = app_state(request)
     return _delete_team(team_name)
 
@@ -676,8 +725,14 @@ def _delete_team(team_name: str) -> MessageView:
 
 
 @router.post("/{team_name}/record-run", response_model=TeamView)
-def record_team_run(team_name: str, payload: TeamRecordRunRequest, request: Request) -> TeamView:
+def record_team_run(
+    team_name: str,
+    payload: TeamRecordRunRequest,
+    request: Request = Depends(authenticated_request)
+) -> TeamView:
     """Record that a saved team was just run again.
+    
+    Requires authentication (Story 4.1 AC 6).
 
     `last_run_at`/`run_count` were previously set once, at save time, and
     never touched again — Story 2-4's re-run flow calls this so Browse

@@ -21,12 +21,9 @@ import logging
 
 from team_maker.domain.models import ProviderRouting
 from team_maker.schema.request import TeamCreationRequest
+from team_maker.utils.text_sanitizer import log_exception_safely
 
 logger = logging.getLogger("api.routings")
-
-# The template the pipeline itself selects for a role-bearing request.
-_TEMPLATE_ID = "software_delivery_team"
-
 
 def requested_routings(request: TeamCreationRequest) -> dict[str, ProviderRouting]:
     """``{role name: resolved routing}`` for every role the client asked for.
@@ -35,6 +32,12 @@ def requested_routings(request: TeamCreationRequest) -> dict[str, ProviderRoutin
     is invented by an LLM at build time and there is no client-requested routing
     to report — and ``{}`` if the template raises, because both callers use this
     for *reporting* and neither may fail on account of it.
+    
+    Uses the same template selection logic as the pipeline (PipelineRunner) to
+    ensure consistency: request.template_id if provided, otherwise defaults to
+    'software_delivery_team'.
+    
+    Story 4.6 Task 9: Fix hardcoded _TEMPLATE_ID in routings
     """
     if not request.desired_roles:
         logger.info("request has no desired_roles; per-role routings are unknown")
@@ -46,11 +49,16 @@ def requested_routings(request: TeamCreationRequest) -> dict[str, ProviderRoutin
         # `team_maker.templates` into a server that will not start — including
         # `/api/health` — where the contract below is that it degrades to `{}`.
         import team_maker.templates  # noqa: F401 — importing registers the templates
-        from team_maker.templates.registry import get_template
+        from team_maker.templates.registry import DEFAULT_TEMPLATE_ID, get_template
 
-        pre = get_template(_TEMPLATE_ID).generate(request)
-    except Exception:  # never let reporting break a build or a status read
-        logger.exception("could not pre-resolve requested routings")
+        # Use the same template selection logic as PipelineRunner
+        # to ensure reporting and builds use identical template resolution
+        template_id = request.template_id or DEFAULT_TEMPLATE_ID
+        pre = get_template(template_id).generate(request)
+    except Exception as exc:  # never let reporting break a build or a status read
+        # Use safe logging to prevent sensitive data from leaking
+        # Per AD-9: keys and sensitive data must never be logged
+        log_exception_safely(logger, "could not pre-resolve requested routings", exc)
         return {}
     return {agent.role: agent.routing for agent in pre.agents}
 

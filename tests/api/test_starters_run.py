@@ -2,6 +2,9 @@
 
 Tests for POST /api/starters/{starter_id}/run endpoint.
 
+**Network Dependencies:** NONE - All tests use FastAPI TestClient (in-memory)
+**External Services:** NONE - No live network calls are made
+
 `_load_and_build_starter` (`api/routers/starters.py`) builds each starter into
 its YAML's own literal, relative `output_path` (e.g.
 `./generated_teams/baseline_education_team`) — unlike the Composer's build
@@ -162,7 +165,7 @@ class TestStarterBuildDirect:
 
     def test_load_baseline_education_yaml(self, repo_root: Path):
         """Test that we can load the baseline education starter YAML."""
-        yaml_path = repo_root / "examples" / "baseline_education_team_request.yaml"
+        yaml_path = repo_root / "examples" / "starters" / "baseline_education_team_request.yaml"
         assert yaml_path.exists()
 
         raw = load_yaml(yaml_path)
@@ -174,7 +177,7 @@ class TestStarterBuildDirect:
 
     def test_load_research_content_yaml(self, repo_root: Path):
         """Test that we can load the research content starter YAML."""
-        yaml_path = repo_root / "examples" / "research_content_team_request.yaml"
+        yaml_path = repo_root / "examples" / "starters" / "research_content_team_request.yaml"
         assert yaml_path.exists()
 
         raw = load_yaml(yaml_path)
@@ -192,7 +195,7 @@ class TestStarterBuildDirect:
         ]
 
         for yaml_file, expected_id in starters:
-            yaml_path = repo_root / "examples" / yaml_file
+            yaml_path = repo_root / "examples" / "starters" / yaml_file
             raw = load_yaml(yaml_path)
             request = TeamCreationRequest(**raw)
 
@@ -205,3 +208,35 @@ class TestStarterBuildDirect:
             # Should succeed
             assert result.output_path.exists()
             assert len(result.written_files) > 0
+
+
+class TestStarterRunValidationError:
+    """A discovered starter YAML that fails full schema validation must
+    return a clean 422, not an unhandled 500 (code review finding)."""
+
+    def test_run_starter_with_invalid_definition_returns_422(
+        self, make_client, monkeypatch, tmp_path: Path
+    ):
+        starters_dir = tmp_path / "starters"
+        starters_dir.mkdir()
+        # Passes _discover_starter_yamls' shallow presence-only check
+        # (team_name/purpose/output_path are all present as keys), but
+        # team_name is null, which TeamCreationRequest itself rejects.
+        (starters_dir / "broken.yaml").write_text(
+            "template_id: broken_starter\n"
+            "team_name: null\n"
+            "purpose: A purpose that is long enough for validation.\n"
+            "output_path: /tmp/broken\n"
+        )
+
+        monkeypatch.setattr("api.routers.starters._get_starters_dir", lambda: starters_dir)
+        monkeypatch.setattr(
+            "api.routers.starters._STARTER_ID_TO_FILE", {"broken_starter": "broken.yaml"}
+        )
+
+        client = make_client().client
+        response = client.post("/api/starters/broken_starter/run")
+
+        assert response.status_code == 422
+        data = response.json()
+        assert data["error"]["code"] == "spec_invalid"

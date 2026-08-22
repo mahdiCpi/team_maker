@@ -184,3 +184,48 @@ def test_role_llm_override():
     assert role.llm is not None
     assert role.llm.provider == "openai"
     assert role.llm.model == "gpt-4o"
+
+
+# ---------------------------------------------------------------------------
+# Template ID validation (Story 4.6 Task 3)
+# ---------------------------------------------------------------------------
+
+
+def test_valid_template_id_accepted():
+    """Test that valid template_id values are accepted."""
+    # All registered templates should be valid
+    for template_id in ["baseline_education_team", "research_content_team", "software_delivery_team"]:
+        req = TeamCreationRequest(
+            team_name="Test Team",
+            purpose="A test purpose that is long enough for validation.",
+            output_path="/tmp/test",
+            template_id=template_id,
+        )
+        assert req.template_id == template_id
+
+
+def test_none_template_id_accepted():
+    """Test that None template_id is accepted (will use default)."""
+    req = TeamCreationRequest(
+        team_name="Test Team",
+        purpose="A test purpose that is long enough for validation.",
+        output_path="/tmp/test",
+        template_id=None,
+    )
+    assert req.template_id is None
+
+
+def test_invalid_template_id_rejected():
+    """Test that invalid template_id values are rejected with clear error."""
+    with pytest.raises(ValidationError) as exc_info:
+        TeamCreationRequest(
+            team_name="Test Team",
+            purpose="A test purpose that is long enough for validation.",
+            output_path="/tmp/test",
+            template_id="nonexistent_template",
+        )
+    
+    # Check that error message mentions the invalid template_id and lists available ones
+    error_msg = str(exc_info.value)
+    assert "nonexistent_template" in error_msg
+    assert "Available templates" in error_msg

@@ -1,4 +1,4 @@
-.PHONY: install install-dev test test-unit test-integration test-api lint fmt clean example api-dev api-serve web-install web-dev web-build web-test web-lint
+.PHONY: install install-dev test test-all test-python test-unit test-integration test-api lint fmt clean example api-dev api-serve web-install web-dev web-build web-test web-lint
 
 install:
 	pip install -e .
@@ -6,7 +6,18 @@ install:
 install-dev:
 	pip install -e ".[dev]"
 
-test:
+test: test-all
+
+# Run both Python and frontend tests
+test-all: web-install
+	@echo "Running Python tests..."
+	pytest tests/ -v --tb=short
+	@echo "Running frontend tests..."
+	npm --prefix web test
+
+# Python suite only — used by python-tests.yml, which provisions Python but
+# not Node, unlike `test`/`test-all` above.
+test-python:
 	pytest tests/ -v --tb=short
 
 test-unit:
@@ -72,3 +83,10 @@ web-test:
 
 web-lint:
 	npm --prefix web run lint
+
+# E2E tests with Playwright
+test-e2e: web-install
+	@echo "Installing Playwright browsers..."
+	npm --prefix web run playwright:install
+	@echo "Running E2E tests..."
+	npm --prefix web run test:e2e

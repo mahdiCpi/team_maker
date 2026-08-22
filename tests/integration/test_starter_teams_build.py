@@ -32,7 +32,7 @@ def repo_root() -> Path:
 @pytest.fixture
 def baseline_education_request(repo_root: Path) -> TeamCreationRequest:
     """Load the baseline education team request from examples/."""
-    yaml_path = repo_root / "examples" / "baseline_education_team_request.yaml"
+    yaml_path = repo_root / "examples" / "starters" / "baseline_education_team_request.yaml"
     raw = load_yaml(yaml_path)
     return TeamCreationRequest(**raw)
 
@@ -40,7 +40,7 @@ def baseline_education_request(repo_root: Path) -> TeamCreationRequest:
 @pytest.fixture
 def research_content_request(repo_root: Path) -> TeamCreationRequest:
     """Load the research content team request from examples/."""
-    yaml_path = repo_root / "examples" / "research_content_team_request.yaml"
+    yaml_path = repo_root / "examples" / "starters" / "research_content_team_request.yaml"
     raw = load_yaml(yaml_path)
     return TeamCreationRequest(**raw)
 
@@ -129,7 +129,7 @@ def test_all_starter_teams_validate(
     tmp_path,
 ) -> None:
     """Parameterized test: both starter team YAMLs build and validate successfully."""
-    yaml_path = repo_root / "examples" / yaml_filename
+    yaml_path = repo_root / "examples" / "starters" / yaml_filename
     raw = load_yaml(yaml_path)
     request = TeamCreationRequest(**raw)
     

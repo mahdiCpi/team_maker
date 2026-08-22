@@ -62,6 +62,11 @@ class Provider:
     # for this provider's canonical env_var. Used by env_to_provider() to build
     # the lookup mapping (Story 2.9).
     env_var_aliases: tuple[str, ...] = ()
+    # Case-insensitive prefixes this vendor's own model names start with (e.g.
+    # "gpt" for openai). Used only to qualify an unprefixed model string under a
+    # *direct* `openrouter` routing entry with a vendor namespace (Story 4.2
+    # AC8) — data-driven per AD-8, never a hardcoded provider-name branch.
+    openrouter_model_name_prefixes: tuple[str, ...] = ()
 
     def openrouter_model_prefix(self) -> str:
         """The vendor segment of an ``openrouter/<vendor>/<model>`` model string."""
@@ -75,8 +80,18 @@ class Provider:
 # provider list has no `groq` and no `xai`, and this repo does not install the
 # litellm fallback. Verified empirically against the installed engine.
 PROVIDERS: list[Provider] = [
-    Provider("anthropic", "ANTHROPIC_API_KEY", openrouter_reachable=True),
-    Provider("openai", "OPENAI_API_KEY", openrouter_reachable=True),
+    Provider(
+        "anthropic",
+        "ANTHROPIC_API_KEY",
+        openrouter_reachable=True,
+        openrouter_model_name_prefixes=("claude",),
+    ),
+    Provider(
+        "openai",
+        "OPENAI_API_KEY",
+        openrouter_reachable=True,
+        openrouter_model_name_prefixes=("gpt", "o1", "o3", "o4", "chatgpt"),
+    ),
     # Reachable only through OpenRouter: crewai's native google provider needs
     # the `crewai[google-genai]` extra, which this repo does not install.
     # (`google-generativeai` in the `all` extra is a different package.)
@@ -90,6 +105,7 @@ PROVIDERS: list[Provider] = [
             "directly"
         ),
         env_var_aliases=("GOOGLE_API_KEY",),
+        openrouter_model_name_prefixes=("gemini", "palm", "bison"),
     ),
     # groq is an inference host, not a model vendor, so there is no `groq/`
     # namespace on OpenRouter — it is NOT openrouter_reachable.
@@ -103,12 +119,33 @@ PROVIDERS: list[Provider] = [
         "xai",
         "XAI_API_KEY",
         openrouter_slug="x-ai",
+        openrouter_reachable=True,
         runtime_supported=False,
         unsupported_reason="the installed CrewAI has no native xai provider",
+        openrouter_model_name_prefixes=("grok",),
     ),
     Provider("ollama", None, keyless_local=True, default_base_url="http://localhost:11434"),
     Provider(OPENROUTER, "OPENROUTER_API_KEY"),
 ]
+
+
+def infer_openrouter_vendor(model: str) -> Provider | None:
+    """Guess which catalog vendor an unqualified model name belongs to.
+
+    Matches against each `openrouter_reachable` provider's
+    `openrouter_model_name_prefixes` (data, not a name branch — AD-8). Returns
+    `None`, never a guess, when zero or more than one vendor matches — an
+    ambiguous or unrecognized model must be rejected, not silently assigned to
+    the wrong vendor (Story 4.2 AC8).
+    """
+    model_lower = model.lower()
+    matches = [
+        p
+        for p in PROVIDERS
+        if p.openrouter_reachable
+        and any(model_lower.startswith(prefix) for prefix in p.openrouter_model_name_prefixes)
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def get_provider(name: str) -> Provider | None:

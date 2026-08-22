@@ -19,7 +19,15 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("crewai")
+# AD-7 conformance gate: crewai is required for these tests.
+# If crewai is not installed, the tests must fail explicitly, not skip.
+try:
+    import crewai  # noqa: F401
+except ImportError:
+    pytest.fail(
+        "crewai is required for transcript conformance tests. "
+        "Install with: pip install -e \".[runtime]\""
+    )
 
 from crewai.events import crewai_event_bus  # noqa: E402
 from pydantic import SecretStr  # noqa: E402

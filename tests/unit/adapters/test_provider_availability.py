@@ -113,19 +113,35 @@ def test_google_status_stays_unsupported_by_runtime_regardless_of_key_name(tmp_p
 def test_a_provider_the_engine_cannot_construct_is_not_reported_runnable(tmp_path):
     """The gate must not admit a provider that would die at LLM construction.
 
-    crewai 1.14.6 has no native groq/xai provider and litellm is not installed,
-    so a valid key for either is not enough — and groq, being an inference host
-    rather than a model vendor, has no OpenRouter namespace to fall back to.
+    crewai 1.14.6 has no native groq provider and litellm is not installed, so a
+    valid key is not enough — and groq, being an inference host rather than a
+    model vendor, has no OpenRouter namespace to fall back to either.
     """
     path = tmp_path / "team_maker.keys"
     path.write_text(
-        "GROQ_API_KEY=sk-groq\nXAI_API_KEY=sk-xai\nOPENROUTER_API_KEY=sk-or\n",
+        "GROQ_API_KEY=sk-groq\nOPENROUTER_API_KEY=sk-or\n",
         encoding="utf-8",
     )
     cfg = KeyConfig.from_file(path, include_env=False)
     statuses = _status_map(cfg)
 
     assert statuses["groq"] == STATUS_UNSUPPORTED_BY_RUNTIME
-    assert statuses["xai"] == STATUS_UNSUPPORTED_BY_RUNTIME
     assert is_usable(statuses["groq"]) is False
-    assert is_usable(statuses["xai"]) is False
+
+
+def test_a_provider_the_engine_cannot_construct_directly_is_still_runnable_via_openrouter(tmp_path):
+    """xai has no native crewai provider either, but unlike groq it IS a model
+    vendor with an OpenRouter namespace — Story 4.2 Task 5.1 fixed its catalog
+    entry (openrouter_reachable=True, matching its existing openrouter_slug="x-ai"),
+    so with an OpenRouter key present its models are reachable via the gateway.
+    """
+    path = tmp_path / "team_maker.keys"
+    path.write_text(
+        "XAI_API_KEY=sk-xai\nOPENROUTER_API_KEY=sk-or\n",
+        encoding="utf-8",
+    )
+    cfg = KeyConfig.from_file(path, include_env=False)
+    statuses = _status_map(cfg)
+
+    assert statuses["xai"] == STATUS_VIA_OPENROUTER
+    assert is_usable(statuses["xai"]) is True

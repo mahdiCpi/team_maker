@@ -20,6 +20,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from team_maker.adapters.providers import create_provider
+from team_maker.adapters.providers.credential_utils import bridged_credential_context
 from team_maker.adapters.providers.registry import PROVIDERS
 from team_maker.composer.composer import Composer, ComposerError
 from team_maker.composer.session import ComposerSession
@@ -29,6 +30,11 @@ from team_maker.runtime.executor import UnsupportedFrameworkError, run_team_pack
 from team_maker.runtime.loader import TeamPackageError
 from team_maker.runtime.preflight import InvalidPackageError, MissingCredentialsError
 from team_maker.schema.request import ProviderConfig, TeamCreationRequest
+from team_maker.utils.text_sanitizer import (
+    sanitize_control_characters,
+    sanitize_exception_for_display,
+    sanitize_text_for_display,
+)
 from team_maker.utils.yaml_utils import dump_yaml, load_yaml
 
 console = Console()
@@ -109,7 +115,8 @@ def create(
     try:
         raw = load_yaml(config)
     except Exception as exc:
-        err_console.print(f"[bold]Failed to load config file:[/bold] {exc}")
+        sanitized_msg = sanitize_exception_for_display(exc)
+        err_console.print(f"[bold]Failed to load config file:[/bold] {sanitized_msg}")
         sys.exit(1)
 
     # 2. Apply CLI overrides
@@ -155,10 +162,12 @@ def create(
     try:
         result = runner.run(request)
     except FileExistsError as exc:
-        err_console.print(f"[bold]Output conflict:[/bold] {exc}")
+        sanitized_msg = sanitize_exception_for_display(exc)
+        err_console.print(f"[bold]Output conflict:[/bold] {sanitized_msg}")
         sys.exit(1)
     except Exception as exc:
-        err_console.print(f"[bold]Pipeline error:[/bold] {exc}")
+        sanitized_msg = sanitize_exception_for_display(exc)
+        err_console.print(f"[bold]Pipeline error:[/bold] {sanitized_msg}")
         raise  # re-raise for full traceback in debug scenarios
 
     # 5. Report outcome
@@ -198,19 +207,61 @@ def _bridged_credential(key_config: KeyConfig, provider: str, env_var: Optional[
     internally, so this is the point where `.get_secret_value()` is called (AD-9),
     only for the duration of the wrapped block — whatever was in `env_var` before
     is restored on exit, so the secret never persists past this single CLI call.
+    
+    Uses shared credential utilities from adapters/providers/credential_utils.py
+    (Story 4.2) for consistency with API credential resolution.
     """
-    if not env_var or not key_config.has(provider):
+    with bridged_credential_context(key_config, provider, env_var):
         yield
-        return
-    previous = os.environ.get(env_var)
-    os.environ[env_var] = key_config.keys[provider].get_secret_value()
-    try:
+
+
+def _env_var_for_provider(provider_config: Optional[ProviderConfig]) -> Optional[tuple[str, str]]:
+    """Resolve a `(provider_name, env_var)` pair for a `ProviderConfig`, or `None`."""
+    if provider_config is None or not provider_config.provider:
+        return None
+    env_var = provider_config.api_key_env or next(
+        (p.env_var for p in PROVIDERS if p.name == provider_config.provider), None
+    )
+    if env_var is None:
+        return None
+    return (provider_config.provider, env_var)
+
+
+@contextlib.contextmanager
+def _bridged_all_team_providers(key_config: KeyConfig, request: TeamCreationRequest):
+    """Temporarily bridge credentials for all providers needed by a team spec.
+
+    This bridges not just the authoring provider (used by the Composer) but also
+    every provider reachable through the resolution chain the build actually
+    uses -- `role.llm -> default_llm -> planning_llm` (see `api/routings.py`) --
+    so the build can resolve credentials for a role however it falls back
+    (Task 2, Story 4.5).
+
+    Args:
+        key_config: Loaded Key Config with provider credentials
+        request: TeamCreationRequest containing desired_roles with per-role LLM configs
+
+    Yields:
+        None - credentials are bridged for the duration of the context
+    """
+    # Dict, not set: preserves first-seen order so bridging is deterministic
+    # even if two roles reference the same provider with different
+    # `api_key_env` overrides (first one encountered wins).
+    providers_to_bridge: dict[str, str] = {}
+    for provider_config in (
+        request.planning_llm,
+        request.default_llm,
+        *(role.llm for role in request.desired_roles or []),
+    ):
+        resolved = _env_var_for_provider(provider_config)
+        if resolved is not None:
+            provider_name, env_var = resolved
+            providers_to_bridge.setdefault(provider_name, env_var)
+
+    with contextlib.ExitStack() as stack:
+        for provider_name, env_var in providers_to_bridge.items():
+            stack.enter_context(bridged_credential_context(key_config, provider_name, env_var))
         yield
-    finally:
-        if previous is None:
-            os.environ.pop(env_var, None)
-        else:
-            os.environ[env_var] = previous
 
 
 @main.command()
@@ -265,6 +316,7 @@ def compose(
     # "run now"/--build — since the bridged credential is restored the
     # instant this `with` block exits, and the build's own model-resolution
     # step may also want the authoring provider's key present.
+    request: Optional[TeamCreationRequest] = None
     with _bridged_credential(key_config, _DEFAULT_AUTHORING_PROVIDER, authoring_config.api_key_env):
         try:
             llm_provider = create_provider(authoring_config)
@@ -305,11 +357,16 @@ def compose(
                     try:
                         request = session.refine(line)
                     except ComposerError as exc:
+                        # Sanitize before display to prevent secrets from leaking
+                        # (AD-9) -- this loop shares the exact `ComposerError`
+                        # surface as the handlers below and must not skip the
+                        # same sanitization (code review P6).
+                        sanitized_msg = sanitize_exception_for_display(exc)
                         err_console.print(
-                            f"[bold]Could not apply that change:[/bold] {escape(str(exc))}"
+                            f"[bold]Could not apply that change:[/bold] {escape(sanitized_msg)}"
                         )
                         for error in exc.errors:
-                            err_console.print(f"  • {escape(error)}")
+                            err_console.print(f"  • {escape(sanitize_text_for_display(error))}")
                         continue
                     if request is None:
                         err_console.print(
@@ -322,23 +379,40 @@ def compose(
             else:
                 request = composer.compose(intent)
         except ComposerError as exc:
-            err_console.print(f"[bold]Could not compose a valid team specification:[/bold] {escape(str(exc))}")
+            # Sanitize exception message before display to prevent secrets from leaking
+            # Per AD-9: keys and sensitive data must never be exposed to users
+            sanitized_msg = sanitize_exception_for_display(exc)
+            err_console.print(f"[bold]Could not compose a valid team specification:[/bold] {escape(sanitized_msg)}")
             for error in exc.errors:
-                err_console.print(f"  • {escape(error)}")
+                err_console.print(f"  • {escape(sanitize_text_for_display(error))}")
             sys.exit(2)
         except Exception as exc:
-            err_console.print(f"[bold]Compose failed:[/bold] {escape(str(exc))}")
+            # Sanitize exception message before display to prevent secrets from leaking
+            # Per AD-9: keys and sensitive data must never be exposed to users
+            sanitized_msg = sanitize_exception_for_display(exc)
+            err_console.print(f"[bold]Compose failed:[/bold] {escape(sanitized_msg)}")
             sys.exit(1)
 
         # The spec is the command's actual deliverable — always emit it somewhere,
         # even under --quiet (which only suppresses the decorative summary below).
+        if request is None:
+            # Reachable: the interactive loop's last `refine()` call can return
+            # None (input not recognized as a team description), and the user
+            # can then type "done"/"exit"/empty without providing a valid one.
+            err_console.print(
+                "[bold]No team specification was produced.[/bold] "
+                "The conversation ended before a valid team description was given."
+            )
+            sys.exit(2)
+
         spec_yaml = dump_yaml(request.model_dump(mode="json", exclude_none=True))
         if out is not None:
             try:
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(spec_yaml, encoding="utf-8")
             except OSError as exc:
-                err_console.print(f"[bold]Could not write spec to {escape(str(out))}:[/bold] {escape(str(exc))}")
+                sanitized_msg = sanitize_exception_for_display(exc)
+                err_console.print(f"[bold]Could not write spec to {escape(str(out))}:[/bold] {escape(sanitized_msg)}")
                 sys.exit(1)
             if not quiet:
                 console.print(f"[dim]Spec written to {escape(str(out))}[/dim]")
@@ -351,20 +425,25 @@ def compose(
             _print_spec_summary(request, title="Composed team spec")
 
         if build_now:
-            runner = PipelineRunner()
-            try:
-                result = runner.run(request)
-            except FileExistsError as exc:
-                err_console.print(f"[bold]Output conflict:[/bold] {exc}")
-                sys.exit(1)
-            except Exception as exc:
-                err_console.print(f"[bold]Pipeline error:[/bold] {exc}")
-                raise  # re-raise for full traceback in debug scenarios
+            # Bridge all providers needed by the team, not just the authoring provider
+            # (Task 2, Story 4.5: Bridge per-role provider keys in compose --build)
+            with _bridged_all_team_providers(key_config, request):
+                runner = PipelineRunner()
+                try:
+                    result = runner.run(request)
+                except FileExistsError as exc:
+                    sanitized_msg = sanitize_exception_for_display(exc)
+                    err_console.print(f"[bold]Output conflict:[/bold] {sanitized_msg}")
+                    sys.exit(1)
+                except Exception as exc:
+                    sanitized_msg = sanitize_exception_for_display(exc)
+                    err_console.print(f"[bold]Pipeline error:[/bold] {sanitized_msg}")
+                    raise  # re-raise for full traceback in debug scenarios
 
-            if not quiet:
-                _print_result(result)
-            if not result.validation.passed:
-                sys.exit(2)
+                if not quiet:
+                    _print_result(result)
+                if not result.validation.passed:
+                    sys.exit(2)
 
 
 # ---------------------------------------------------------------------------
@@ -490,8 +569,17 @@ def run(
         err_console.print(f"[bold]Run failed:[/bold] {escape(str(exc))}")
         sys.exit(1)
 
+    # AC 1 (Story 4.4): a run that failed partway through returns normally,
+    # with `result.error` set, rather than raising — so its partial
+    # transcript below is still shown/written rather than lost with an
+    # exception. `result.error` must be checked before treating this as a
+    # success. Printed regardless of `--quiet`, matching every other failure
+    # path above.
+    if result.error is not None:
+        err_console.print(f"[bold]Run failed:[/bold] {escape(result.error)}")
     if not quiet:
-        _print_run_result(result)
+        if result.error is None:
+            _print_run_result(result)
         if transcript:
             _print_transcript(result)
 
@@ -509,7 +597,12 @@ def run(
             sys.exit(1)
         try:
             transcript_out.parent.mkdir(parents=True, exist_ok=True)
-            transcript_out.write_text(_format_transcript(result), encoding="utf-8")
+            # Sanitized like the console path (`_print_transcript`, below):
+            # a saved transcript file is a deliverable a user opens or `cat`s
+            # later, the same terminal-manipulation exposure AC 4 closes for
+            # the console (Story 4.4 review).
+            sanitized = sanitize_control_characters(_format_transcript(result))
+            transcript_out.write_text(sanitized, encoding="utf-8")
         # ValueError covers UnicodeEncodeError: raw model output can contain
         # lone surrogates, which encode() rejects — and that is a far likelier
         # failure here than a disk error.
@@ -520,6 +613,9 @@ def run(
             sys.exit(1)
         if not quiet:
             console.print(f"[dim]Transcript written to {escape(str(transcript_out))}[/dim]")
+
+    if result.error is not None:
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -674,22 +770,43 @@ def _print_run_result(result) -> None:  # type: ignore[no-untyped-def]
         console.print(table)
 
 
+# Kept in step with the generated package's own copy in
+# `codegen/templates/_transcript_module.py.j2` — a team package runs without
+# `team_maker` installed, so the two cannot share an import.
+_MAX_ENTRY_CONTENT = 10000
+_TRUNCATION_MARKER = "... [truncated]"
+_CONTENT_GUTTER = "  | "
+
+
 def _format_transcript(result) -> str:  # type: ignore[no-untyped-def]
     """Render the transcript as plain text, for the console or a file.
 
     One line per entry so the output stays greppable and diffable, and so the
     written file is the same thing the user saw on screen.
+
+    AC 5 — a content line must never be readable as a header. Indentation alone
+    did not achieve that: the ambiguous line `deferred-work.md:111` cites is an
+    *indented* one, so a reader (or a regex not anchored to column 0) could
+    still take agent output for structure. Content therefore carries
+    `_CONTENT_GUTTER`, which a header can never start with because a header
+    always starts with `[`. Content is also capped, and a cap that fires says
+    so — silent truncation is indistinguishable from genuinely short content,
+    which matters most on the partial transcript of a failed run.
     """
     lines: list[str] = []
     # `or []` rather than assuming a list: RunResult is a plain dataclass with
     # no validation, and any ExecutionEngine implementation may hand back None.
     for entry in result.transcript or []:
         target = f" -> {entry.target_role}" if entry.target_role else ""
-        header = f"[{entry.sequence}] {entry.task_name} / {entry.agent_role}{target} ({entry.kind})"
-        lines.append(header)
+        lines.append(
+            f"[{entry.sequence}] {entry.task_name} / {entry.agent_role}{target} :: {entry.kind}"
+        )
         content = (entry.content or "").strip()
-        if content:
-            lines.extend(f"    {line}" for line in content.splitlines())
+        if not content:
+            continue
+        if len(content) > _MAX_ENTRY_CONTENT:
+            content = content[:_MAX_ENTRY_CONTENT] + _TRUNCATION_MARKER
+        lines.extend(f"{_CONTENT_GUTTER}{line}" for line in content.splitlines())
     return "\n".join(lines)
 
 
@@ -700,6 +817,9 @@ def _print_transcript(result) -> None:  # type: ignore[no-untyped-def]
         console.print("[dim]No transcript was captured for this run.[/dim]")
         return
     console.print("\n[bold]Run transcript[/bold]")
-    # escape(): entry content is raw LLM text and will contain brackets.
+    # Sanitize control characters (ANSI/OSC sequences) before displaying to prevent
+    # terminal manipulation attacks. escape() only handles Rich markup brackets.
     # soft_wrap: the text is pre-indented, and re-wrapping destroys the layout.
-    console.print(escape(_format_transcript(result)), soft_wrap=True)
+    transcript_text = _format_transcript(result)
+    sanitized_text = sanitize_control_characters(transcript_text)
+    console.print(escape(sanitized_text), soft_wrap=True)

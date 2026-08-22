@@ -50,10 +50,10 @@ def test_status_projects_classify_verbatim(make_client):
         "google": "via-openrouter",
         # an inference host with no vendor namespace on OpenRouter — no route at all.
         "groq": "unsupported-by-runtime",
-        # `xai` carries `openrouter_slug="x-ai"` but leaves `openrouter_reachable`
-        # at its `False` default, so the gateway does not reach it either. The slug
-        # is currently dead data; recorded in Completion Notes, not changed here.
-        "xai": "unsupported-by-runtime",
+        # Story 4.2 Task 5.1 fixed the catalog inconsistency: `xai` now has
+        # `openrouter_reachable=True` to match its existing `openrouter_slug="x-ai"`,
+        # so the OpenRouter key in this default sentinel set reaches it.
+        "xai": "via-openrouter",
         "ollama": "keyless-local",
         "openrouter": "available",
     }
@@ -68,7 +68,8 @@ def test_usable_follows_is_usable_not_a_string_comparison(make_client):
         "openai": True,
         "google": True,
         "groq": False,
-        "xai": False,
+        # Story 4.2 Task 5.1: xai is now reachable via OpenRouter.
+        "xai": True,
         "ollama": True,
         "openrouter": True,
     }

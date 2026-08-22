@@ -450,7 +450,30 @@ class CreateSessionFromStarterRequest(BaseModel):
 
     model_config = _STRICT
 
-    starter_id: str = Field(..., min_length=1, max_length=_MAX_NAME)
+    starter_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=_MAX_NAME,
+        description="ID of a valid starter team template",
+    )
+
+    @field_validator("starter_id")
+    @classmethod
+    def validate_starter_id_exists(cls, v: str) -> str:
+        """Reject any starter_id not currently discovered from examples/starters/.
+
+        Checked against the same dynamically-discovered map api/routers/starters.py
+        itself serves from GET /api/starters, so the two endpoints cannot drift —
+        deliberately not a hardcoded Literal (imported lazily to avoid a
+        module-level import cycle with api.routers.starters, which imports this
+        module).
+        """
+        from api.routers.starters import _STARTER_ID_TO_FILE
+
+        if v not in _STARTER_ID_TO_FILE:
+            available = sorted(_STARTER_ID_TO_FILE)
+            raise ValueError(f"Unknown starter_id '{v}'. Available starters: {available}")
+        return v
 
 
 class TeamSaveRequest(BaseModel):

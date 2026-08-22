@@ -1,0 +1,472 @@
+"""Transcript capture for this generated team package (Story 1.7, Story 4.4).
+
+Standalone by design: this package runs without `team_maker` installed, so this
+module is a self-contained port of
+`team_maker/adapters/runtime_crewai/transcript_capture.py`. Keep the two in
+step — `tests/conformance/test_generated_transcript_module.py` runs both
+recorders over the same real crewai run and fails if their attribution drifts.
+
+## Why attribution is resolved lazily, not in the handlers
+
+Measured against crewai 1.14.6: `AgentLogsExecutionEvent` (the per-turn event)
+carries no task reference and its `task_name` is always `None`, and
+`AgentExecutionStartedEvent` reports `agent_role`/`task_name` as `None` too. So
+a handler that simply reads `event.task_name` attributes every agent turn to
+`"unknown"`. The real owner is found by walking `parent_event_id`:
+
+    normal turn:    AgentLogsExecutionEvent -> AgentExecutionStartedEvent -> TaskStartedEvent
+    delegated turn: AgentLogsExecutionEvent -> AgentExecutionStartedEvent -> ToolUsageStartedEvent
+
+Handlers run on a worker pool, so a child's handler can run before its parent's.
+The walk therefore happens in `entries()`, once the bus has been flushed and
+every parent has been seen. Only real values enter the attribution map — never
+the `"unknown"` placeholder, which is truthy and would stop the walk early.
+
+## Secrets
+
+Several crewai events hold live `Agent`/`Task` objects whose `.llm.api_key` is a
+plain string. This module projects scalars only, never retains an event object,
+and never stringifies an arbitrary object into `content`.
+"""
+from __future__ import annotations
+
+import json
+import re
+import threading
+from dataclasses import dataclass
+from typing import Any, Optional
+
+# Mirrors `team_maker/utils/text_sanitizer.py`. The C1 block (\x80-\x9f) matters:
+# it holds the 8-bit CSI/OSC/ST equivalents (\x9b/\x9d/\x9c) that would otherwise
+# slip past the ESC-prefixed patterns above it.
+_ANSI_ESCAPE_PATTERN = re.compile(r"(?:\x1b\[|\x9b)[0-9;:*]*[a-zA-Z]")
+_OSC_PATTERN = re.compile(r"(?:\x1b\]|\x9d)[^\x07\x1b\x9c]*(?:\x07|\x1b\x5c|\x9c)")
+_CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+# Per-entry content cap, and the marker that makes a truncation visible rather
+# than silently indistinguishable from genuinely short content.
+MAX_ENTRY_CONTENT = 10000
+TRUNCATION_MARKER = "... [truncated]"
+
+# Content lines carry this gutter so they can never be mistaken for a header:
+# a header always starts with "[", a content line always with "  | ".
+CONTENT_GUTTER = "  | "
+
+ENTRY_TASK_STARTED = "task_started"
+ENTRY_TASK_COMPLETED = "task_completed"
+ENTRY_AGENT_MESSAGE = "agent_message"
+ENTRY_AGENT_ACTION = "agent_action"
+ENTRY_DELEGATION = "delegation"
+ENTRY_DELEGATION_RESULT = "delegation_result"
+
+_DELEGATION_TOOLS = frozenset(["delegate_work_to_coworker", "ask_question_to_coworker"])
+
+_UNKNOWN_AGENT = "unknown"
+_UNKNOWN_TASK = "unknown"
+_MAX_PARENT_DEPTH = 32
+
+
+def sanitize_control_characters(text: str) -> str:
+    """Strip ANSI/OSC escape sequences and control characters.
+
+    Applied at display time only — never to stored content — so a transcript
+    written to disk still holds exactly what the agents produced.
+    """
+    if not text:
+        return text
+    result = _ANSI_ESCAPE_PATTERN.sub("", text)
+    result = _OSC_PATTERN.sub("", result)
+    return _CONTROL_CHAR_PATTERN.sub("", result)
+
+
+def _role_of(obj: Any) -> Optional[str]:
+    role = getattr(obj, "role", None)
+    return str(role) if role else None
+
+
+def _name_of(obj: Any) -> Optional[str]:
+    name = getattr(obj, "name", None)
+    return str(name) if name else None
+
+
+def _as_args_dict(raw: Any) -> dict:
+    """`tool_args` arrives as a JSON string on Started and a dict on Finished."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _text_of(value: Any) -> Optional[str]:
+    """A genuine string, or None — deliberately refuses to stringify anything else.
+
+    `AgentFinish.output` may be a pydantic model, and `str(model)` renders every
+    field, which is how a structured output holding a credential would land in
+    `content`.
+    """
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _answer_text(formatted_answer: Any) -> str:
+    return (
+        _text_of(getattr(formatted_answer, "text", None))
+        or _text_of(getattr(formatted_answer, "output", None))
+        or ""
+    )
+
+
+def _normalize_tool_name(raw: Any) -> str:
+    """crewai's own sanitizer when importable, else an equivalent fallback.
+
+    The raw tool `name` differs between emit sites ("Delegate work to coworker"
+    on Started, the snake_case form on Finished), so both sides are normalized
+    before comparison.
+    """
+    if not raw:
+        return ""
+    try:
+        from crewai.utilities.string_utils import sanitize_tool_name
+
+        return sanitize_tool_name(str(raw))
+    except Exception:
+        return str(raw).strip().lower().replace(" ", "_").replace("-", "_")
+
+
+@dataclass
+class TranscriptEntry:
+    """One ordered, attributed moment in a run.
+
+    `sequence` carries the ordering as data — values increase monotonically but
+    are sparse, since only some engine events map to an entry. Sort by it; never
+    assume contiguity or rely on list position.
+    """
+
+    sequence: int
+    kind: str
+    agent_role: str
+    task_name: str
+    content: str
+    target_role: Optional[str] = None
+
+
+@dataclass
+class _Pending:
+    """An entry captured but not yet attributed."""
+
+    sequence: int
+    kind: str
+    content: str
+    event_id: Optional[str]
+    parent_event_id: Optional[str]
+    agent_role: Optional[str]
+    task_name: Optional[str]
+    target_role: Optional[str] = None
+
+
+class TranscriptRecorder:
+    """Collects an ordered, attributed transcript from one crew run.
+
+    Use as a context manager around `kickoff` so handlers always come off the
+    process-global event bus:
+
+        with TranscriptRecorder(task_owners) as recorder:
+            output = crew.kickoff()
+        transcript = recorder.entries()
+
+    Read `entries()` *after* the block exits: `__exit__` flushes the bus, and
+    kickoff flushes internally before its final event, so the tail can still be
+    in flight when kickoff returns.
+
+    `task_owners` maps task name -> the role that declares ownership, because
+    crewai rebinds `task.agent` to the manager in a hierarchical crew.
+    """
+
+    def __init__(self, task_owners: Optional[dict] = None) -> None:
+        self._task_owners = dict(task_owners or {})
+        self._pending: list = []
+        self._attribution: dict = {}
+        self._parents: dict = {}
+        self._registered: list = []
+        self._lock = threading.Lock()
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def __enter__(self) -> "TranscriptRecorder":
+        self._subscribe()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        from crewai.events import crewai_event_bus
+
+        # Both steps are best-effort: a failure draining the bus must never
+        # replace the exception the caller actually needs to see.
+        try:
+            crewai_event_bus.flush()
+        except Exception:
+            pass
+        finally:
+            self._unsubscribe()
+
+    def entries(self) -> list:
+        """The transcript: attributed, then ordered by emission sequence."""
+        with self._lock:
+            pending = list(self._pending)
+        return sorted(
+            [self._attribute(item) for item in pending], key=lambda entry: entry.sequence
+        )
+
+    # -- subscription ------------------------------------------------------
+
+    def _subscribe(self) -> None:
+        from crewai.events import crewai_event_bus
+        from crewai.events.types.agent_events import AgentExecutionStartedEvent
+        from crewai.events.types.logging_events import AgentLogsExecutionEvent
+        from crewai.events.types.task_events import TaskCompletedEvent, TaskStartedEvent
+        from crewai.events.types.tool_usage_events import (
+            ToolUsageFinishedEvent,
+            ToolUsageStartedEvent,
+        )
+
+        # Dispatch is exact-type, so every concrete class is listed explicitly;
+        # subscribing to a base class catches nothing.
+        handlers = [
+            (TaskStartedEvent, self._on_task_started),
+            (TaskCompletedEvent, self._on_task_completed),
+            (AgentExecutionStartedEvent, self._on_agent_started),
+            (AgentLogsExecutionEvent, self._on_agent_turn),
+            (ToolUsageStartedEvent, self._on_tool_started),
+            (ToolUsageFinishedEvent, self._on_tool_finished),
+        ]
+        try:
+            for event_type, handler in handlers:
+                crewai_event_bus.on(event_type)(handler)
+                self._registered.append((event_type, handler))
+        except Exception:
+            # __exit__ never runs if __enter__ raises, so a partial registration
+            # would strand handlers on the global bus for the life of the process.
+            self._unsubscribe()
+            raise
+
+    def _unsubscribe(self) -> None:
+        from crewai.events import crewai_event_bus
+
+        while self._registered:
+            event_type, handler = self._registered.pop()
+            try:
+                crewai_event_bus.off(event_type, handler)
+            except Exception:
+                pass
+
+    # -- attribution -------------------------------------------------------
+
+    def _remember(self, event: Any, task_name, agent_role) -> None:
+        """Record what this event knows. Never records a placeholder."""
+        event_id = getattr(event, "event_id", None)
+        if not event_id:
+            return
+        parent_id = getattr(event, "parent_event_id", None)
+        with self._lock:
+            self._attribution[str(event_id)] = (task_name, agent_role)
+            if parent_id:
+                self._parents[str(event_id)] = str(parent_id)
+
+    def _walk(self, event_id, parent_id):
+        """Climb the parent chain until both task and agent are known."""
+        with self._lock:
+            if event_id:
+                task, agent = self._attribution.get(str(event_id), (None, None))
+                seen = set([str(event_id)])
+            else:
+                task, agent = None, None
+                seen = set()
+            current = str(parent_id) if parent_id else None
+            depth = 0
+            while current and current not in seen and depth < _MAX_PARENT_DEPTH:
+                seen.add(current)
+                depth += 1
+                parent_task, parent_agent = self._attribution.get(current, (None, None))
+                task = task or parent_task
+                agent = agent or parent_agent
+                if task and agent:
+                    break
+                current = self._parents.get(current)
+        return task, agent
+
+    def _attribute(self, item) -> TranscriptEntry:
+        task, agent = self._walk(item.event_id, item.parent_event_id)
+        task_name = item.task_name or task or _UNKNOWN_TASK
+        agent_role = item.agent_role or agent or _UNKNOWN_AGENT
+        # Task boundaries belong to the declaring role, not to the manager
+        # crewai rebinds onto the task in a hierarchical crew.
+        if item.kind in (ENTRY_TASK_STARTED, ENTRY_TASK_COMPLETED):
+            agent_role = self._task_owners.get(task_name, agent_role)
+        return TranscriptEntry(
+            sequence=item.sequence,
+            kind=item.kind,
+            agent_role=agent_role,
+            task_name=task_name,
+            content=item.content,
+            target_role=item.target_role,
+        )
+
+    def _add(
+        self,
+        event: Any,
+        kind: str,
+        content: str,
+        task_name=None,
+        agent_role=None,
+        target_role=None,
+    ) -> None:
+        sequence = getattr(event, "emission_sequence", None)
+        if not isinstance(sequence, int):
+            return  # not orderable, so not admissible to an ordered transcript
+        event_id = getattr(event, "event_id", None)
+        parent_id = getattr(event, "parent_event_id", None)
+        item = _Pending(
+            sequence=sequence,
+            kind=kind,
+            content=content,
+            event_id=str(event_id) if event_id else None,
+            parent_event_id=str(parent_id) if parent_id else None,
+            agent_role=agent_role,
+            task_name=task_name,
+            target_role=target_role,
+        )
+        with self._lock:
+            self._pending.append(item)
+
+    # -- handlers ----------------------------------------------------------
+
+    def _on_task_started(self, source: Any, event: Any) -> None:
+        task = getattr(event, "task", None)
+        task_name = getattr(event, "task_name", None) or _name_of(task)
+        agent_role = _role_of(getattr(task, "agent", None))
+        self._remember(event, task_name, agent_role)
+        description = _text_of(getattr(task, "description", None))
+        self._add(
+            event,
+            ENTRY_TASK_STARTED,
+            description or task_name or "",
+            task_name=task_name,
+            agent_role=agent_role,
+        )
+
+    def _on_task_completed(self, source: Any, event: Any) -> None:
+        task = getattr(event, "task", None)
+        task_name = getattr(event, "task_name", None) or _name_of(task)
+        agent_role = _role_of(getattr(task, "agent", None))
+        self._remember(event, task_name, agent_role)
+        raw = _text_of(getattr(getattr(event, "output", None), "raw", None))
+        self._add(
+            event,
+            ENTRY_TASK_COMPLETED,
+            raw or "",
+            task_name=task_name,
+            agent_role=agent_role,
+        )
+
+    def _on_agent_started(self, source: Any, event: Any) -> None:
+        # Emits no entry: it exists so the turns hanging off this execution can
+        # be attributed. Its own `.task` is a synthetic throwaway for a delegated
+        # execution, so no task is recorded here — the walk finds the real one.
+        self._remember(event, None, _role_of(getattr(event, "agent", None)))
+
+    def _on_agent_turn(self, source: Any, event: Any) -> None:
+        agent_role = getattr(event, "agent_role", None)
+        self._remember(event, getattr(event, "task_name", None), agent_role)
+        formatted = getattr(event, "formatted_answer", None)
+        # AgentAction is an intermediate step (it names a tool); AgentFinish is
+        # the turn's answer.
+        kind = ENTRY_AGENT_ACTION if getattr(formatted, "tool", None) else ENTRY_AGENT_MESSAGE
+        self._add(
+            event,
+            kind,
+            _answer_text(formatted),
+            task_name=getattr(event, "task_name", None),
+            agent_role=agent_role,
+        )
+
+    def _on_tool_started(self, source: Any, event: Any) -> None:
+        task_name = getattr(event, "task_name", None)
+        agent_role = getattr(event, "agent_role", None)
+        self._remember(event, task_name, agent_role)
+        target = self._delegate_of(event)
+        if target is None:
+            return
+        args = _as_args_dict(getattr(event, "tool_args", None))
+        self._add(
+            event,
+            ENTRY_DELEGATION,
+            _text_of(args.get("task")) or "",
+            task_name=task_name,
+            agent_role=agent_role,
+            target_role=target,
+        )
+
+    def _on_tool_finished(self, source: Any, event: Any) -> None:
+        task_name = getattr(event, "task_name", None)
+        agent_role = getattr(event, "agent_role", None)
+        self._remember(event, task_name, agent_role)
+        target = self._delegate_of(event)
+        if target is None:
+            return
+        self._add(
+            event,
+            ENTRY_DELEGATION_RESULT,
+            _text_of(getattr(event, "output", None)) or "",
+            task_name=task_name,
+            agent_role=agent_role,
+            target_role=target,
+        )
+
+    @classmethod
+    def _delegate_of(cls, event: Any) -> Optional[str]:
+        """The coworker a delegation names, or None if this isn't one.
+
+        Returns None rather than emitting a nameless entry: a "handoff to
+        nobody" is a plausible-but-wrong entry, which is worse than omitting it.
+        """
+        tool_name = getattr(event, "tool_name", None)
+        if not tool_name:
+            return None
+        if _normalize_tool_name(tool_name) not in _DELEGATION_TOOLS:
+            return None
+        args = _as_args_dict(getattr(event, "tool_args", None))
+        return _text_of(args.get("coworker")) or _text_of(args.get("agent"))
+
+
+def format_transcript(entries) -> str:
+    """Render entries as plain text for a terminal.
+
+    Content is sanitized, capped, and carried on a `CONTENT_GUTTER` prefix so no
+    line of agent output can be mistaken for a header line.
+    """
+    lines: list = []
+    for entry in entries:
+        target = " -> " + entry.target_role if entry.target_role else ""
+        lines.append(
+            "[" + str(entry.sequence) + "] " + str(entry.task_name) + " / "
+            + str(entry.agent_role) + target + " :: " + str(entry.kind)
+        )
+        content = sanitize_control_characters(entry.content or "").strip()
+        if not content:
+            continue
+        if len(content) > MAX_ENTRY_CONTENT:
+            content = content[:MAX_ENTRY_CONTENT] + TRUNCATION_MARKER
+        for line in content.splitlines():
+            lines.append(CONTENT_GUTTER + line)
+    return "\n".join(lines)
+
+
+def print_transcript(entries, heading: str) -> None:
+    """Print a transcript under *heading*, or nothing at all when empty."""
+    if not entries:
+        return
+    print(heading)
+    print(format_transcript(entries))

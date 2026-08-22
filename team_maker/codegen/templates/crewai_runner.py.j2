@@ -15,8 +15,10 @@ from pathlib import Path
 from crewai import Agent, Task, Crew, Process, LLM
 
 from tools import get_tools_for
+from transcript import TranscriptRecorder, print_transcript
 
 {% include '_notify_helper.j2' %}
+
 
 # ── Langfuse observability (optional) ────────────────────────────────────────
 # Set LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY + LANGFUSE_HOST to enable.
@@ -151,6 +153,10 @@ def main() -> None:
     tasks = [load_task(name, agents) for name in task_names]
 
     _exec_state["pending"] = list(tasks)
+    
+    # Task owners for transcript attribution (Story 4.4 Task 3)
+    # Maps task name -> agent role that owns it
+    task_owners = {t.name: t.agent.role for t in tasks}
 
 {% if orchestrator_role %}
     crew = Crew(
@@ -195,11 +201,25 @@ def main() -> None:
             os.environ["LANGFUSE_TRACE_ID"] = _lf_trace.id
         except Exception:
             pass
+
+    # Transcript capture (Story 4.4). `entries()` is read *after* the `with`
+    # block exits: `__exit__` flushes the event bus, and kickoff flushes
+    # internally before its final event, so the tail can still be in flight
+    # when kickoff returns. Every exit path below re-reads it, so a run that
+    # fails or is interrupted still shows what happened before it stopped.
+    transcript = []
+    recorder = None
     try:
-        result = crew.kickoff(inputs={"goal": goal})
+        with TranscriptRecorder(task_owners) as recorder:
+            result = crew.kickoff(inputs={"goal": goal})
+        transcript = recorder.entries()
+
         if _lf_trace:
             _lf_trace.update(output=str(result)[:2000])
             _LANGFUSE.flush()
+
+        print_transcript(transcript, "\n--- TRANSCRIPT ---")
+
         _notify(
             "Run completed successfully",
             f"The team finished without errors.\n\nFinal output:\n{str(result)[:2000]}",
@@ -207,6 +227,11 @@ def main() -> None:
         print("\n--- RESULT ---")
         print(result)
     except KeyboardInterrupt:
+        # An interrupted run is a failed run: it keeps its partial transcript
+        # for the same reason the exception path below does.
+        if recorder is not None:
+            transcript = recorder.entries()
+        print_transcript(transcript, "\n--- PARTIAL TRANSCRIPT (run interrupted) ---")
         if _lf_trace:
             _lf_trace.update(output="interrupted")
             _LANGFUSE.flush()
@@ -218,6 +243,13 @@ def main() -> None:
         )
         raise SystemExit(1)
     except Exception as exc:
+        # The recorder captured entries up to the failure point; show them
+        # before the error, since they are what explains it.
+        if recorder is not None:
+            transcript = recorder.entries()
+
+        print_transcript(transcript, "\n--- PARTIAL TRANSCRIPT (run failed) ---")
+
         err_type = type(exc).__name__
         err_msg = str(exc)
         is_auth = any(x in err_msg.lower() or x in err_type.lower()

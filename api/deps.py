@@ -32,9 +32,13 @@ import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Optional
+
+from fastapi import Request
 
 from api.errors import (
     AUTHORING_UNAVAILABLE,
+    AUTHENTICATION_REQUIRED,
     COMPOSE_FAILED,
     SPEC_INVALID,
     ApiError,
@@ -42,12 +46,90 @@ from api.errors import (
     log_and_wrap,
 )
 from team_maker.adapters.providers import create_provider, supported_providers
+from team_maker.adapters.providers.credential_utils import (
+    bridge_all_credentials,
+    find_stale_bridged_providers,
+)
 from team_maker.adapters.providers.registry import PROVIDERS, Provider, get_provider
 from team_maker.keyconfig import KeyConfig
 from team_maker.ports.llm_provider import LLMProvider
 from team_maker.schema.request import ProviderConfig
 
 logger = logging.getLogger("api.deps")
+
+# Basic authentication for the teams API (Story 4.1 AC 6).
+# API key can be provided via:
+# - X-API-Key header
+# - Authorization: Bearer <token> header
+# A query-string `api_key` parameter is deliberately NOT supported: query
+# strings routinely land in access/proxy logs, shell history, and Referer
+# headers, which would contradict AD-9's "keys must never be logged" (code
+# review D2, resolved 2026-08-17).
+_API_KEY_ENV_VAR = "TEAM_MAKER_API_KEY"
+
+
+def _extract_api_key(request: Request) -> Optional[str]:
+    """Extract the API key from request headers only."""
+    x_api_key = request.headers.get("X-API-Key")
+    if x_api_key:
+        return x_api_key
+
+    authorization = request.headers.get("Authorization")
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        if token:
+            return token
+
+    return None
+
+
+def verify_api_key(api_key: Optional[str]) -> bool:
+    """Verify the provided API key against the configured key.
+
+    Fails closed (code review D1, resolved 2026-08-17): if `TEAM_MAKER_API_KEY`
+    is not configured, every request is rejected. A missing server
+    configuration must never make protected endpoints publicly accessible,
+    including on localhost.
+    """
+    expected_key = os.environ.get(_API_KEY_ENV_VAR)
+    if not expected_key:
+        return False
+
+    if api_key is None:
+        return False
+
+    # Constant-time comparison to prevent timing attacks.
+    import hmac
+
+    return hmac.compare_digest(api_key, expected_key)
+
+
+def authenticated_request(request: Request) -> Request:
+    """FastAPI dependency that requires API key authentication.
+
+    Use this as a dependency in route handlers to require authentication.
+
+    Example:
+        @router.get("/teams")
+        def list_teams(request: Request = Depends(authenticated_request)):
+            ...
+    """
+    provided_key = _extract_api_key(request)
+
+    if not verify_api_key(provided_key):
+        # `ApiError`, not a raw `HTTPException` -- every authored route signals
+        # errors through the one envelope (`api/errors.py`'s docstring), and
+        # `AUTHENTICATION_REQUIRED` already existed for exactly this case but
+        # was never actually raised anywhere until now (code review discovery
+        # made while implementing D1/D2).
+        raise ApiError(
+            AUTHENTICATION_REQUIRED,
+            "Authentication required. Provide a valid API key via the X-API-Key "
+            "header or an Authorization: Bearer header. If TEAM_MAKER_API_KEY is "
+            "not set on the server, no key can satisfy this check by design.",
+        )
+
+    return request
 
 # The same default the CLI uses (`cli.py:37-38`), so behaviour is unchanged for
 # a user who configures nothing. This retires the spine's Deferred entry
@@ -251,26 +333,11 @@ def bridge_credentials(key_config: KeyConfig) -> list[str]:
     internally, so this is the point where `.get_secret_value()` is called
     (AD-9). Returns the provider *names* bridged — never the values — so the
     caller can log what is available without logging a secret.
+    
+    Uses shared credential utilities from adapters/providers/credential_utils.py
+    (Story 4.2) for consistency with CLI credential resolution.
     """
-    bridged: list[str] = []
-    for row in PROVIDERS:
-        if row.env_var and key_config.has(row.name):
-            secret = key_config.keys[row.name].get_secret_value()
-            existing = os.environ.get(row.env_var)
-            if existing is not None and existing != secret:
-                # The CLI's `_bridged_credential` restored the prior value on
-                # exit; this holds for the process lifetime and never restores,
-                # so an operator who exported a different key deserves to be
-                # told it stopped being used. Names only, never values (AD-9).
-                logger.warning(
-                    "%s was already set to a different value in the environment and has "
-                    "been replaced by the Key Config entry for '%s' for the lifetime of "
-                    "this process",
-                    row.env_var,
-                    row.name,
-                )
-            os.environ[row.env_var] = secret
-            bridged.append(row.name)
+    bridged, _ = bridge_all_credentials(key_config, warn_on_replacement=True)
     return bridged
 
 
@@ -293,17 +360,11 @@ def providers_needing_restart(
     in `api/` that unwraps a secret, and the comparison must stay inside it.
     Returns provider *names* only — no value is returned, logged or compared into
     any message (AD-9).
+    
+    Uses shared credential utilities from adapters/providers/credential_utils.py
+    (Story 4.2) for consistency.
     """
-    stale: list[str] = []
-    for row in PROVIDERS:
-        if not row.env_var or not key_config.has(row.name):
-            continue
-        if row.name not in bridged:
-            stale.append(row.name)  # added since startup
-            continue
-        if os.environ.get(row.env_var) != key_config.keys[row.name].get_secret_value():
-            stale.append(row.name)  # changed in place since startup
-    return stale
+    return find_stale_bridged_providers(key_config, bridged)
 
 
 def default_provider_factory() -> ProviderFactory:

@@ -12,6 +12,11 @@ from team_maker.templates.base import BaseTeamTemplate
 
 _REGISTRY: Dict[str, Type[BaseTeamTemplate]] = {}
 
+# The template used when a request doesn't specify one. Shared by every
+# caller that needs this default (api/routings.py, PipelineRunner) so they
+# cannot drift from one another.
+DEFAULT_TEMPLATE_ID = "software_delivery_team"
+
 
 def register(template_id: str):
     """Class decorator that adds the template to the global registry."""
