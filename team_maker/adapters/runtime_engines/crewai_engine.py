@@ -24,6 +24,15 @@ class CrewAIAdapter(RuntimeEngine):
             "langchain-ollama>=0.2.0",
         ]
 
+    def extra_modules(self) -> dict[str, str]:
+        # `run_example.py` imports `TranscriptRecorder`/`format_transcript` from
+        # this module. It is a standalone port of
+        # `team_maker/adapters/runtime_crewai/transcript_capture.py` (the
+        # generated package cannot import `team_maker`), kept honest by
+        # `tests/conformance/test_generated_transcript_module.py`, which runs
+        # both recorders over one real crewai run and fails on any drift.
+        return {"transcript.py": render_template("_transcript_module.py.j2")}
+
     def render_runner(self, team: GeneratedTeam, notifications=None) -> str:
         orchestrator = next((a for a in team.agents if a.is_orchestrator), None)
         return render_template(

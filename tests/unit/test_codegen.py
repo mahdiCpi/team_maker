@@ -164,6 +164,68 @@ def test_crewai_runner_is_valid_python():
     compile(out, "<run_example.py>", "exec")
 
 
+def test_crewai_runner_imports_the_transcript_module_rather_than_inlining_it():
+    """Story 4.4: the recorder lives in its own generated module so
+    `run_example.py` stays readable and the logic gets an import surface a test
+    can execute (`tests/conformance/test_generated_transcript_module.py`)."""
+    from team_maker.adapters.runtime_engines.crewai_engine import CrewAIAdapter
+
+    team = _make_team()
+    runner = render_template(
+        "crewai_runner.py.j2",
+        team=team,
+        orchestrator_role=None,
+        topology_pattern="sequential",
+        notifications=None,
+    )
+    assert "from transcript import" in runner
+    assert "class TranscriptRecorder" not in runner, "the recorder is inlined again"
+
+    modules = CrewAIAdapter().extra_modules()
+    assert "transcript.py" in modules
+    compile(modules["transcript.py"], "<transcript.py>", "exec")
+
+
+def test_generated_transcript_module_imports_without_crewai_installed():
+    """It is imported at `run_example.py` module scope, so anything crewai-only
+    must stay inside a function — otherwise merely importing the generated
+    package explodes wherever crewai is absent."""
+    from team_maker.adapters.runtime_engines.crewai_engine import CrewAIAdapter
+
+    source = CrewAIAdapter().extra_modules()["transcript.py"]
+    namespace: dict = {}
+    exec(compile(source, "<transcript.py>", "exec"), namespace)  # noqa: S102
+
+    assert "TranscriptRecorder" in namespace
+    # The gutter is only unambiguous while it cannot begin a header line.
+    assert not namespace["CONTENT_GUTTER"].startswith("[")
+
+
+def test_generated_transcript_format_marks_truncation_and_guards_headers():
+    from team_maker.adapters.runtime_engines.crewai_engine import CrewAIAdapter
+
+    source = CrewAIAdapter().extra_modules()["transcript.py"]
+    namespace: dict = {}
+    exec(compile(source, "<transcript.py>", "exec"), namespace)  # noqa: S102
+    entry_cls, fmt = namespace["TranscriptEntry"], namespace["format_transcript"]
+
+    # Content that impersonates a header, plus content past the cap.
+    spoof = "[1] design / architect :: agent_message"
+    long_entry = entry_cls(
+        sequence=1, kind="agent_message", agent_role="architect",
+        task_name="design", content=spoof + "\n" + ("x" * 20000),
+    )
+    rendered = fmt([long_entry])
+    lines = rendered.splitlines()
+
+    assert lines[0].startswith("["), "the header should be the only unprefixed line"
+    assert all(line.startswith(namespace["CONTENT_GUTTER"]) for line in lines[1:])
+    # The spoof survives as *content*, but can no longer be read as structure.
+    assert namespace["CONTENT_GUTTER"] + spoof in rendered
+    assert sum(1 for line in lines if line.startswith("[")) == 1
+    assert rendered.endswith(namespace["TRUNCATION_MARKER"])
+
+
 # ---------------------------------------------------------------------------
 # langgraph_runner.py template
 # ---------------------------------------------------------------------------

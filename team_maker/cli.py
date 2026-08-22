@@ -701,30 +701,43 @@ def _print_run_result(result) -> None:  # type: ignore[no-untyped-def]
         console.print(table)
 
 
+# Kept in step with the generated package's own copy in
+# `codegen/templates/_transcript_module.py.j2` — a team package runs without
+# `team_maker` installed, so the two cannot share an import.
+_MAX_ENTRY_CONTENT = 10000
+_TRUNCATION_MARKER = "... [truncated]"
+_CONTENT_GUTTER = "  | "
+
+
 def _format_transcript(result) -> str:  # type: ignore[no-untyped-def]
     """Render the transcript as plain text, for the console or a file.
 
     One line per entry so the output stays greppable and diffable, and so the
     written file is the same thing the user saw on screen.
 
-    AC 5: Header format uses '::' delimiter to prevent spoofing, and content is
-    length-capped to prevent unbounded lines (Story 4.4 Task 5).
+    AC 5 — a content line must never be readable as a header. Indentation alone
+    did not achieve that: the ambiguous line `deferred-work.md:111` cites is an
+    *indented* one, so a reader (or a regex not anchored to column 0) could
+    still take agent output for structure. Content therefore carries
+    `_CONTENT_GUTTER`, which a header can never start with because a header
+    always starts with `[`. Content is also capped, and a cap that fires says
+    so — silent truncation is indistinguishable from genuinely short content,
+    which matters most on the partial transcript of a failed run.
     """
     lines: list[str] = []
     # `or []` rather than assuming a list: RunResult is a plain dataclass with
     # no validation, and any ExecutionEngine implementation may hand back None.
     for entry in result.transcript or []:
         target = f" -> {entry.target_role}" if entry.target_role else ""
-        # AC 5: Use '::' delimiter in header to prevent spoofing by content
-        # Format: [seq] task_name / agent_role(target) :: kind
-        # This ensures content cannot spoof a header line
-        header = f"[{entry.sequence}] {entry.task_name} / {entry.agent_role}{target} :: {entry.kind}"
-        lines.append(header)
+        lines.append(
+            f"[{entry.sequence}] {entry.task_name} / {entry.agent_role}{target} :: {entry.kind}"
+        )
         content = (entry.content or "").strip()
-        # AC 5: Length cap on transcript content (10,000 chars per entry)
-        if content:
-            capped_content = content[:10000]
-            lines.extend(f"    {line}" for line in capped_content.splitlines())
+        if not content:
+            continue
+        if len(content) > _MAX_ENTRY_CONTENT:
+            content = content[:_MAX_ENTRY_CONTENT] + _TRUNCATION_MARKER
+        lines.extend(f"{_CONTENT_GUTTER}{line}" for line in content.splitlines())
     return "\n".join(lines)
 
 
