@@ -224,11 +224,15 @@ def test_context_dir_takes_precedence_over_auxiliary_resources_dir(tmp_path):
     assert req.context_dir == str(tmp_path.resolve())
 
 
-def test_auxiliary_resources_dir_nonexistent_raises(tmp_path):
+def test_auxiliary_resources_dir_nonexistent_is_allowed(tmp_path):
+    # Task 4, Story 4.5: Fix spec round-trip mutation
+    # Directory existence is no longer checked at validation time to allow
+    # spec round-trip. A non-existent directory is now allowed and will be
+    # handled at runtime when the directory is actually used.
     raw = {**_base(), "auxiliary_resources_dir": str(tmp_path / "missing")}
-    with pytest.raises(ValidationError) as exc_info:
-        TeamCreationRequest.model_validate(raw)
-    assert "context_dir" in str(exc_info.value)
+    req = TeamCreationRequest.model_validate(raw)
+    # The path should be resolved but not checked for existence
+    assert req.context_dir == str((tmp_path / "missing").resolve())
 
 
 # ---------------------------------------------------------------------------

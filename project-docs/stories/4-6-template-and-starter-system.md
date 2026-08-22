@@ -4,7 +4,7 @@ baseline_commit: 0cc0c7d
 
 # Story 4.6: Template and Starter System Hardening
 
-Status: backlog
+Status: ready-for-dev
 
 ## Story
 

@@ -90,6 +90,8 @@ class ComposeSession:
     # `self.current` in place, so two concurrent refines on the same session
     # would interleave. Different sessions still run fully in parallel.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # Track if a build has succeeded in this session (for rebuild support)
+    build_succeeded: bool = False
 
     @property
     def busy(self) -> bool:

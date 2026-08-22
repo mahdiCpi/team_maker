@@ -12,6 +12,7 @@ Two rules hold everywhere in this module, and AC 8 has tests for both:
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -20,6 +21,82 @@ from pydantic import ValidationError
 from team_maker.utils.text_sanitizer import log_exception_safely
 
 logger = logging.getLogger("api.errors")
+
+# ---------------------------------------------------------------------------
+# Error message catalog for user-friendly error messages (Task 7, Story 4.5)
+# ---------------------------------------------------------------------------
+# Maps technical/pydantic error message patterns to user-facing, authored copy.
+# These are deliberately plain-language, actionable messages.
+
+# Pydantic wraps every custom `@field_validator`/`@model_validator` `ValueError`
+# in this fixed prefix, so it must be stripped before pattern matching or none
+# of `team_maker/schema/request.py`'s custom validator messages (role/task/tool
+# name shape, duplicate role names, output_path, ...) ever match below.
+_PYDANTIC_VALUE_ERROR_PREFIX = "Value error, "
+
+# Used when no pattern matches. Deliberately fixed and content-free — Tier 3
+# used to "clean up" the original message with unscoped substring replacement
+# (`"str"` -> `"text"`), which mangled ordinary words like "constraint" and
+# "string" and could still leak raw technical/interpolated text (AC 7 forbids
+# both). A fixed fallback can never do either.
+_GENERIC_FALLBACK_MESSAGE = "This value is invalid. Please check it and try again."
+
+# Ordered by specificity: earlier patterns win. Matched with `search`, not
+# `match`, since the message may still carry other pydantic wrapper text.
+_ERROR_MESSAGE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(r"(Role|Task|Tool) name must be snake_case", re.IGNORECASE),
+        r"\1 names must use lowercase letters, numbers, and underscores only (e.g., 'researcher', 'engineer_1').",
+    ),
+    (re.compile(r"Duplicate role names"), "Role names must be unique within a team."),
+    (re.compile(r"output_path must not be empty"), "Please provide an output path."),
+    (re.compile(r"String should have at least (\d+) character"), r"This field must be at least \1 characters long."),
+    (re.compile(r"String should have at most (\d+) character"), r"This field must be at most \1 characters long."),
+    (re.compile(r"String should match regex pattern"), "This field has an invalid format."),
+    (re.compile(r"Input should be less than or equal to"), "This value is too large."),
+    (re.compile(r"Input should be greater than or equal to"), "This value is too small."),
+    (re.compile(r"Input should be a valid dictionary"), "Please provide a properly formatted object."),
+    (re.compile(r"Input should be a valid list"), "Please provide a properly formatted list."),
+    (re.compile(r"Input should be a valid UUID"), "Please provide a valid UUID."),
+    (re.compile(r"Input should be a valid integer"), "Please provide a whole number."),
+    (re.compile(r"Input should be a valid number"), "Please provide a numeric value."),
+    (re.compile(r"Input should be a valid boolean"), "Please provide true or false."),
+    (re.compile(r"Input should be a valid (\w+)"), r"Please provide a valid \1."),
+    (re.compile(r"Field required"), "This field is required and cannot be empty."),
+    (re.compile(r"Extra inputs are not permitted"), "An unexpected field was provided. Please remove it."),
+    (re.compile(r"none is not an allowed value", re.IGNORECASE), "This field cannot be empty."),
+]
+
+
+def _authored_message(technical_msg: str) -> str:
+    """Map a technical error message to a user-friendly, authored message.
+
+    Per AC 7: fields[].message must contain authored copy, not pydantic-derived
+    text or SDK error messages. A message that matches no known pattern falls
+    back to a fixed generic string rather than any transformation of the
+    original — there is no safe general-purpose way to "clean up" arbitrary
+    technical text without either leaking it or corrupting it.
+
+    Args:
+        technical_msg: The raw error message from pydantic or composer
+
+    Returns:
+        A user-friendly, authored error message
+    """
+    msg = technical_msg
+    if msg.startswith(_PYDANTIC_VALUE_ERROR_PREFIX):
+        msg = msg[len(_PYDANTIC_VALUE_ERROR_PREFIX) :]
+
+    for pattern, replacement in _ERROR_MESSAGE_PATTERNS:
+        match = pattern.search(msg)
+        if match:
+            # `match.expand`, not `pattern.sub`: `sub` only replaces the matched
+            # span and leaves the rest of `msg` (e.g. a trailing "got: <value>")
+            # attached, which re-leaks the technical/interpolated text this
+            # function exists to strip out.
+            return match.expand(replacement) if pattern.groups > 0 else replacement
+
+    return _GENERIC_FALLBACK_MESSAGE
 
 # --- AC 2's authored codes. Adding a row here is a contract change. ----------
 SESSION_NOT_FOUND = "session_not_found"
@@ -167,6 +244,9 @@ def fields_from_composer_errors(errors: list[str]) -> list[FieldError]:
     the literal ``(root)`` for an error with an empty ``loc``; that is kept
     verbatim as the path, since a root-level error has no input to attach to
     and a sentinel is more useful to a client than an empty string.
+    
+    Task 7, Story 4.5: Uses _authored_message to map technical composer messages
+    to user-friendly, authored copy.
     """
     parsed: list[FieldError] = []
     for raw in errors:
@@ -174,11 +254,14 @@ def fields_from_composer_errors(errors: list[str]) -> list[FieldError]:
         # list indices), so the first ": " is unambiguously the separator.
         location, separator, message = raw.partition(": ")
         if not separator:
-            parsed.append(FieldError("(root)", raw.strip()))
+            authored_msg = _authored_message(raw.strip())
+            parsed.append(FieldError("(root)", authored_msg))
             continue
         segments = [segment.strip() for segment in location.split("→")]
         path = ".".join(segment for segment in segments if segment)
-        parsed.append(FieldError(path or "(root)", message.strip()))
+        # Map technical message to user-friendly copy (AC 7)
+        authored_msg = _authored_message(message.strip())
+        parsed.append(FieldError(path or "(root)", authored_msg))
     return parsed
 
 
@@ -195,13 +278,19 @@ def fields_from_error_list(
     Takes the raw list rather than the exception so it serves both pydantic's
     ``ValidationError`` and FastAPI's ``RequestValidationError``, which is not a
     subclass of it but exposes the same ``errors()`` payload.
+    
+    Task 7, Story 4.5: Uses _authored_message to map technical pydantic messages
+    to user-friendly, authored copy.
     """
     parsed: list[FieldError] = []
     for error in errors:
         path = ".".join(str(part) for part in error.get("loc", ()))
         if strip_prefix and path.startswith(strip_prefix):
             path = path[len(strip_prefix) :]
-        parsed.append(FieldError(path or "(root)", str(error.get("msg", "Invalid value."))))
+        raw_msg = str(error.get("msg", "Invalid value."))
+        # Map technical message to user-friendly copy (AC 7)
+        authored_msg = _authored_message(raw_msg)
+        parsed.append(FieldError(path or "(root)", authored_msg))
     return parsed
 
 

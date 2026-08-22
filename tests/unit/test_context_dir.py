@@ -49,17 +49,24 @@ def test_context_dir_resolved_to_absolute(tmp_path, monkeypatch):
     assert Path(req.context_dir).is_absolute()
 
 
-def test_context_dir_nonexistent_raises(tmp_path):
-    with pytest.raises(ValidationError) as exc_info:
-        _make_request(context_dir=tmp_path / "does_not_exist")
-    assert "context_dir" in str(exc_info.value)
+def test_context_dir_nonexistent_allowed(tmp_path):
+    # After Task 4, Story 4.5: context_dir validator no longer requires the directory
+    # to exist at validation time. This allows the spec to round-trip cleanly even
+    # if the context_dir is removed after the spec is created. The existence check
+    # happens at runtime when the directory is actually used.
+    req = _make_request(context_dir=str(tmp_path / "does_not_exist"))
+    assert req.context_dir == str((tmp_path / "does_not_exist").resolve())
 
 
-def test_context_dir_file_path_raises(tmp_path):
+def test_context_dir_file_path_allowed(tmp_path):
+    # After Task 4, Story 4.5: context_dir validator no longer requires the path
+    # to be a directory at validation time. This allows the spec to round-trip
+    # cleanly. The existence/type check happens at runtime when the directory is
+    # actually used.
     f = tmp_path / "file.txt"
     f.write_text("hello")
-    with pytest.raises(ValidationError):
-        _make_request(context_dir=f)
+    req = _make_request(context_dir=str(f))
+    assert req.context_dir == str(f.resolve())
 
 
 # ---------------------------------------------------------------------------

@@ -196,7 +196,18 @@ def build_session(session_id: str, request: Request) -> BuildView:
                 "This conversation has no team specification yet. "
                 "Describe a team first, then you can build it.",
             )
-        return run_build(_current_spec(entry))
+        # Task 6, Story 4.5: Allow rebuilds in the same session by setting overwrite=True
+        # This prevents "output_exists" errors when rebuilding after legitimate changes
+        # (e.g., after refining the spec). Only set overwrite if a build has already
+        # succeeded in this session, keeping output_path pinned for the session's life.
+        spec = _current_spec(entry)
+        if entry.build_succeeded:
+            # A build has succeeded before in this session - allow overwrite for rebuilds
+            spec = spec.model_copy(update={"overwrite": True})
+        result = run_build(spec)
+        # Mark that a build has succeeded in this session
+        entry.build_succeeded = True
+        return result
 
 
 # ---------------------------------------------------------------------------

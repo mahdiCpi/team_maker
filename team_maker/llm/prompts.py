@@ -1,7 +1,11 @@
 """Prompt construction for the LLM team planner."""
 from __future__ import annotations
 
+import logging
+
 from team_maker.schema.request import TeamCreationRequest
+
+logger = logging.getLogger("team_maker.llm.prompts")
 
 # Registry of available tools the planner can assign to agents.
 # Phase 2 will add real implementations; this drives planner awareness now.
@@ -196,6 +200,11 @@ def _load_context_files(context_dir: str) -> str:
     from pathlib import Path
     root = Path(context_dir)
     if not root.is_dir():
+        # Story 4.5, Task 4: context_dir is no longer validated at spec-creation
+        # time (to allow round-trip), so a typo or a removed directory is only
+        # ever caught here, at use time -- log it rather than silently dropping
+        # the context with no signal at all.
+        logger.warning("context_dir %r does not exist; no context files loaded", context_dir)
         return ""
     parts: list[str] = []
     for path in sorted(root.rglob("*")):

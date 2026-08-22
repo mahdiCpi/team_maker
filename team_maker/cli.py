@@ -115,7 +115,8 @@ def create(
     try:
         raw = load_yaml(config)
     except Exception as exc:
-        err_console.print(f"[bold]Failed to load config file:[/bold] {exc}")
+        sanitized_msg = sanitize_exception_for_display(exc)
+        err_console.print(f"[bold]Failed to load config file:[/bold] {sanitized_msg}")
         sys.exit(1)
 
     # 2. Apply CLI overrides
@@ -161,10 +162,12 @@ def create(
     try:
         result = runner.run(request)
     except FileExistsError as exc:
-        err_console.print(f"[bold]Output conflict:[/bold] {exc}")
+        sanitized_msg = sanitize_exception_for_display(exc)
+        err_console.print(f"[bold]Output conflict:[/bold] {sanitized_msg}")
         sys.exit(1)
     except Exception as exc:
-        err_console.print(f"[bold]Pipeline error:[/bold] {exc}")
+        sanitized_msg = sanitize_exception_for_display(exc)
+        err_console.print(f"[bold]Pipeline error:[/bold] {sanitized_msg}")
         raise  # re-raise for full traceback in debug scenarios
 
     # 5. Report outcome
@@ -209,6 +212,55 @@ def _bridged_credential(key_config: KeyConfig, provider: str, env_var: Optional[
     (Story 4.2) for consistency with API credential resolution.
     """
     with bridged_credential_context(key_config, provider, env_var):
+        yield
+
+
+def _env_var_for_provider(provider_config: Optional[ProviderConfig]) -> Optional[tuple[str, str]]:
+    """Resolve a `(provider_name, env_var)` pair for a `ProviderConfig`, or `None`."""
+    if provider_config is None or not provider_config.provider:
+        return None
+    env_var = provider_config.api_key_env or next(
+        (p.env_var for p in PROVIDERS if p.name == provider_config.provider), None
+    )
+    if env_var is None:
+        return None
+    return (provider_config.provider, env_var)
+
+
+@contextlib.contextmanager
+def _bridged_all_team_providers(key_config: KeyConfig, request: TeamCreationRequest):
+    """Temporarily bridge credentials for all providers needed by a team spec.
+
+    This bridges not just the authoring provider (used by the Composer) but also
+    every provider reachable through the resolution chain the build actually
+    uses -- `role.llm -> default_llm -> planning_llm` (see `api/routings.py`) --
+    so the build can resolve credentials for a role however it falls back
+    (Task 2, Story 4.5).
+
+    Args:
+        key_config: Loaded Key Config with provider credentials
+        request: TeamCreationRequest containing desired_roles with per-role LLM configs
+
+    Yields:
+        None - credentials are bridged for the duration of the context
+    """
+    # Dict, not set: preserves first-seen order so bridging is deterministic
+    # even if two roles reference the same provider with different
+    # `api_key_env` overrides (first one encountered wins).
+    providers_to_bridge: dict[str, str] = {}
+    for provider_config in (
+        request.planning_llm,
+        request.default_llm,
+        *(role.llm for role in request.desired_roles or []),
+    ):
+        resolved = _env_var_for_provider(provider_config)
+        if resolved is not None:
+            provider_name, env_var = resolved
+            providers_to_bridge.setdefault(provider_name, env_var)
+
+    with contextlib.ExitStack() as stack:
+        for provider_name, env_var in providers_to_bridge.items():
+            stack.enter_context(bridged_credential_context(key_config, provider_name, env_var))
         yield
 
 
@@ -264,6 +316,7 @@ def compose(
     # "run now"/--build — since the bridged credential is restored the
     # instant this `with` block exits, and the build's own model-resolution
     # step may also want the authoring provider's key present.
+    request: Optional[TeamCreationRequest] = None
     with _bridged_credential(key_config, _DEFAULT_AUTHORING_PROVIDER, authoring_config.api_key_env):
         try:
             llm_provider = create_provider(authoring_config)
@@ -342,13 +395,24 @@ def compose(
 
         # The spec is the command's actual deliverable — always emit it somewhere,
         # even under --quiet (which only suppresses the decorative summary below).
+        if request is None:
+            # Reachable: the interactive loop's last `refine()` call can return
+            # None (input not recognized as a team description), and the user
+            # can then type "done"/"exit"/empty without providing a valid one.
+            err_console.print(
+                "[bold]No team specification was produced.[/bold] "
+                "The conversation ended before a valid team description was given."
+            )
+            sys.exit(2)
+
         spec_yaml = dump_yaml(request.model_dump(mode="json", exclude_none=True))
         if out is not None:
             try:
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(spec_yaml, encoding="utf-8")
             except OSError as exc:
-                err_console.print(f"[bold]Could not write spec to {escape(str(out))}:[/bold] {escape(str(exc))}")
+                sanitized_msg = sanitize_exception_for_display(exc)
+                err_console.print(f"[bold]Could not write spec to {escape(str(out))}:[/bold] {escape(sanitized_msg)}")
                 sys.exit(1)
             if not quiet:
                 console.print(f"[dim]Spec written to {escape(str(out))}[/dim]")
@@ -361,20 +425,25 @@ def compose(
             _print_spec_summary(request, title="Composed team spec")
 
         if build_now:
-            runner = PipelineRunner()
-            try:
-                result = runner.run(request)
-            except FileExistsError as exc:
-                err_console.print(f"[bold]Output conflict:[/bold] {exc}")
-                sys.exit(1)
-            except Exception as exc:
-                err_console.print(f"[bold]Pipeline error:[/bold] {exc}")
-                raise  # re-raise for full traceback in debug scenarios
+            # Bridge all providers needed by the team, not just the authoring provider
+            # (Task 2, Story 4.5: Bridge per-role provider keys in compose --build)
+            with _bridged_all_team_providers(key_config, request):
+                runner = PipelineRunner()
+                try:
+                    result = runner.run(request)
+                except FileExistsError as exc:
+                    sanitized_msg = sanitize_exception_for_display(exc)
+                    err_console.print(f"[bold]Output conflict:[/bold] {sanitized_msg}")
+                    sys.exit(1)
+                except Exception as exc:
+                    sanitized_msg = sanitize_exception_for_display(exc)
+                    err_console.print(f"[bold]Pipeline error:[/bold] {sanitized_msg}")
+                    raise  # re-raise for full traceback in debug scenarios
 
-            if not quiet:
-                _print_result(result)
-            if not result.validation.passed:
-                sys.exit(2)
+                if not quiet:
+                    _print_result(result)
+                if not result.validation.passed:
+                    sys.exit(2)
 
 
 # ---------------------------------------------------------------------------

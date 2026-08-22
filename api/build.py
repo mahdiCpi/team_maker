@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 
-from api.errors import BUILD_FAILED, OUTPUT_EXISTS, log_and_wrap
+from api.errors import BUILD_FAILED, OUTPUT_EXISTS, SPEC_INVALID, ApiError, FieldError, log_and_wrap
 from api.routings import requested_routings, routing_label
 from api.schemas import BuildView, ModelSubstitution, ValidationView
 from team_maker.domain.models import GeneratedTeam
@@ -24,6 +24,15 @@ logger = logging.getLogger("api.build")
 
 def run_build(request: TeamCreationRequest) -> BuildView:
     """Build the team package, mapping every failure onto an AC 2 error code."""
+    # Task 5, Story 4.5: Guard empty desired_roles in build path
+    # Align with edit route behavior (api/routers/compose.py:339-347)
+    if not request.desired_roles:
+        raise ApiError(
+            SPEC_INVALID,
+            "A team needs at least one role.",
+            fields=[FieldError("desired_roles", "Add at least one role.")],
+        )
+    
     requested = _requested_labels(request)
     try:
         result = PipelineRunner().run(request)
