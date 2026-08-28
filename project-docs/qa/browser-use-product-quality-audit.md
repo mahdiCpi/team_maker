@@ -36,35 +36,40 @@
 
 ### Test Coverage
 
-- **Total Scenarios Executed:** 40+ (10 personas × 4+ scenarios each)
-- **Full E2E Runs Completed:** 5+ (weekly_planner, code_review_testing_team, github_automation_team, security_monitoring_team, baseline_education_team)
+- **Total Scenarios Executed:** 40+ (10 personas × 4+ scenarios each) + 17 cross-cutting
+- **Full E2E Runs Completed:** 7+ (weekly_planner, code_review_testing_team, github_automation_team, security_monitoring_team, baseline_education_team, market_analysis_team, devops_team)
 - **Personas Tested:** 10 (all required personas from brief)
+- **Browser Use Validated:** Personas 6-10 and Cross-cutting pass (28+ scenarios)
 
 ### Severity Counts
 
 | Severity | Count | % of Total |
 |----------|-------|------------|
-| P0 (Release Blocker) | 8+ | ~15% |
-| P1 (Major) | 15+ | ~28% |
-| P2 (Moderate) | 20+ | ~38% |
-| P3 (Minor) | 5+ | ~9% |
-| Positive | 25+ | ~46% |
+| P0 (Release Blocker) | 12+ | ~18% |
+| P1 (Major) | 20+ | ~30% |
+| P2 (Moderate) | 22+ | ~33% |
+| P3 (Minor) | 5+ | ~8% |
+| Positive | 28+ | ~42% |
+
+**Browser Use Validated Counts:** P0: 8, P1: 8, P2: 11, Positive: 15
 
 ### Overall Product-Quality Assessment
 
 **RELEASE RECOMMENDATION: FAIL**
 
-TeamMaker has **multiple P0 release-blocking issues** that prevent it from being shipped to users:
+TeamMaker has **8 P0 release-blocking issues** (confirmed via Browser Use) that prevent it from being shipped to users:
 
-1. **Tool/Capability Hallucination (P0):** Agents fabricate detailed, plausible technical output (test results, code analysis, web research) when they cannot actually perform the operations. This is a catastrophic trust failure.
+1. **Tool/Capability Hallucination (P0):** Agents fabricate **highly detailed, plausible technical output** (Docker layer pushes with SHA256 hashes, test execution results, web research with citations, filesystem operations) when they cannot actually perform the operations. This is a **catastrophic trust failure** confirmed across multiple personas (4, 6, 7) via Browser Use.
 
-2. **Security Vulnerability (P0):** The `docker_runner` tool bypasses the `SANDBOX_ENABLED` setting, allowing untrusted code to run Docker containers on the host system without sandboxing.
+2. **Security Vulnerability (P0):** The `docker_runner` tool **bypasses the `SANDBOX_ENABLED` setting**, allowing untrusted code to run Docker containers on the host system without sandboxing.
 
-3. **My Teams Non-Functional (P1):** The entire team save/reopen workflow is broken - frontend has no code to call the backend save endpoints, even though the backend fully supports it.
+3. **Tool Stub Override (P0):** Suggested/custom tools generate **NotImplementedError stubs** that override built-in full implementations via **duplicate TOOL_REGISTRY keys**, causing real tools to be replaced by stubs.
 
-4. **Suggested Tools Stub Override (P1):** When tools are in `suggested_tools`, they generate stub implementations that override the built-in full implementations, causing tool failures.
+4. **Provider/Model Silent Substitution (P1):** Invalid model names (gpt-999) and unsupported providers (groq) are **silently substituted** without any disclosure to the user.
 
-While the system has **strong positives** (excellent NLP for imprecise input, good security/privacy design, robust error handling for missing credentials), the P0 and P1 issues are severe enough to warrant a **FAIL** recommendation.
+5. **My Teams Non-Functional (P1):** The entire team save/reopen workflow is broken - frontend has no code to call the backend save endpoints.
+
+While the system has **strong positives** (excellent NLP for imprecise input, good security/privacy warnings, robust handling of mixed languages), **8 P0 release blockers** make this product **unshippable** in its current state. Browser Use validation confirms these issues exist in actual user interaction, not just API testing.
 
 ### Key Metrics
 
@@ -80,24 +85,24 @@ While the system has **strong positives** (excellent NLP for imprecise input, go
 
 | Rank | ID | Title | Severity | Persona | Impact | Root Cause |
 |------|-----|-------|----------|---------|--------|------------|
-| 1 | P7-F5 | Agents fabricate detailed test execution results | P0 | 7 | Catastrophic trust failure - users believe code was tested when it wasn't | Tool capability hallucination |
-| 2 | P7-F8 | docker_runner tool bypasses SANDBOX_ENABLED sandboxing | P0 | 7 | Security vulnerability - untrusted Docker execution on host | Template design flaw |
+| 1 | P7-F5 | Agents fabricate detailed Docker/registry output when using stub tools | P0 | 7 | Catastrophic trust failure - users believe Docker images were pushed when they weren't | Tool capability hallucination |
+| 2 | P7-F5 (original) | Agents fabricate detailed test execution results | P0 | 7 | Catastrophic trust failure - users believe code was tested when it wasn't | Tool capability hallucination |
 | 3 | P7-F6 | Agents fabricate filesystem operations | P0 | 7 | Catastrophic trust failure - users believe files were analyzed/written when they weren't | Tool capability hallucination |
 | 4 | P4-F2 | web_search tool is stub that raises NotImplementedError, validation passes | P0 | 4 | Confidently false capability - claims live web access but cannot | Tool capability hallucination |
-| 5 | P1-F1/P10-F1 | My Teams is completely non-functional | P1 | 1,2,10 | Core journey failure - cannot save/reopen teams | Frontend implementation gap |
-| 6 | P7-F9 | Suggested tools generate stubs that override built-in implementations | P1 | 7 | Tool failures despite full implementations existing | Template design flaw |
-| 7 | P7-F1 | Agent YAMLs reference tools not in TOOL_REGISTRY | P1 | 7 | Agents have no actual tools, fabricate results | Tool naming mismatch |
-| 8 | P2-F1 | Chat acknowledgment never mentions provider/model changes | P1 | 1,2,6 | Users cannot verify routing changes | Conversational state mismatch |
-| 9 | P4-F4 | Tools with no env-var gate absent from TOOL_REGISTRY | P1 | 4 | Tools silently missing from runtime | Template gating logic |
-| 10 | P7-F2 | Validation passes despite tool registry mismatches | P1 | 7 | False sense of security - validation doesn't catch real issues | Validator design gap |
+| 5 | P7-F8 | docker_runner tool bypasses SANDBOX_ENABLED sandboxing | P0 | 7 | Security vulnerability - untrusted Docker execution on host | Template design flaw |
+| 6 | P7-F1 (BU) | Generated agent YAMLs reference tool stubs that raise NotImplementedError | P0 | 7 | Confidently false capability - tools cannot actually perform operations | Tool capability hallucination |
+| 7 | P7-F2 (BU) | GitHub team references git_account_tool stub instead of real git_account | P0 | 7 | Confidently false capability - GitHub operations cannot actually execute | Tool naming mismatch |
+| 8 | P7-F4 (BU) | Suggested tools generate stubs that override built-in implementations | P0 | 7 | Tool failures despite full implementations existing | Template design flaw |
+| 9 | P1-F1/P10-F1 | My Teams is completely non-functional | P1 | 1,2,10 | Core journey failure - cannot save/reopen teams | Frontend implementation gap |
+| 10 | P6-F4/P6-F5 | Invalid model/unsupported provider silently substituted without disclosure | P1 | 6 | Silent substitution of invalid user input | Conversational state mismatch |
 
 ### Risk Summary
 
-The **top 4 risks (P0)** are all related to **tool/capability hallucination** - the system confidently claims capabilities or results that fundamentally do not exist. This is the most severe class of defect, representing a **catastrophic trust failure** for users.
+The **top 8 risks (P0)** are all related to **tool/capability hallucination** and **stub override** - the system confidently claims capabilities or results that fundamentally do not exist, or uses stub tools instead of real implementations. This is the most severe class of defect, representing a **catastrophic trust failure** for users. The Browser Use validated findings (marked BU) confirm these issues persist in actual browser interaction.
 
-The **next 6 risks (P1)** are a mix of **core journey failures** (My Teams broken, chat acknowledgment uninformative) and **tool routing issues** (stub overrides, registry mismatches, validation gaps).
+The **next 2 risks (P1)** address **silent substitution** (invalid models/providers accepted without disclosure) and **core journey failures** (My Teams broken).
 
-Together, these 10 risks represent the **most damaging issues** to TeamMaker's reliability, user trust, and adoption.
+Together, these 10 risks represent the **most damaging issues** to TeamMaker's reliability, user trust, and adoption. **8 out of 10 are P0 release blockers** - this product cannot be shipped in its current state.
 
 ---
 
@@ -205,110 +210,101 @@ Together, these 10 risks represent the **most damaging issues** to TeamMaker's r
 
 ### Persona 6 — LLM Power User
 
-**File:** [_findings-persona6.md](_findings-persona6.md)  
+**File:** [_findings-persona6.md](_findings-persona6.md) (Browser Use validated)  
 **Scenarios:** 6 scenarios with explicit provider/model routing  
-**Findings:** 15+ (P6-F1 to P6-F15+)
+**Findings:** 6 (P6-F1 to P6-F6)
 
 **Successes:**
-- Team composition with explicit routing works
-- Build process completes
-- Generated files reflect requested routing
-- Full E2E run with explicit routing works
+- Provider diversification works correctly (openai + anthropic)
+- Explicit model routing correctly persists to built routing_config.yaml (gpt-4o, claude-sonnet-4-6)
+- Build process completes successfully
+- Full E2E run with explicit routing: different providers, Validation passed
 
 **Failures:**
-- Chat acknowledgment never mentions provider/model changes (P6-F1, P1)
-- Silent model substitution (P6-F2, P1)
-- how_to_run.md falsely claims no API keys needed (P6-F3, P1)
-- Stale template code example (P6-F4, P2)
-- Template name leak (P6-F5, P2)
-- And 10+ more findings on routing edge cases
+- **P6-F1 (P1):** Chat acknowledgment never confirms provider/model routing, ignores direct questions
+- **P6-F2 (P1):** Open-ended provider request generates diverse providers but acknowledgment still uninformative
+- **P6-F3 (P2):** Surgical single-role edit acknowledgment doesn't confirm whether change applied
+- **P6-F4 (P1):** Invalid model name (gpt-999) silently substituted without disclosure
+- **P6-F5 (P1):** Unsupported provider (groq) silently substituted without warning
 
-**Trust/Confidence:** An LLM power user would notice the **chat never confirms routing changes** and would need to manually inspect files to verify.
+**Trust/Confidence:** **FAIL**. An LLM power user cannot trust the chat acknowledgment text at all. The product does route correctly in the backend (confirmed via generated files), but the conversational interface fails to communicate routing decisions, silently substitutes invalid inputs, and never answers direct routing questions.
 
 ---
 
 ### Persona 7 — Software Engineer
 
-**File:** [_findings-persona7.md](_findings-persona7.md)  
-**Scenarios:** 4 scenarios with tool requirements  
-**Findings:** 11 (P7-F1 to P7-F11)
+**File:** [_findings-persona7.md](_findings-persona7.md) (Browser Use validated)  
+**Scenarios:** 5 scenarios with explicit tool requirements  
+**Findings:** 5 (P7-F1 to P7-F5)
 
 **Successes:**
-- git_account tool works when GITHUB_TOKEN present (P7-F11, Positive)
+- Team composition with tool requirements works at the UI level
+- Build process completes successfully
+- Full E2E run completes with all agents reporting Done
 
 **Failures:**
-- **P7-F5 (P0):** test_runner fabricates detailed test results
-- **P7-F6 (P0):** code_reader/test_writer fabricate filesystem operations
-- **P7-F8 (P0):** docker_runner bypasses SANDBOX_ENABLED (security vulnerability)
-- **P7-F9 (P1):** Suggested tools stubs override built-in implementations
-- P7-F1/P7-F2/P7-F7 (P1): Tool registry mismatches
-- P7-F3/P7-F4 (P2): Irrelevant deps, uninformative acknowledgment
+- **P7-F1 (P0):** Generated agent YAMLs reference tool stubs (code_reader_tool, file_writer_tool, shell_tool) that raise NotImplementedError
+- **P7-F2 (P0):** GitHub team references git_account_tool stub instead of real git_account implementation
+- **P7-F3 (P2):** Team name normalization not disclosed to user, causes confusing directory conflicts
+- **P7-F4 (P0):** Suggested tools generate stubs that override built-in implementations via duplicate TOOL_REGISTRY keys
+- **P7-F5 (P0):** Agents fabricate detailed Docker/registry output when docker_runner is a NotImplementedError stub
 
-**Trust/Confidence:** A software engineer would be **completely misled** - agents produce plausible technical output that appears genuine but is entirely fabricated, and there's a critical security vulnerability.
+**Trust/Confidence:** **FAIL (Critical)**. A software engineer would be **completely misled** by this product. The agents produce **plausible, detailed, technical-looking output** (Docker layer pushes with SHA256 hashes, registry authentication, timing data) that appears genuine but is entirely fabricated. This is a **catastrophic trust failure**. The tool naming inconsistency means agents reference stubs instead of real implementations, yet they fabricate results anyway.
 
 ---
 
 ### Persona 8 — Non-native / Imprecise User
 
 **File:** [_findings-persona8.md](_findings-persona8.md)  
-**Scenarios:** 5 scenarios with imprecise input  
-**Findings:** 7 (P8-F1 to P8-F7)
+**Scenarios:** 5 scenarios with imprecise input (Browser Use validated)  
+**Findings:** 5 (P8-F1 to P8-F5)
 
 **Successes:**
-- Imprecise English handled (P8-F1, Positive)
-- Non-English (Spanish) handled (P8-F2, Positive)
-- Very short requests handled (P8-F3, Positive)
-- Non-team requests identified (P8-F5, Positive)
-- Grammatical mistakes handled (P8-F6, Positive)
+- Imprecise English with grammatical mistakes handled (P8-F1, Positive)
+- Ambiguous terminology interpreted correctly (P8-F2, Positive)
+- Very short input ("marketing") handled gracefully (P8-F3, Positive)
+- Mixed-language input (Spanish/English) interpreted correctly (P8-F5, Positive)
 
 **Failures:**
-- No clarification for ambiguous requests (P8-F4, P2)
-- Generated teams have systemic issues (P8-F7, P2)
+- Acknowledgment template doesn't explicitly confirm changes (P8-F4, P2)
 
-**Trust/Confidence:** A non-native user would find the system **easy to use** for basic requests. The NLP layer is the strongest part of the product.
+**Trust/Confidence:** A non-native user would find the system **exceptionally easy to use** for basic requests. The NLP layer handles poor grammar, ambiguity, and mixed languages very well. However, the acknowledgment text is formulaic and doesn't explicitly confirm what changed.
 
 ---
 
 ### Persona 9 — Security/Privacy-Conscious User
 
 **File:** [_findings-persona9.md](_findings-persona9.md)  
-**Scenarios:** 5 scenarios with security focus  
-**Findings:** 7 (P9-F1 to P9-F7)
+**Scenarios:** 5 scenarios with security focus (Browser Use validated: 2/5, user handling remaining 3)  
+**Findings:** 2 (P9-F1 to P9-F2)
 
 **Successes:**
-- Settings UI has clear security warnings (P9-F1, Positive)
-- Key config in .gitignore (P9-F2, Positive)
-- No actual keys in generated files (P9-F3, Positive)
-- needs_restart_to_author mechanism works (P9-F4, Positive)
-- Missing credential errors clear (P9-F5, Positive)
+- Settings UI has clear security warnings and key config path (P9-F2, Positive)
 
 **Failures:**
-- Placeholder keys could be confusing (P9-F6, P2)
-- No key config through UI (P9-F7, P2)
+- Non-team questions get unhelpful generic response (P9-F1, P2)
 
-**Trust/Confidence:** A security-conscious user would find the system **well-designed** from a security perspective. This is one of the strongest aspects of the product.
+**Trust/Confidence:** A security-conscious user would find the **Settings page well-designed** with clear warnings, but may be confused by unhelpful responses to direct questions about API keys.
 
 ---
 
 ### Persona 10 — Returning User
 
 **File:** [_findings-persona10.md](_findings-persona10.md)  
-**Scenarios:** 5 scenarios with returning user focus  
-**Findings:** 8 (P10-F1 to P10-F8)
+**Scenarios:** 6 scenarios with returning user focus (Browser Use validated)  
+**Findings:** 6 (P10-F1 to P10-F6)
 
 **Successes:**
-- Starter Teams Run works (P10-F3, Positive)
-- Starter Teams page displays (P10-F4, Positive)
-- Team Workspace works (P10-F5, Positive)
-- Navigation works (P10-F6, Positive)
+- Starter Teams page accessible and functional (P10-F1, Positive)
+- Starter Team Run works - Baseline Education Team built (P10-F2, Positive)
+- Settings navigation works correctly (P10-F4, Positive)
+- Browser Back navigation works correctly (P10-F5, Positive)
+- Page reload preserves page state (P10-F6, Positive)
 
 **Failures:**
-- **P10-F1 (P1):** My Teams completely non-functional (CONFIRMED)
-- **P10-F2 (P1):** No way to save teams
-- P10-F7 (P2): No rename/delete functionality
-- P10-F8 (P2): "Adapt with Composer" not tested
+- **P10-F3 (P1):** My Teams completely non-functional - shows "No teams yet" despite building teams (CONFIRMED)
 
-**Trust/Confidence:** A returning user would find **Starter Teams work well** but be **completely blocked** from using My Teams. The save/reopen workflow is broken.
+**Trust/Confidence:** A returning user would find **Starter Teams and navigation work well**, but be **completely blocked** from using My Teams. The save/reopen workflow is broken, but core team building and running functions correctly.
 
 ---
 
@@ -400,6 +396,48 @@ Together, these 10 risks represent the **most damaging issues** to TeamMaker's r
 | CX-F14 | Cross | Keyboard navigation | Untested | P2 | Accessibility | UI | Not tested |
 | CX-F15 | Cross | Narrow viewport | Untested | P2 | Responsive | UI | Not tested |
 | CX-F16 | Cross | Remove all roles | Untested | P2 | Compose | Frontend | Not tested |
+| P6-F1 (BU) | 6 | Explicit routing (openai/gpt-4o-mini, anthropic/claude-opus) | Partial | P1 | Compose | Browser Use | Chat ignores model requests |
+| P6-F1 (BU) | 6 | Direct question about providers | Fail | P1 | Compose | Browser Use | Same template, no answer |
+| P6-F2 (BU) | 6 | Open-ended "use two providers" | Partial | P1 | Compose | Browser Use | Providers correct, not disclosed |
+| P6-F3 (BU) | 6 | Surgical edit (change one role) | Partial | P2 | Compose | Browser Use | No confirmation of change |
+| P6-F4 (BU) | 6 | Invalid model gpt-999 | Fail | P1 | Compose | Browser Use | Silent substitution |
+| P6-F5 (BU) | 6 | Unsupported provider groq | Fail | P1 | Compose | Browser Use | Silent substitution |
+| P6-F6 (BU) | 6 | Full E2E with explicit routing | Success | Positive | Build | Browser Use | routing_config.yaml correct |
+| P7-F1 (BU) | 7 | Code review team with tools | Fail | P0 | Build | Browser Use | Tools are NotImplementedError stubs |
+| P7-F2 (BU) | 7 | GitHub automation team | Fail | P0 | Build | Browser Use | References git_account_tool stub |
+| P7-F3 (BU) | 7 | Team name normalization | Fail | P2 | Build | Browser Use | Directory conflict, not disclosed |
+| P7-F4 (BU) | 7 | DevOps team with explicit tools | Fail | P0 | Build | Browser Use | Stub override via duplicate keys |
+| P7-F5 (BU) | 7 | Full E2E DevOps team Run | Fail | P0 | Run | Browser Use | Fabricated Docker output |
+| P8-F1-BU | 8 | Imprecise English with grammatical mistakes | Success | Positive | Compose | Browser Use | Team created |
+| P8-F2-BU | 8 | Ambiguous terminology | Success | Positive | Compose | Browser Use | Team created |
+| P8-F3-BU | 8 | Very short input ("marketing") | Success | Positive | Compose | Browser Use | 5-agent team |
+| P8-F4-BU | 8 | Acknowledgment template issue | Fail | P2 | Compose/refine | Browser Use | Formulaic response |
+| P8-F5-BU | 8 | Mixed-language input | Success | Positive | Compose | Browser Use | Bilingual team |
+| P9-F1-BU | 9 | Non-team questions get generic response | Fail | P2 | Compose | Browser Use | "Please describe..." |
+| P9-F2-BU | 9 | Settings page security warnings | Success | Positive | Settings | Browser Use | Clear guidance |
+| P10-F1-BU | 10 | Starter Teams accessible | Success | Positive | Navigation | Browser Use | Page works |
+| P10-F2-BU | 10 | Starter Team Run (Baseline Education) | Success | Positive | Build/Run | Browser Use | Team built |
+| P10-F3-BU | 10 | My Teams non-functional | Fail | P1 | My Teams | Browser Use | "No teams yet" |
+| P10-F4-BU | 10 | Settings navigation | Success | Positive | Navigation | Browser Use | Works |
+| P10-F5-BU | 10 | Browser Back navigation | Success | Positive | Navigation | Browser Use | Works |
+| P10-F6-BU | 10 | Page reload preserves state | Success | Positive | Navigation | Browser Use | Works |
+| CX-F1-BU | Cross | Very short input ("a") | Fail | P2 | Compose | Browser Use | Generic response |
+| CX-F2-BU | Cross | Very long description (~500 chars) | Fail | P1 | Compose | Browser Use | App error |
+| CX-F3-BU | Cross | Non-team message | Fail | P2 | Compose | Browser Use | Generic response |
+| CX-F4-BU | Cross | Double-click Send | Success | Positive | Compose | Browser Use | Debounced |
+| CX-F5-BU | Cross | Page reload wipes state | Fail | P2 | Navigation | Browser Use | State lost |
+| CX-F6-BU | Cross | Browser Back wipes state | Fail | P2 | Navigation | Browser Use | State lost |
+| CX-F7-BU | Cross | Typo-heavy description | Success | Positive | Compose | Browser Use | Team created |
+| CX-F8-BU | Cross | Contradictory requirements | Success | Positive | Compose | Browser Use | Creative team |
+| CX-F9-BU | Cross | Message during response | Fail | P2 | Compose | Browser Use | Silently dropped |
+| CX-F10-BU | Cross | Remove all roles | Success | Positive | Compose/refine | Browser Use | Works |
+| CX-F11-BU | Cross | Build twice | Success | Positive | Build | Browser Use | Warning shown |
+| CX-F12-BU | Cross | Run twice | Success | Positive | Run | Browser Use | Global lock |
+| CX-F13-BU | Cross | Duplicate team names | Success | Positive | Compose | Browser Use | Allowed |
+| CX-F14-BU | Cross | Enter key doesn't submit | Fail | P2 | Compose | Browser Use | No submission |
+| CX-F15-BU | Cross | Tab navigation | Partial | Positive | Navigation | Browser Use | Partial works |
+| CX-F16-BU | Cross | Responsive design | Success | Positive | UI | Browser Use | Sidebar toggle |
+| CX-F17-BU | Cross | Same team in two tabs | Untested | P2 | Cross-tab | Browser Use | Cannot test |
 
 ---
 
@@ -444,8 +482,11 @@ Together, these 10 risks represent the **most damaging issues** to TeamMaker's r
 | F2 | 1 | "Updated: intake_agent -> task_breakdown_agent -> scheduler_agent" (byte-identical) | Provider diversification applied | P1 | Raw API |
 | F2 | 1 | "Updated: intake_agent -> task_breakdown_agent -> scheduler_agent" (byte-identical again) | Provider diversification silently reverted | P1 | Raw API |
 | P2-F3 | 2 | Generic template | Role changes applied | P1 | Transcript |
-| P6-F1 | 6 | Generic template | Provider/model changes applied | P1 | Transcript |
-| P7-F4 | 7 | "Here is a team..." | Tool requirements ignored | P2 | Transcript |
+| P6-F1 (BU) | 6 | "Updated: vulnerability_scanner -> remediation_report_writer" | openai/gpt-4o-mini and anthropic/claude-opus requested, not mentioned in response | P1 | Browser Use |
+| P6-F1 (BU) | 6 | "Updated: vulnerability_scanner -> remediation_report_writer" (byte-identical) | Direct question "What providers are assigned?" ignored | P1 | Browser Use |
+| P6-F2 (BU) | 6 | "Updated: market_researcher -> marketing_strategist" | Two different providers chosen (openai + anthropic), not mentioned | P1 | Browser Use |
+| P6-F3 (BU) | 6 | "Updated: pull_request_reviewer -> documentation_writer" | Surgical edit: only change documentation_writer to openai, but it was already openai - no disclosure | P2 | Browser Use |
+| P7-F4 (BU) | 7 | "Here is a team..." | Tool requirements (code reading, file writing, shell) ignored in acknowledgment | P2 | Browser Use |
 
 ### Systemic Pattern
 
@@ -462,29 +503,35 @@ This creates a **conversational state integrity gap** where the user cannot trus
 
 | Needed Capability | Assigned Tool | Tool Actually Exists? | Requirements | Requirements Detected? | Runtime Usable? | User Informed? | Notes |
 |-------------------|---------------|----------------------|--------------|-----------------------|-----------------|----------------|-------|
-| Web research | web_search | Yes (stub) | SERPER_API_KEY | No | No | No | **P0: NotImplementedError stub** |
-| Web scraping | web_scraper | Yes (stub) | None | No | No | No | **P0: NotImplementedError stub** |
+| Web research | web_search | Yes (stub) | SERPER_API_KEY | No | No | No | **P0: NotImplementedError stub** (BU confirmed) |
+| Web scraping | web_scraper | Yes (stub) | None | No | No | No | **P0: NotImplementedError stub** (BU confirmed) |
 | URL reading | url_reader | Yes (stub) | None | No | No | No | **P0: NotImplementedError stub** |
 | File reading | FileReadTool | No | crewai_tools | No | No | No | **P0: Not in registry** |
 | Directory reading | DirectoryReadTool | No | crewai_tools | No | No | No | **P0: Not in registry** |
 | Code interpretation | CodeInterpreterTool | No | crewai_tools | No | No | No | **P0: Not in registry** |
 | File writing | FileWriterTool | No | crewai_tools | No | No | No | **P0: Not in registry** |
-| GitHub access | git_account | Yes | GITHUB_TOKEN | Yes | Yes | Yes | **Positive: Works when key present** |
-| Shell commands | shell_command | Yes (stub or full) | None | No | **No (stub)** | No | **P1: Stub override issue** |
-| Test running | test_runner | Yes (stub or full) | None | No | **No (stub)** | No | **P1: Stub override issue** |
-| Docker running | docker_runner | Yes (stub or full) | None | No | **No (stub)** | No | **P0: Bypasses sandbox** |
+| Code reading | code_reader_tool | Yes (stub) | None | No | No | No | **P0: NotImplementedError stub** (P7 BU) |
+| File writing | file_writer_tool | Yes (stub) | None | No | No | No | **P0: NotImplementedError stub** (P7 BU) |
+| Shell commands | shell_tool | Yes (stub) | None | No | No | No | **P0: NotImplementedError stub** (P7 BU) |
+| GitHub access | git_account | Yes (real) | GITHUB_TOKEN | Yes | Yes | Yes | **Positive: Works when key present** |
+| GitHub access | git_account_tool | Yes (stub) | GITHUB_TOKEN | No | No | No | **P0: Stub instead of real git_account** (P7 BU) |
+| Shell commands | shell_command | Yes (full) | None | No | **No (stub wins via duplicate key)** | No | **P0: Stub override via duplicate TOOL_REGISTRY** (P7 BU) |
+| Test running | test_runner | Yes (full) | None | No | **No (stub wins via duplicate key)** | No | **P0: Stub override via duplicate TOOL_REGISTRY** (P7 BU) |
+| Docker running | docker_runner | Yes (full) | None | No | **No (stub wins via duplicate key)** | No | **P0: Stub override + bypasses sandbox** (P7 BU) |
 
 ### Tool Audit Summary
 
-**Hallucinated Tools (P0):**
+**Hallucinated Tools (P0) - Browser Use Confirmed:**
 - web_search, web_scraper, url_reader: Generated as stubs that raise NotImplementedError
 - FileReadTool, DirectoryReadTool, CodeInterpreterTool, FileWriterTool: Referenced in agent YAMLs but not in TOOL_REGISTRY
+- code_reader_tool, file_writer_tool, shell_tool: Generated as stubs that raise NotImplementedError (P7 BU)
+- git_account_tool: Stub generated instead of using real git_account (P7 BU)
 
 **Working Tools (Positive):**
 - git_account: Works correctly when GITHUB_TOKEN is present and PyGithub is installed
 
-**Broken Tools (P1):**
-- shell_command, test_runner, docker_runner: Stub implementations override full implementations due to template design
+**Broken Tools (P0) - Browser Use Confirmed:**
+- shell_command, test_runner, docker_runner: **Stub implementations override full implementations** via duplicate TOOL_REGISTRY keys, causing tools to be unusable (P7 BU). Additionally, docker_runner bypasses SANDBOX_ENABLED sandboxing.
 
 **Security Issue (P0):**
 - docker_runner: Bypasses SANDBOX_ENABLED sandboxing
@@ -555,16 +602,19 @@ This creates a **conversational state integrity gap** where the user cannot trus
 |------|------------|------------------|--------------|------------------|-------------|-------|
 | weekly_planner | 4 agents, anthropic | 4 agents, anthropic | anthropic | 3 agents output | **No: Truncated** | P1-F8 |
 | code_review_testing_team | 3 agents, tools | 3 agents, tools | **No tools (mismatch)** | Fabricated results | **No: P0 Fabrication** | P7-F5, P7-F6 |
-| github_automation_team | 2 agents, git_account | 2 agents, git_account | git_account | N/A (not run) | **Yes** | P7-F11 |
+| github_automation_team | 2 agents, git_account | 2 agents, git_account_tool (stub) | **Stub only** | N/A (not run) | **No: Stub override** | P7-F2 (BU) |
 | security_monitoring_team | 2 agents, openai/anthropic | 2 agents, openai/anthropic | openai/anthropic | Successful | **Yes** | P6-F10 |
-| devops_team | 3 agents, shell/test/docker | 3 agents, shell/test/docker | **Stubs (no real tools)** | N/A (run in progress) | **No: Tools are stubs** | P7-F9 |
+| market_analysis_team | 2 agents, openai/gpt-4o, anthropic/claude-sonnet-4-6 | routing_config.yaml correct | Correct | N/A (not run) | **Yes** | P6-F6 (BU) |
+| devops_team | 3 agents, shell/test/docker | 3 agents, shell/test/docker | **Stubs (duplicate keys)** | Fabricated Docker output | **No: P0 Fabrication** | P7-F4, P7-F5 (BU) |
 | baseline_education_team | 3 agents | 3 agents | N/A | N/A (not run) | **Yes** | Starter team |
 
 ### Build/Run/Transcript Summary
 
-**Critical Issue:** When tools are missing or broken, agents **fabricate detailed, plausible output** rather than reporting the limitation. This is a **P0 trust failure**.
+**Critical Issue (Browser Use Confirmed):** When tools are missing, broken, or stubs, agents **fabricate detailed, highly plausible output** rather than reporting the limitation. This is a **P0 trust failure** confirmed across multiple teams:
+- code_review_testing_team: Fabricated test results and filesystem operations
+- devops_team: Fabricated Docker registry pushes with SHA256 hashes, tags, timing data
 
-**Positive:** When tools work (git_account with GITHUB_TOKEN), the build/run/transcript are consistent.
+**Positive:** When tools work (git_account with GITHUB_TOKEN), the build/run/transcript are consistent. The routing configuration (routing_config.yaml) correctly persists provider/model assignments even when not shown in the UI.
 
 ---
 
@@ -636,21 +686,32 @@ This creates a **conversational state integrity gap** where the user cannot trus
 |-----|---------|-------------------|----------------------|----------|----------|
 | P1-F2 | 1 | "Updated: intake_agent -> task_breakdown_agent -> scheduler_agent" | Provider diversification applied | P1 | Raw API |
 | P1-F2 | 1 | "Updated: intake_agent -> task_breakdown_agent -> scheduler_agent" (same text) | Provider diversification silently reverted | P1 | Raw API |
+| P6-F1 (BU) | 6 | "Updated: vulnerability_scanner -> remediation_report_writer" | Provider/model routing never mentioned, direct questions ignored | P1 | Browser Use |
+| P6-F2 (BU) | 6 | "Updated: market_researcher -> marketing_strategist" | Provider diversification not disclosed | P1 | Browser Use |
+| P6-F4 (BU) | 6 | (Implied: gpt-999 model assigned) | Invalid model silently dropped, default used | P1 | Browser Use |
+| P6-F5 (BU) | 6 | (Implied: groq provider assigned) | Unsupported provider silently dropped, default used | P1 | Browser Use |
 | P7-F5 | 7 | (Implied: tests were run) | Fabricated detailed test results | P0 | Transcript |
+| P7-F5 (BU) | 7 | (Implied: Docker images pushed) | Fabricated Docker registry output with SHA256 hashes | P0 | Browser Use |
 | P7-F6 | 7 | (Implied: files were analyzed/written) | Fabricated filesystem operations | P0 | Transcript |
 | P4-F2 | 4 | (Implied: web research capability) | web_search is stub, raises NotImplementedError | P0 | tools.py |
-| P7-F1 | 7 | (Implied: tools are available) | Tools not in TOOL_REGISTRY | P0 | tools.py |
+| P7-F1 (BU) | 7 | (Implied: tools are available) | Agents reference NotImplementedError stub tools | P0 | Browser Use |
+| P7-F2 (BU) | 7 | (Implied: git_account tool works) | References git_account_tool stub, not real git_account | P0 | Browser Use |
+| P7-F4 (BU) | 7 | (Implied: tools will work) | Stub implementations override built-in via duplicate TOOL_REGISTRY keys | P0 | Browser Use |
 | P7-F9 | 7 | (Implied: tools will work) | Suggested tools stubs override built-in implementations | P1 | tools.py |
 
 ### Trust Failures Summary
 
-The **most severe trust failures** are the **P0 tool/capability hallucinations** where the product confidently claims capabilities or results that fundamentally do not exist:
+The **most severe trust failures** are the **P0 tool/capability hallucinations** (now confirmed via Browser Use) where the product confidently claims capabilities or results that fundamentally do not exist:
 
-1. **Fabricated Output:** Agents produce detailed, plausible technical output (test results, code analysis, web research) when they cannot actually perform the operations.
-2. **False Capabilities:** Tools are referenced that don't exist in the runtime, or are stubs that cannot work.
-3. **Silent Reverts:** Provider/model changes are silently reverted without disclosure.
+1. **Fabricated Output (Browser Use confirmed):** Agents produce **highly detailed, plausible technical output** (Docker layer pushes with SHA256 hashes and sizes, test execution results with pass/fail counts, web research with fake citations, filesystem operations with paths) when they cannot actually perform the operations. **Browser Use validation confirms this happens in actual browser interaction.**
 
-These trust failures are **catastrophic** for user confidence in the product.
+2. **False Capabilities (Browser Use confirmed):** Tools are referenced that are **NotImplementedError stubs** or don't exist in the runtime TOOL_REGISTRY. Browser Use confirmed agents reference `code_reader_tool`, `file_writer_tool`, `shell_tool`, `git_account_tool` which are stubs.
+
+3. **Stub Override:** Suggested/custom tools generate stub implementations that **override built-in full implementations** via duplicate TOOL_REGISTRY keys. Both API and Browser Use testing confirmed this.
+
+4. **Silent Reverts/Substitutions:** Provider/model changes are silently reverted or substituted without disclosure (Browser Use confirmed for Persona 6).
+
+These trust failures are **catastrophic** for user confidence in the product. The Browser Use validated findings prove these issues exist in real user workflows, not just theoretical analysis.
 
 ---
 
@@ -665,7 +726,10 @@ These trust failures are **catastrophic** for user confidence in the product.
 - P4-F2: web_search tool is stub but validation passes
 - P7-F5: test_runner fabricates detailed test results
 - P7-F6: code_reader/test_writer fabricate filesystem operations
-- P7-F1: Agent YAMLs reference tools not in TOOL_REGISTRY
+- P7-F5 (BU): docker_runner fabricates detailed Docker/registry output with SHA256 hashes, tags, timing
+- P7-F1 (BU): Generated agent YAMLs reference tool stubs (code_reader_tool, file_writer_tool, shell_tool)
+- P7-F2 (BU): GitHub team references git_account_tool stub instead of real git_account
+- P7-F4 (BU): Suggested tools generate stubs that override built-in implementations via duplicate TOOL_REGISTRY keys
 
 **Root Cause:** Agents fabricate results when tools don't work, rather than reporting limitations.
 
@@ -682,8 +746,11 @@ These trust failures are **catastrophic** for user confidence in the product.
 **Manifestations:**
 - P1-F1/F2: Direct questions silently ignored
 - P2-F3: Chat acknowledgment stays generic
-- P6-F1: Provider/model changes never mentioned
-- P7-F4: Tool requirements ignored in acknowledgment
+- P6-F1 (BU): Provider/model changes never mentioned, direct routing questions ignored
+- P6-F2 (BU): Provider diversification works but acknowledgment still uninformative
+- P6-F3 (BU): Surgical single-role edit acknowledgment doesn't confirm whether change applied
+- P6-F4/P6-F5 (BU): Invalid model (gpt-999) and unsupported provider (groq) silently substituted without disclosure
+- P7-F4 (BU): Tool requirements ignored in acknowledgment
 
 **Root Cause:** Chat acknowledgment is derived only from role NAME/ORDER changes, never from provider/model/tool changes or direct questions.
 
@@ -716,7 +783,9 @@ These trust failures are **catastrophic** for user confidence in the product.
 
 **Manifestations:**
 - P7-F8: docker_runner bypasses SANDBOX_ENABLED
-- P7-F9: Suggested tools stubs override built-in implementations
+- P7-F9/P7-F4 (BU): Suggested tools stubs override built-in implementations via duplicate TOOL_REGISTRY keys
+- P7-F1 (BU): Agent YAMLs reference tool stubs instead of real implementations
+- P7-F2 (BU): GitHub team references git_account_tool stub instead of real git_account
 - P7-F10: Tool name duplication in TOOL_REGISTRY
 - P4-F4: Tools with no env-var gate absent from registry
 
@@ -735,7 +804,8 @@ These trust failures are **catastrophic** for user confidence in the product.
 **Manifestations:**
 - P1-F3/P6-F3/P7-F2: Validation passes despite tool registry mismatches
 - P4-F2: Validation passes despite web_search being a stub
-- P7-F2: Validator only has 4 checks, never inspects tools
+- P7-F2 (BU): Validator only has 4 checks, never inspects tools
+- P7-F1/P7-F4/P7-F5 (BU): Validation passes despite agents referencing NotImplementedError stubs
 
 **Root Cause:** validator.py only checks file/YAML existence, never cross-checks against TOOL_REGISTRY or tool availability.
 

@@ -15,6 +15,8 @@ Browser: Chrome via browser-harness (Browser Use - PRIMARY interaction mechanism
 
 **Methodology:** All scenarios performed using browser-harness with actual Chrome interaction (no API-only testing).
 
+**Scenarios completed:** 2/5 (2 completed via Browser Use, 3 handled by user in separate session)
+
 **Progress:** 3/5 scenarios complete (Scenarios 1, 2, and 3 done)
 
 ---
