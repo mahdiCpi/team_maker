@@ -1,6 +1,6 @@
 # team_maker — Independent Quality Audit (source-verified)
 
-**Version:** v2 (revised after external technical review — see §11 changelog)
+**Version:** v2.1 (revised after external technical review and product-owner review — see §11 changelog)
 **Author:** independent re-audit of the Story 4.8 QA round
 **Date:** 2026-08-29
 **Commit under test:** `b946030` (`b9460305bcc3f61dce51476816ac6bf8a9dc46a9`, branch `story_4_8`)
@@ -42,9 +42,9 @@ Everything wrapped around that orchestration is not shippable:
 | Severity | Count (my triage) |
 |---|---|
 | **P0 — release blocker** | 4 clusters |
-| **P1 — major** | 8 |
-| **P2 — moderate** | 8 |
-| **P3 — minor** | 5 |
+| **P1 — major** | 9 |
+| **P2 — moderate** | 9 |
+| **P3 — minor** | 6 |
 | Unverifiable from the evidence collected | 1 |
 | Rejected / mis-scoped from the persona round | 6 |
 | Verified positives | 7 |
@@ -289,6 +289,20 @@ This is not an LLM invention — it is in the curated showcase template a first-
 
 **Verdict:** CONFIRMED. **P1** (separately fixable: edit the template and add the §2.2(a) validation gate that would have caught it).
 
+### 3.9 P1-9 — The test suite cannot observe P0-1, because every runtime fixture sets `tools=[]` (new; answers "why didn't our tests catch this?")
+
+This is the most useful question asked about the audit, and it has an exact answer.
+
+`tests/support/team_factories.py:32` — the shared `AgentSpec` factory every runtime test builds from — sets **`tools=[]`**. With an empty list, an engine that drops the field is *behaviourally identical* to one that honours it. The defect is unobservable by construction.
+
+And the suite is otherwise thorough, which is what makes this a test-oracle problem rather than a coverage problem. `tests/unit/adapters/test_crewai_execution_engine.py` has 15 tests asserting `llm.provider`, `llm.model`, `llm.api_key`, the OpenRouter gateway form, Ollama `base_url` precedence, task-context wiring, hierarchical-process manager selection, absence of interpolation inputs, the goal-injection guard, task-output count mismatch, and kickoff-failure handling. **Not one of them constructs an agent with a tool.**
+
+Non-empty tool lists *do* appear in tests — `test_agent_generator.py:18` (`["code_reader"]`), `test_codegen.py:26,37`, `test_docs_generator.py:17,29`, `test_planner_mapper.py:41`. Every one is a **generator** test: they assert the tool name is correctly *written* into YAML or rendered code. So the suite verifies "the name reaches the file" and never "the tool reaches the agent."
+
+**The untested seam is exactly the codegen→runtime boundary** where P0-1, P0-2 and P0-4 all live. One test — build an `AgentSpec` with `tools=["shell_command"]`, run it through the engine's interception harness (`tests/support/crewai_interception.py`, which already captures the constructed `Agent`), assert the agent has a matching tool — would have failed from the day the engine was written.
+
+**Verdict:** CONFIRMED. **P1** (process finding; it is the reason three P0s shipped, and the cheapest regression guard for the whole §9 fix sequence).
+
 ---
 
 ## 4. P2 — moderate
@@ -346,15 +360,34 @@ CONFIRMED across all 31: `goal = "Build a production-ready <team_name> following
 
 CONFIRMED. `web/lib/nav-items.ts:13` → `{ title: "New Team", href: "/", … }`, rendered as a plain `<Link>` with no reset handler. Next.js does not remount a client component when a `<Link>` targets the current route, so composer state (all in `useReducer`, local to `composer-surface.tsx`) survives. Persona 5's repro 1 — an unrelated request appended onto a stale Twitter-scraper role chain — is the predicted outcome. **P2.**
 
+### 4.10 The xAI key in `team_maker.keys` is named `X_AI_API_KEY` and is silently ignored (new; found via product-owner review)
+
+CONFIRMED. Key **names** compared (values never read):
+
+| Source | Name |
+|---|---|
+| `team_maker.keys` | `X_AI_API_KEY` |
+| `registry.py:120` | `XAI_API_KEY` |
+
+`Provider("xai", "XAI_API_KEY", …)` (`registry.py:119-126`) declares **no `env_var_aliases`**. Google has exactly this protection — `env_var_aliases=("GOOGLE_API_KEY",)` at `:107` — which is why the file's `GOOGLE_API_KEY` resolves against the catalog's `GOOGLE_AI_API_KEY`. xAI got no equivalent, so a correctly-obtained xAI key sitting in the config file resolves to nothing, with **no warning that the name is wrong**.
+
+Impact is bounded rather than severe, which is why P2 and not P1: xAI is `openrouter_reachable=True` with `openrouter_model_name_prefixes=("grok",)`, and `OPENROUTER_API_KEY` *is* present, so Grok models remain usable through the gateway and `/api/keys/status` correctly reports `via-openrouter`. Nothing is falsely claimed. But a configured credential is discarded in silence, and the person who configured it had no way to find out — the same "no channel for reporting what happened" pattern as RC-1/RC-3. **P2.**
+
+**Two related claims I checked and did not confirm:**
+
+- *"Groq is wrong, it should be Grok."* **Not a bug.** Groq (groq.com, an inference host) and xAI/Grok (the model vendor) are different companies, and the catalog correctly carries both as separate providers with distinct reasons. No `GROQ_API_KEY` is present in the keys file, so groq is genuinely unconfigured. That the product's own owner conflated them is not a code defect — but it is strong evidence for the P3 below.
+- *`LLM(model="xai/grok-4.6", base_url=…)` should work, so `runtime_supported=False` is a false negative.* **Not in this install.** I verified: `litellm` is **not installed** (`ModuleNotFoundError`), against `crewai 1.14.6`. Non-native providers route through LiteLLM, so that call would fail here. The catalog comment at `registry.py:77-80` and the `runtime_supported=False` flag are **accurate**. `_render_requirements` (`runner.py:317-319`) correctly adds `litellm>=1.0` to a *generated package* that needs it — the gap is only that the team_maker process itself has no such fallback, which is a deliberate, documented choice. Direct xAI support is therefore an install decision (`pip install litellm`), not a bug fix.
+
 ---
 
-## 5. P3 — minor (5)
+## 5. P3 — minor (6)
 
 1. **Generic `expected_output` on every task.** `f"All deliverables for '{t.name}' completed and documented."` — hardcoded at `team_maker/llm/planner.py:62` and `team_maker/templates/role_based.py:99`. CrewAI treats `expected_output` as an output-shaping signal. P5-F4's "Defect A" (the `pitch_drafter` reading *"**All** deliverables"* literally and fabricating the not-yet-run VC's teardown) is a credible consequence; I mark the causal link PLAUSIBLE, not proven.
 2. **`agents/architect.yaml`** — a literal string at `team_maker/generators/docs.py:120`, present in 4/4 packages, referencing a role that exists in none of them. Copy-pasting the documented example raises `FileNotFoundError`.
 3. **`docs/how_to_extend.md`** ships a `security_engineer` / OWASP worked example to every team regardless of domain.
 4. **Composer textarea `aria-label` never updates.** `composer-input.tsx:83` hardcodes `aria-label="Describe your team"` while the visible placeholder switches to the refine copy at `:84`. Screen-reader users hear the first-turn label for the entire session. Real a11y defect.
 5. **Rename/merge leaves stale `display_name` and `backstory`** in the generated YAML (F5, P3-F4).
+6. **Providers are surfaced as bare lowercase ids with no display name or vendor.** `Provider` (`registry.py:30-70`) has `name`, `env_var`, `unsupported_reason` — but no human label. So `groq` and `xai` appear side by side in `/api/keys/status`, the Settings panel and the role chips as indistinguishable strings, with nothing indicating that one is an inference host and the other is the vendor of Grok. The product owner conflated them during review of this very report — the strongest possible evidence that end users will. A `display_name` and `vendor` field on `Provider`, surfaced in Settings and the chips, fixes it. Fold into the §3.5 work, which already needs to surface `unsupported_reason` from the same struct.
 
 ---
 
@@ -397,7 +430,7 @@ CONFIRMED. `web/lib/nav-items.ts:13` → `{ title: "New Team", href: "/", … }`
 
 ## 9. Root-cause analysis
 
-**~50 reported and newly-found findings collapse into 11 root causes, and those into one meta-pattern.**
+**~55 reported and newly-found findings collapse into 12 root causes, and those into one meta-pattern.**
 
 | RC | Root cause (with the code that is the cause) | Findings it explains |
 |---|---|---|
@@ -405,13 +438,14 @@ CONFIRMED. `web/lib/nav-items.ts:13` → `{ title: "New Team", href: "/", … }`
 | **RC-2** | **Refinement re-authors instead of mutating, under conflicting prompt rules.** `session.py:88-98` round-trips the whole spec; `composer.py:44-47` says to *omit* `llm` unless restated, while the refine prompt says to preserve. Nondeterministic. | F2(revert), P5-F2 — **2** |
 | **RC-3** | **Tool names are unvalidated LLM output; three drifted allowlist copies, none a gate.** `prompts.py:12` vs `request.py:378` (wrong field, `"linter"` phantom) vs `tools.py.j2:277`. Plus the LLM sees `suggested_tools` in the raw schema the human rules never describe. | F9, P4-F2, P4-F3, P4-F4, P7-F1, P7-F2, P1-8, CrewAI-class-name leak — **8** |
 | **RC-4** | **Codegen emits stubs into the real tools' namespace and dict.** `tools.py.j2:258-270, 290-292`. Python rebinding makes the real implementations unreachable. | P7-F4 (and it worsens P7-F1/F2) |
-| **RC-5** | **The product's Run path drops `tools` entirely.** `crewai_execution_engine.py:177-185` has no `tools=`; `loader.py:93` reads the field for nothing; `GeneratedTeam` carries no package path. Divergent from `crewai_runner.py.j2:105`. | P7-F5, P4-F2 (actual mechanism) |
+| **RC-5** | **The product's Run path drops `tools` entirely.** `crewai_execution_engine.py:177-185` has no `tools=`; `loader.py:93` reads the field for nothing; `GeneratedTeam` carries no package path. Divergent from `crewai_runner.py.j2:105`. **Third instance found via product-owner review: per-team shared memory is unreachable for the same reason** — `state_store` appears only in `codegen/templates/state_store.py.j2`, `tools.py.j2` and `pipeline/runner.py` (which writes the file); it is referenced **nowhere** in `team_maker/runtime/` or the execution engine, and its only access path is the `state_reader`/`state_writer` *tools*, which RC-5 discards. So cross-agent shared state is built, shipped into every package, and dead in the product's own run path. | P7-F5, P4-F2 (actual mechanism), shared-memory gap — **3** |
 | **RC-6** | **No length/`finish_reason` awareness.** No `max_tokens` in `_build_llm`; `finish_reason` absent from all project code; truncation is not an exception so the runner's TOKEN LIMIT branch is dead. | F8, P3-F2, P5-F4(B,C) — **3** |
 | **RC-7** | **Generated artifacts render from hardcoded literals, not from the team.** `docs.py:339-352`, `docs.py:229`, `docs.py:120`, `runner.py:303-313`, `planner.py:62` + `role_based.py:99`, `registry.py:18`, hardcoded `run_example.py` goal. | F3, F4, F5, F7, P2-F4, P3-F1, P3-F3, P3-F4, P5-F4(A) — **9** |
 | **RC-8** | **Build-time "validation" means "files exist and parse."** `validator.py:41-47`; `report.py` never mentions tools; `preflight.py` checks credentials only. | Amplifies RC-3/4/5/7/10 into `✅ PASSED` |
 | **RC-9** | **No addressable persistence or resume contract; the client retains no session/run IDs.** `runId` only at `workspace-surface.tsx:194`; no list-runs route in `run.py`; `nav-items.ts:13` is a same-route `<Link>`; no `save` caller in `api-client/teams.ts`. *(The server does hold the composer spec in the in-memory `api/sessions.py` registry — what is missing is addressability and client-side ID retention, not server state.)* | P2-F1, P2-F2, P5-F1, P10-F3, CX-F5, CX-F6 — **6** |
 | **RC-10** | **Risky tools implement their own execution policy instead of routing through the one sandbox helper, and the sandbox defaults to off.** `tools.py.j2:45` (`SANDBOX_ENABLED` default `"false"`), `:130-138` (`docker_runner` bypasses `_run_sandboxed`), agent-supplied `mounts` → `-v host:container`, `:5-6` docstring misstates it. | **New — no persona reported this** |
 | **RC-11** | **No run-time evidence contract.** `transcript_capture.py:239-240` already records `ToolUsage{Started,Finished}` events; `RunResult` (`runtime/results.py`) carries no tool-execution record and no completion rule reads one. | **New — enables all of §2.1's symptoms to recur after RC-5 is fixed** |
+| **RC-12** | **The test suite's default fixture value is the one value that hides the defect.** `tests/support/team_factories.py:32` sets `tools=[]`, so all 15 engine tests are blind to RC-5 by construction; non-empty tool lists exist only in *generator* tests, leaving the codegen→runtime seam — where RC-3, RC-4, RC-5 and RC-11 all live — with no oracle at all. | P1-9. **This is why three P0s shipped.** |
 
 ### The meta-pattern
 
@@ -438,6 +472,8 @@ v1 listed RC-5 first and then said it must not land first. That was self-contrad
 4. **Attach resolved instances to CrewAI** (`_build_agent`).
 5. **Add the tool-execution evidence contract and completion rule** — wire the existing `ToolUsage{Started,Finished}` handlers into `RunResult` and gate task completion on a receipt.
 6. **Expand validation and preflight** to check tool availability and credentials at build and pre-run.
+
+**Step 0, before any of the above — close RC-12.** Add the one engine test that builds an `AgentSpec` with a non-empty `tools` list and asserts the constructed `Agent` carries a matching tool. `tests/support/crewai_interception.py` already captures the `Agent`, so this is a few lines. Without it, every step below is unguarded against regression, and steps 3-5 are being designed against a suite that provably cannot see the class of bug they exist to fix.
 
 Then the non-blocking clusters by leverage: RC-7 (9 findings, mechanical) → RC-1 (12 findings; spec-diff in `describeProposal` is cheap, a true answer mode is a larger design change) → RC-6 → RC-2 → RC-9.
 
@@ -470,7 +506,7 @@ Ranked by verified severity × detection likelihood × whether the bad output le
 
 ---
 
-## 11. Changelog — v1 → v2
+## 11. Changelog
 
 Revised after external technical review. Changes, and why:
 
@@ -490,6 +526,17 @@ Revised after external technical review. Changes, and why:
 
 **Unchanged and re-affirmed:** P0-1's corrected root cause (§2.1), the stub-shadowing mechanism (§2.2b), the six rejections in §6, RC-1/3/4/5/6/7/8's evidence, and all seven verified positives.
 
+### v2 → v2.1 (product-owner review)
+
+| # | Change | Reason |
+|---|---|---|
+| 12 | **Added P1-9 and RC-12 — the test suite cannot observe P0-1.** | Answers "why didn't our tests catch that?" precisely: `team_factories.py:32` sets `tools=[]`, so all 15 engine tests are blind by construction, and non-empty tool lists appear only in *generator* tests. Added as **step 0** of the fix order — it is the regression guard for the entire sequence. |
+| 13 | **Added §4.10 — `X_AI_API_KEY` vs `XAI_API_KEY`.** | Real bug found by the owner's instinct (though not their diagnosis): the catalog declares no `env_var_aliases` for xai, so a configured key is silently discarded. Google has exactly this protection; xai does not. |
+| 14 | **Recorded two non-bugs under §4.10, with the checks that settled them.** | "Groq should be Grok" — Groq and xAI are different companies; the catalog is correct. And `runtime_supported=False` for xai is **accurate**: I verified `litellm` is not installed against `crewai 1.14.6`, so the suggested `LLM(model="xai/grok-4.6", …)` call would fail here. Direct xAI is an install decision, not a bug fix. |
+| 15 | **Added P3 #6 — providers have no display name.** | The owner conflated `groq` and `xai` while reviewing this report. `Provider` carries no human label, so both render as bare lowercase ids. Folded into the §3.5 work, which already needs to surface `unsupported_reason` from the same struct. |
+| 16 | **Extended RC-5 — per-team shared memory is a third instance.** | `state_store` appears only in the two codegen templates and `runner.py`; nothing in `team_maker/runtime/` references it, and its access path is the `state_reader`/`state_writer` tools that RC-5 discards. Shared state is built, shipped, and dead in the product's run path — so the owner's "each team should have its own shared memory" is not a feature request. |
+| 17 | **Added §13 — design options raised in review.** | Coding-agent-as-team-member, stub/mock warnings, and the two sidebar UX items are product decisions, not audit findings. Recorded with their blocking dependencies rather than silently dropped or promoted to findings. |
+
 ---
 
 ## 12. Release decision
@@ -499,3 +546,32 @@ Revised after external technical review. Changes, and why:
 One sequencing constraint is non-negotiable: **§2.2's three parts ship together.** A change that removes stub shadowing, or that wires §2.1's resolver, without settling the sandbox policy converts a currently-unreachable host escape into a reachable one.
 
 The encouraging read stands, with a correction to its cost. Nothing here suggests an architectural rewrite — it suggests a codebase where the last wire on several finished features was never connected. But three of the six blocker steps require a design decision (a runtime tool-resolution boundary, a sandbox policy, a completion invariant), so this should be scoped as design work rather than a bug-fix sprint.
+
+---
+
+## 13. Design options raised in review (not audit findings)
+
+These are product decisions rather than defects. Recorded here with dependencies so they are not lost, and deliberately kept out of the severity counts.
+
+### 13.1 Delegate software work to a real coding agent instead of implementing the tool set
+
+The software-oriented tools (`shell_command`, `code_writer`, `code_reader`, `test_runner`, `docker_runner`) are the exact set implicated in P0-2 — collision-prone, stub-shadowed, sandbox-bypassing, and in `code_reader`'s case dependent on `OPENAI_API_KEY` for a `CodeDocsSearchTool` that is not really a code reader. Rather than hardening all five, a software role could delegate to an existing coding agent (Claude Code, Codex, OpenCode) behind one tool boundary.
+
+Weigh it as an alternative to §9 steps 2-4, not an addition: it replaces five risky in-process tools with one subprocess boundary that already has its own sandboxing and permission model, and it makes RC-10's sandbox policy question mostly moot for the software case. It does **not** remove the need for step 1 (validation), step 5 (RC-11 receipts — arguably more important, since a delegated agent's claims need the same evidence contract) or step 0 (RC-12). It also adds an external dependency and a cost/latency profile the current design does not have. **Recommend: evaluate during §9 step 3, when the resolver boundary is being designed anyway — that is the cheapest moment to choose.**
+
+### 13.2 Warn the builder/admin whenever a stub, mock or fake is present
+
+This is a concrete, cheap implementation of what P0-3 (§2.3) is missing, and it is the single highest-value item on this list. The validator already walks the package; detecting a rendered `NotImplementedError` stub, or a tool name absent from the canonical registry, is a few lines — and it converts "silently broken" into "declared broken," which is the difference between the current release-blocking behaviour and an honest one.
+
+Two distinct surfaces, both needed:
+
+- **Build time** — `generation_report.md` and the build-result card must list every tool that is stubbed, unregistered, or missing a credential, and `Validation` must not read `✅ PASSED` when any exist. Fold into §9 step 6.
+- **Test time** — the owner's stronger point: a test suite that leans on stubs can pass while the product is broken, which is precisely RC-12. Worth an explicit convention that mocked seams are named and enumerated, so "these 15 engine tests all use `tools=[]`" is visible rather than buried in a fixture default.
+
+### 13.3 List teams in the left sidebar, with each team's conversations nested beneath it
+
+Good UX direction, and it makes the right thing structurally obvious. But it is **blocked on RC-9**, not merely adjacent to it. A sidebar team list needs a populated team store — which is exactly P1-2's missing `POST /api/teams/save` call — and nested conversation history needs addressable, resumable sessions, which is the addressability half of RC-9 (`api/sessions.py` holds the spec in memory today, with no client-retained id and no resume contract).
+
+So the dependency runs: wire the save call → give sessions and runs stable, retrievable ids → then the sidebar is mostly a rendering job. Attempting the UI first would produce a nav item as empty as today's "My Teams". Worth treating as the **acceptance criterion** for RC-9 rather than as separate work — it is a good forcing function, because a sidebar that stays empty is an immediately visible failure in a way that a missing API call is not.
+
+---
