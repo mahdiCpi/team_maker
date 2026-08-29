@@ -1,0 +1,127 @@
+# Persona 3 findings — Creative writer
+
+Commit under test: b9460305bcc3f61dce51476816ac6bf8a9dc46a9 (branch story_4_8). Servers already running (web :3000, API :8000).
+
+## Persona 3 summary
+
+**Scenarios performed:**
+1. Open-ended creative-writing team request ("a team to help me write a short sci-fi short story, from first draft through a critical pass to a final polish") — let team_maker propose roles freely.
+2. Explicit model-diversity request ("a more creative/expensive model for draft_writer, a cheaper/analytical model for critical_editor") — verified against raw compose response, `routing_config.yaml`, and the workspace chips.
+3. Two rounds of conversational, non-technical refinement: "Make the critical_editor harsher and more literary in tone," then "I want the story itself to be darker in tone overall," then a role-merge request ("Combine the story architect and the first draft writer into one role") — all verified against the raw spec JSON and the built agent YAML files.
+4. Full E2E lifecycle: build → open workspace → Run with a real creative goal ("Write a 4-6 paragraph short story about a lighthouse keeper who discovers something impossible, then have it critiqued and polished.") → waited for completion → opened and saved the full transcript → checked each stage's output for coherence and whether it genuinely built on the prior stage.
+
+**Successes:**
+- Role proposal for an open-ended creative request was genuinely sensible and on-domain: `story_architect` → `draft_writer` → `critical_editor` → `prose_polisher`, no generic/technical role leakage in the *visible* role names or descriptions.
+- Model-diversity request was applied correctly and precisely: `draft_writer` got `anthropic/claude-opus-4-5` (auto-substituted to `claude-opus-4-8`, disclosed honestly in the UI as "One model was not available and a near match was used instead," and the substitution was accurately reflected in the built `routing_config.yaml`), `critical_editor` got `openai/gpt-4o-mini`. Confirmed via raw network capture and the built files — not just chat text.
+- Both tone-refinement requests ("harsher and more literary," "darker in tone overall") produced real, extensive, on-target rewrites of `description`/`goal`/`backstory`/`purpose` across every affected role and task in the raw spec JSON — not cosmetic tweaks. The eventual built `critical_editor` agent YAML carried the full custom backstory ("A former acquisitions editor... zero patience for hand-waving, purple prose...") verbatim into the generated package, and the actual run's critique tone genuinely reflected the requested literary/dark register.
+- The role-merge request ("combine architect and writer") correctly collapsed 4 roles/4 tasks into 3 roles/3 tasks, renamed appropriately (`story_architect_and_writer`), re-wired task dependencies correctly, and the merge persisted through to the built package.
+- The full E2E run (scenario 4) completed end-to-end, all 3 tasks "Done," and the **final published output is a genuinely complete, coherent, well-crafted short story** with no visible truncation, followed by detailed line-edit notes that reference specific phrases from *this* story (not generic boilerplate) — a real positive result for the underlying multi-agent creative pipeline.
+
+**Failures / defects found:**
+- The internal template name `software_delivery_team` leaks into user-facing generated docs for this creative-writing team too — the **3rd domain** (after weekly-planning and marketing taglines) where this has now been reproduced, and this session traced it to a definitive root cause: there is no domain-based template selection at all (see P3-F1).
+- The chat's acknowledgment text stayed generic/boilerplate through every refinement turn in this session too, including one turn where the *entire* purpose and all 3 role descriptions were substantially rewritten for tone — the chat said nothing more than "Updated: story_architect → draft_writer → critical_editor → prose_polisher. Anything you would change...". Confirms the already-logged P1/P2 pattern a 3rd/4th time; not re-logged here as a new finding, per the audit brief's instruction to just note the recurrence.
+- Discovered a new, more insidious variant of the "silent truncation" defect class (P1's F8): the **first draft** (not the final output) was cut off mid-word inside the pipeline, and the downstream `critical_editor` and `prose_polisher` stages silently invented their own completions without ever noticing or flagging the truncation — so the final visible output looks completely intact even though real content was lost and never recovered. See P3-F2.
+- `generation_report.md`/`docs/how_to_run.md`/`docs/model_routing.md`/`docs/how_to_extend.md`/`run_example.py` template-leakage defects (false "no API keys required," `agents/architect.yaml` reference, `API Key Env Var: N/A` self-contradiction, `security_engineer` boilerplate, hardcoded unrelated goal string) all recur byte-for-byte in this 3rd domain — confirming these are fully systemic, not domain-specific. Not re-logged as new findings (already P1/P2 in the draft/persona-2 files); see P3-F1 for the newly-confirmed root cause.
+- New finding: every generated team's `requirements.txt` — regardless of domain, regardless of whether any tools are configured — ships a hardcoded, irrelevant "kitchen sink" dependency list including `vectorbt`, `pandas_ta`, `qdrant-client`, `psycopg2-binary`, `PyGithub`, for a 3-agent, zero-tool creative-writing team. See P3-F3.
+- New observation: every generated task's `expected_output` field is a generic templated string ("All deliverables for '<task_name>' completed and documented.") regardless of how rich the task's actual `description` is — CrewAI uses `expected_output` as a real output-shaping signal, and this genericness plausibly explains why the `final_polish` task's actual output mixed the finished story with a lengthy internal editorial-rationale document rather than just delivering a clean final story. See P3-F4.
+
+**Usability / trust observations:**
+- A creative-writer persona would come away from this session with a fairly positive impression of the *core* pipeline: refinements they asked for in plain, non-technical language (tone, cost/model split, combining roles) reliably and accurately changed the real underlying spec and the real generated files — this is a genuine strength, consistent with Persona 2's finding that the trust gap is in the surrounding product layer, not the agents' output quality.
+- That said, a careful writer who opened the full transcript (most casual users would not) would discover that the "critically reviewed" and "polished" versions of their story are each independently-invented continuations past a certain point, silently diverging from each other and from the true first draft — with the UI offering zero indication that anything was lost. A user who only reads the final panel (not the full transcript) would never know this happened at all.
+- The generated package's documentation (how_to_run.md, model_routing.md, how_to_extend.md) remains actively untrustworthy for a creative-writing domain in the same ways already flagged for other domains — a writer who tried to follow the shipped "Quick Start"/"how to run" instructions literally would hit the same contradictions (no keys needed vs. real key requirements; a nonexistent `architect.yaml`; software-engineering examples in how_to_extend.md).
+
+---
+
+## P3-F1 — Root cause confirmed: `software_delivery_team` is a hardcoded universal default with no domain-based selection logic anywhere; a better-fitting `research_content` template exists but is unreachable from the compose-chat flow
+
+- Persona: 3 (creative writer), but this is a systemic/architectural finding, not persona-specific. Journey stage: Build / generated package internals.
+- This directly answers the question left open by Persona 1's F7 ("pending further evidence") and confirmed-but-not-root-caused by Persona 2's P2-F4: **why** does every generated team, regardless of domain, get `template: software_delivery_team`?
+- Read `C:\Projects\CoinPela\Projects\team_maker\team_maker\templates\registry.py`:
+  ```python
+  # The template used when a request doesn't specify one. Shared by every
+  # caller that needs this default (api/routings.py, PipelineRunner) so they
+  # cannot drift from one another.
+  DEFAULT_TEMPLATE_ID = "software_delivery_team"
+  ```
+  and `C:\Projects\CoinPela\Projects\team_maker\team_maker\pipeline\runner.py:105-107`:
+  ```python
+  from team_maker.templates.registry import DEFAULT_TEMPLATE_ID, get_template
+  template_id = request.template_id or DEFAULT_TEMPLATE_ID
+  template = get_template(template_id)
+  ```
+- Grepped every call site of `template_id` across `team_maker/`, `api/`, `web/` (excluding tests): the compose/chat flow that builds a `TeamCreationRequest` from a freeform conversational description **never sets `template_id`** anywhere in this pipeline. It is always `None` for a chat-composed team, so `DEFAULT_TEMPLATE_ID` ("software_delivery_team") is used unconditionally, for every single team, regardless of the user's actual domain.
+- Confirmed a materially better-fitting template already exists and is simply never selected: `C:\Projects\CoinPela\Projects\team_maker\team_maker\templates\research_content\template.py`, whose module docstring reads: *"Research/Content Team template. Generates a content creation team: researcher gathers information, writer creates content, fact_checker verifies accuracy, and editor finalizes the output. **This is the flagship showcase team mentioned in the PRD addendum.**"* — a template explicitly built and documented as the showcase example for exactly this kind of request, sitting fully implemented and registered, but never reached by the conversational compose path this build actually exposes to users.
+- Reproduced for the 3rd distinct domain this audit round: `weekly_planner` (Persona 1), `tagline_forge`/`competitor_pricing_researcher` (Persona 2), and now `scifi_story_team` (Persona 3) all show `template: software_delivery_team` in `team_config.yaml`/`generation_report.md`/`README.md`.
+- Why this matters: this upgrades the prior "PLAUSIBLE, needs more evidence" status to **CONFIRMED**. It is not a per-request miscategorization bug — the domain-appropriate template selection logic simply does not exist in the path real users take. The template mostly only affects internal labeling/branding and a few doc/boilerplate sections (the actual roles/tasks are LLM-composed dynamically, not pulled from the template's role defaults), so it doesn't corrupt the generated agents' content — but it is a direct, repeated, verifiable "did the product even understand my request" trust hit, and it means a genuinely more suitable, purpose-built template is dead code from the end user's perspective.
+- Severity: **P2** (confirmed, systemic, cosmetic/trust-only in terms of actual generated agent quality — but real and repeatedly damaging to user confidence, and worth escalating from Persona 1's tentative P3 now that root cause is nailed down).
+- Evidence: `team_maker/templates/registry.py` (lines 1-18), `team_maker/pipeline/runner.py` (lines 105-107), `team_maker/templates/research_content/template.py` (lines 1-6), grep of `template_id` across `team_maker/`, `api/`, `web/`; `generated_teams/scifi_story_team/team_config.yaml` line 7 (`template: software_delivery_team`), `generated_teams/scifi_story_team/generation_report.md` line 4.
+
+## P3-F2 — A mid-pipeline draft truncation is silently invented-over by downstream agents, hiding the defect completely from the end user even though real story content was permanently lost
+
+- Persona: 3. Journey stage: Run / Transcript. Team: `scifi_story_team` (`story_architect_and_writer` → `critical_editor` → `prose_polisher`), goal: "Write a 4-6 paragraph short story about a lighthouse keeper who discovers something impossible, then have it critiqued and polished."
+- This is the **same underlying defect class** as Persona 1's F8 (an LLM hitting an output-length ceiling mid-generation with no detection/surfacing anywhere in the product) — but a distinct and more concerning manifestation, confirmed via the full transcript (`project-docs/qa/evidence/p3_transcript_scifi_story_team.txt`, captured via `document.body.innerText` on the opened "View transcript" modal, 100,311 characters).
+- The **first** task, `develop_outline_and_write_first_draft` (agent `story_architect_and_writer`, `anthropic/claude-opus-4-8`), produced a rich outline plus a complete-looking first draft — but both its "Message" block and its final "Task completed" re-display cut off mid-word, identically, at the exact same point:
+  > `He lit the light. He lit it the next night, and the next, and each night M`
+  (line 289 and line 405 of the saved transcript — the sentence was clearly heading toward "...each night Mara grew...", matching the earlier "Each night, Mara grew more solid" beat, but the generation stopped mid-token.)
+- The run status for this task shows **"Done"** with no warning, exactly as in Persona 1's F8.
+- Critically, unlike F8, the *next* stage did not inherit an obviously-broken artifact and pass it through unmodified — `critical_editor` received the truncated draft as its input and, without any comment, simply **wrote its own ending** to complete the sentence/scene (a different ending: "...each night, he forgot a little more. The last remnant of red faded into greyness... The machine never stops, and neither does the appetite of the deep."). Its `#### CRITICAL NOTES & REVISIONS:` section makes zero mention of the source draft being incomplete — it critiques the piece as if it always ended there, i.e. the critique step is unaware it never saw the intended ending of the actual first draft.
+- `prose_polisher` then took `critical_editor`'s (self-invented) ending and polished it further into a *third*, independently-worded ending (the one visible in the final published panel: "...still he fed the light, still he sat across from what the darkness had built from his ruins and called it by her name... consuming the next willing keeper before the current one had finished disappearing."), again with zero indication anywhere that this ending was never actually written by the "story architect / draft writer" role the user asked for and saw proposed.
+- Net effect: the **final published output looks completely finished, coherent, and untruncated** — better disguised than Persona 1's F8, where the cutoff was visible in the final artifact itself. Here, the actual content-generation defect is real (a full intended scene beat — Aldous's final, willing capitulation as originally conceived by the "architect" stage — was lost and silently replaced, twice, by different downstream agents each inventing their own version), but it is now **undetectable** without opening the full transcript and reading closely enough to notice the discontinuity between the "Message" truncation point and the "Task completed" restatement's abrupt topic pickup.
+- Why this matters: this is a stronger, subtler instance of the exact "misleading success / run-transcript inconsistency" class the audit brief flags as high-priority. It shows the self-healing behavior of a multi-agent pipeline can actively work against transparency: rather than surfacing "an upstream stage's output was cut off," the system produces a final artifact that reads as fully intentional and complete, when in fact a structurally important plot beat was never actually written by the agent the user was told would write it, and no stage's own critique/QA behavior caught or reported the discontinuity.
+- Severity: **P1** (same class as F8, itself flagged P1/P0-adjacent — arguably more severe here specifically because the defect is now invisible in the one place most users would actually look, the final output panel, and it demonstrates the failure propagates through the pipeline uncaught rather than being contained to one stage).
+- Evidence: `project-docs/qa/evidence/p3_transcript_scifi_story_team.txt`, lines 289/405 (identical truncation point, `develop_outline_and_write_first_draft` task), lines 480/562 and lines 85/130 of the raw run output (the two divergent invented endings from `critical_editor` and `prose_polisher` respectively — captured separately in the background poll's saved output as well, confirming reproducibility of the same cutoff across both the live "Message" stream and the final "Task completed" restatement).
+
+## P3-F3 — Every generated team's `requirements.txt` is a hardcoded, domain-irrelevant "kitchen sink" list, unrelated to the team's actual agents, tasks, or tools
+
+- Persona: 3 / systemic. Journey stage: Build / generated package.
+- `generated_teams/scifi_story_team/requirements.txt` (a 3-agent, zero-tool, pure-text creative-writing team) lists: `PyGithub>=2.1`, `crewai-tools>=0.25.0`, `crewai[google-genai]>=0.80.0`, `langchain-anthropic>=0.3.0`, `langchain-google-genai>=2.0`, `langchain-ollama>=0.2.0`, `langchain-openai>=0.3.0`, `langfuse>=2.0,<3.0`, `pandas>=2.0`, **`pandas_ta>=0.3.14b`**, `psycopg2-binary>=2.9`, `pyyaml>=6.0`, `qdrant-client>=1.7.0`, `sqlalchemy>=2.0`, **`vectorbt>=0.26.0`**.
+- `pandas_ta` and `vectorbt` are, specifically, technical-analysis/algorithmic-trading-backtest libraries — they have no conceivable relationship to a creative-writing team (or, per Persona 1/2's teams, a weekly planner or marketing-tagline team either). `qdrant-client` (vector DB), `psycopg2-binary` (Postgres driver), and `PyGithub` are similarly unrelated to a team with `suggested_tools: []` and every agent's `tools: []`.
+- Root cause confirmed by reading `C:\Projects\CoinPela\Projects\team_maker\team_maker\pipeline\runner.py`, `_render_requirements()` (lines 296-325): a fixed `base` list (including all of the above) is unconditionally prepended to every generated `requirements.txt`, regardless of the team's actual tools, state backend, or domain:
+  ```python
+  base = [
+      "langfuse>=2.0,<3.0",
+      "pyyaml>=6.0",
+      "PyGithub>=2.1",
+      # Data stack
+      "pandas>=2.0",
+      "pandas_ta>=0.3.14b",
+      "vectorbt>=0.26.0",
+      "psycopg2-binary>=2.9",
+      "sqlalchemy>=2.0",
+      "qdrant-client>=1.7.0",
+  ]
+  ```
+  There is no branch anywhere in this function that trims the list based on `suggested_tools`, `team.agents[*].tools`, or domain — only `state_backend == VECTOR/BOTH` conditionally *adds* `chromadb`, and non-native LLM providers conditionally add `litellm`.
+- Why this matters: both `README.md`'s own "Quick Start" and `docs/how_to_run.md`'s "Prerequisites" instruct the user to install dependencies (the README explicitly via `pip install crewai`, but `requirements.txt` is the file a more careful/automation-minded user — or a downstream coding agent — would reasonably run `pip install -r requirements.txt` against, as it's listed as a generated artifact with no caveat). Doing so pulls in several unrelated, some fairly heavy or native-build-dependent packages (`psycopg2-binary`, `vectorbt`) purely because of a copy-pasted base list, for a team that needs none of them. This is a concrete instance of "generated artifacts not derived from actual configuration" (the same systemic theme as F4/P2-F4), now found in an actually-installed dependency manifest rather than just documentation prose.
+- Severity: **P2** (misleading/wasteful and directly contradicts the audit's "does the generated package match what was actually asked for" concern; not a release-blocker since it doesn't prevent the team from running — nothing in the actual generated agent/task code imports these unused packages — but it is unnecessary friction and a genuine "why does my sci-fi story team need an algorithmic trading library" trust hit for anyone who reads the file).
+- Evidence: `C:\Projects\CoinPela\Projects\team_maker\generated_teams\scifi_story_team\requirements.txt` (full 15-line file), `C:\Projects\CoinPela\Projects\team_maker\team_maker\pipeline\runner.py` lines 296-325 (`_render_requirements`).
+
+## P3-F4 (minor, new) — Generated tasks' `expected_output` field is always a generic templated placeholder, never derived from the task's actual (often rich) description
+
+- Persona: 3. Journey stage: Build / generated package.
+- All 3 tasks in `generated_teams/scifi_story_team/tasks/*.yaml` have richly specific, tone-customized `description` fields (the product of the refinement conversation), but every single one has the exact same templated `expected_output`:
+  - `develop_outline_and_write_first_draft.yaml`: `expected_output: All deliverables for 'develop_outline_and_write_first_draft' completed and documented.`
+  - `critical_review_and_revision.yaml`: `expected_output: All deliverables for 'critical_review_and_revision' completed and documented.`
+  - `final_polish.yaml`: `expected_output: All deliverables for 'final_polish' completed and documented.`
+- CrewAI uses `expected_output` as a real signal to the agent about the required output format/shape — it is not merely cosmetic. A plausible consequence, observed in this run's actual transcript: the `final_polish` task's output was not a clean, submission-ready story on its own, but a mix of the finished story **plus** an extensive internal "Editorial Documentation" / "Line-Edit & Proofread Notes" / "Voice & Rhythm Assessment" section appended after it (see the workspace panel's rendered output, captured in `p3_transcript_scifi_story_team.txt` lines 17-129) — reasonable behavior for an agent given no concrete instruction about what the final deliverable's *shape* should be, but likely not what a writer expects when asking for "a final polish."
+- Also noticed as a related minor inconsistency: the merged role `story_architect_and_writer` (created via the scenario-3 merge request) has a rich, specific `description`/`goal` but a generic auto-filled `backstory: An experienced story_architect_and_writer.` — the merge correctly combined the functional spec fields but the awkward literal role-name in the backstory sentence reads oddly (same class of staleness as Persona 1's F5, applied to a newly-merged role name rather than a rename).
+- Severity: **P3** (not confirmed as a hard defect — the run still produced a complete, high-quality story — but it's a real, source-confirmed gap between what the task YAML documents as "expected" and what a domain-appropriate expectation would specify, and a plausible contributor to the deliverable/process-notes mixing observed in the actual output).
+- Evidence: `generated_teams/scifi_story_team/tasks/develop_outline_and_write_first_draft.yaml`, `tasks/critical_review_and_revision.yaml`, `tasks/final_polish.yaml`, `agents/story_architect_and_writer.yaml` (`backstory` field), `project-docs/qa/evidence/p3_transcript_scifi_story_team.txt` lines 17-129 (final panel mixing story + editorial rationale).
+
+## P3-F5 (positive, with caveat) — Full creative-writing E2E run completed with a coherent, well-crafted final story; refinements (tone, cost/model split, role merge) all verified to propagate correctly from chat to spec to build
+
+- Persona: 3. Journey stage: Run / Transcript. Team: `scifi_story_team`, goal: lighthouse-keeper short story with critique-then-polish.
+- All 3 tasks reported "Done"; the run banner showed "Complete" / "Run complete." The **final published story is genuinely complete, well-structured, on-theme (dark sci-fi, per the explicit "darker in tone" refinement), and does not visibly truncate or degrade** — a real, verifiable positive result for the underlying CrewAI pipeline's ability to execute a 3-stage creative pipeline and produce a finished, submission-quality piece of short fiction.
+- The critique stage's revisions are specific to this story (naming actual phrases like "voice like honey in winter," discussing Aldous/Mara/Wren by name) rather than generic feedback, and the polish stage's line-edit notes cite concrete before/after wording changes tied to the specific text — confirming, as in Persona 2's tagline run, that each stage genuinely operates on the prior stage's actual output rather than being simulated/independent.
+- Caveat (see P3-F2): this positive result exists *despite*, not because of, a real mid-pipeline truncation defect that was silently patched over by the downstream agents — so "the final output looks perfect" should not be read as "nothing went wrong internally."
+- Severity: N/A (positive finding, included per the audit brief's balance requirement).
+- Evidence: `project-docs/qa/evidence/p3_transcript_scifi_story_team.txt` (full 100,311-character transcript capture).
+
+---
+
+## Environment / setup facts (this session)
+
+- Commit under test: `b9460305bcc3f61dce51476816ac6bf8a9dc46a9` (branch `story_4_8`), matching Personas 1 and 2's sessions.
+- One team built and fully run this session: `scifi_story_team` (4 roles → merged to 3 mid-composition, 2 tone refinements, 1 explicit model-diversity request, full E2E run to completion).
+- Confirmed (again) via this session's `fill_input()` calls silently no-op'ing on both the compose and run-goal textareas: `click_at_xy` + `type_text()` is the reliable path; `fill_input()` should not be trusted without verifying `.value` afterward.
+- Did not repeat the "My Teams" / navigation-reload-during-run checks in this session — already thoroughly confirmed broken by Persona 2 (P2-F1, P2-F2); no new evidence to add.

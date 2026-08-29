@@ -212,6 +212,14 @@ so that regressions are caught automatically.
 **When** this story completes
 **Then** CI lanes exist for pytest and npm test, pytest.importorskip is replaced with proper required markers, conformance tests use KeyConfig.from_file properly, missing negative tests are added, oversized test files are split, and a browser test lane exists.
 
+#### Story 4.8: My Teams Auth Wiring
+As a user of the local web app, I want the web app to authenticate its own requests to the FastAPI backend,
+so that Story 4.1's fail-closed API-key auth doesn't lock me out of my own local app.
+**Acceptance Criteria:**
+**Given** Story 4.1 made `/api/teams/*` fail closed without a matching `X-API-Key`/`Authorization` header
+**When** the browser calls My Teams (or any other teams route) through the Next.js proxy
+**Then** a server-side Next.js middleware attaches `X-API-Key` from `TEAM_MAKER_API_KEY` before the request is proxied to FastAPI, the key is never exposed to browser JavaScript, and no key is fabricated (nor is the backend's fail-closed behavior weakened) when `TEAM_MAKER_API_KEY` is unset.
+
 ### Epic 5: Developer surface — API & embed
 A stable public API (compose-and-create, run) and CLI sufficient to create, run, and embed teams
 in third-party software without the UI.

@@ -73,6 +73,7 @@ development_status:
   4-5-api-contract-and-error-handling: done
   4-6-template-and-starter-system: done
   4-7-testing-infrastructure: done
+  4-8-my-teams-auth-wiring: review
   epic-4-retrospective: optional
 
   epic-5: backlog
