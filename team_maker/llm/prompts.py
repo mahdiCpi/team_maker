@@ -4,63 +4,14 @@ from __future__ import annotations
 import logging
 
 from team_maker.schema.request import TeamCreationRequest
+from team_maker.tools.catalog import TOOL_CATALOG
 
 logger = logging.getLogger("team_maker.llm.prompts")
 
-# Registry of available tools the planner can assign to agents.
-# Phase 2 will add real implementations; this drives planner awareness now.
-AVAILABLE_TOOLS: dict[str, str] = {
-    "git_account": (
-        "Full Git account management: create/clone/delete repos, manage branches, "
-        "open/review/merge PRs, create issues, manage GitHub Projects boards. "
-        "Requires a GitAccountConfig with a personal access token."
-    ),
-    "filesystem": (
-        "Read, write, create, and list files and directories inside the Docker workspace (/workspace). "
-        "Safe — cannot access paths outside the sandbox."
-    ),
-    "shell": (
-        "Execute arbitrary shell commands inside the Docker sandbox. "
-        "Use for builds, package installs, script execution, and any CLI tool."
-    ),
-    "docker_runner": (
-        "Build Docker images, run containers, push to registries. "
-        "Runs docker-in-docker inside the sandbox."
-    ),
-    "web_search": "Search the web for documentation, library APIs, best practices, and error solutions.",
-    "http_client": (
-        "Make authenticated HTTP requests to external REST or GraphQL APIs "
-        "(e.g. GitHub API, Jira, Slack, cloud provider APIs)."
-    ),
-    "test_runner": (
-        "Discover and run test suites: pytest, unittest, npm test, go test, cargo test, etc. "
-        "Returns pass/fail counts, coverage, and failure details."
-    ),
-    "ci_tool": (
-        "Trigger GitHub Actions / GitLab CI workflows and query their status. "
-        "Use for deployment gating and automated pipeline management."
-    ),
-    "code_writer": (
-        "Write, overwrite, or patch source code files in the workspace. "
-        "Preserves indentation and encoding."
-    ),
-    "code_reader": (
-        "Read and summarise source code files. "
-        "Useful for review agents and agents that need to understand existing code before modifying."
-    ),
-    "state_reader": (
-        "Read entries from the shared team state store. "
-        "Use to check what other agents have completed or decided."
-    ),
-    "state_writer": (
-        "Write entries to the shared team state store. "
-        "Use to publish decisions, artifacts, or status updates for other agents to consume."
-    ),
-    "context_reader": (
-        "Read files from the project context directory supplied by the user. "
-        "Use to access background documents, specifications, or domain knowledge before starting work."
-    ),
-}
+# Derived view over the canonical catalog (spec FR-001; audit RC-3). This used
+# to be its own hardcoded 13-name dict, one of three copies that had drifted
+# from each other — see team_maker/tools/catalog.py for the single source.
+AVAILABLE_TOOLS: dict[str, str] = {name: d.description for name, d in TOOL_CATALOG.items()}
 
 
 def build_system_prompt(extra_tools: dict[str, str] | None = None) -> str:

@@ -1,0 +1,414 @@
+generated_teams/ai_twitter_trends/agents/data_analyst.yaml:13:tools:
+generated_teams/ai_twitter_trends/agents/data_analyst.yaml-14-- web_search_tool
+generated_teams/ai_twitter_trends/agents/data_analyst.yaml-15-is_optional: false
+generated_teams/ai_twitter_trends/agents/data_analyst.yaml-16-is_orchestrator: false
+--
+generated_teams/ai_twitter_trends/agents/summary_writer.yaml:13:tools: []
+generated_teams/ai_twitter_trends/agents/summary_writer.yaml-14-is_optional: false
+generated_teams/ai_twitter_trends/agents/summary_writer.yaml-15-is_orchestrator: false
+--
+generated_teams/ai_twitter_trends/agents/twitter_scraper.yaml:13:tools:
+generated_teams/ai_twitter_trends/agents/twitter_scraper.yaml-14-- twitter_search_tool
+generated_teams/ai_twitter_trends/agents/twitter_scraper.yaml-15-- web_search_tool
+generated_teams/ai_twitter_trends/agents/twitter_scraper.yaml-16-is_optional: false
+generated_teams/ai_twitter_trends/agents/twitter_scraper.yaml-17-is_orchestrator: false
+--
+generated_teams/article_writing_team/agents/content_planner.yaml:12:tools: []
+generated_teams/article_writing_team/agents/content_planner.yaml-13-is_optional: false
+generated_teams/article_writing_team/agents/content_planner.yaml-14-is_orchestrator: false
+--
+generated_teams/article_writing_team/agents/editor.yaml:12:tools: []
+generated_teams/article_writing_team/agents/editor.yaml-13-is_optional: false
+generated_teams/article_writing_team/agents/editor.yaml-14-is_orchestrator: false
+--
+generated_teams/article_writing_team/agents/research_agent.yaml:12:tools:
+generated_teams/article_writing_team/agents/research_agent.yaml-13-- web_search
+generated_teams/article_writing_team/agents/research_agent.yaml-14-- scrape_webpage
+generated_teams/article_writing_team/agents/research_agent.yaml-15-is_optional: false
+generated_teams/article_writing_team/agents/research_agent.yaml-16-is_orchestrator: false
+--
+generated_teams/article_writing_team/agents/seo_optimizer.yaml:12:tools:
+generated_teams/article_writing_team/agents/seo_optimizer.yaml-13-- web_search
+generated_teams/article_writing_team/agents/seo_optimizer.yaml-14-is_optional: false
+generated_teams/article_writing_team/agents/seo_optimizer.yaml-15-is_orchestrator: false
+--
+generated_teams/article_writing_team/agents/writer.yaml:12:tools: []
+generated_teams/article_writing_team/agents/writer.yaml-13-is_optional: false
+generated_teams/article_writing_team/agents/writer.yaml-14-is_orchestrator: false
+--
+generated_teams/baseline_education_team/agents/clarity_reviewer.yaml:18:tools:
+generated_teams/baseline_education_team/agents/clarity_reviewer.yaml-19-- code_reader
+generated_teams/baseline_education_team/agents/clarity_reviewer.yaml-20-- text_analyser
+generated_teams/baseline_education_team/agents/clarity_reviewer.yaml-21-is_optional: false
+generated_teams/baseline_education_team/agents/clarity_reviewer.yaml-22-is_orchestrator: false
+--
+generated_teams/baseline_education_team/agents/researcher.yaml:16:tools:
+generated_teams/baseline_education_team/agents/researcher.yaml-17-- code_reader
+generated_teams/baseline_education_team/agents/researcher.yaml-18-- web_search
+generated_teams/baseline_education_team/agents/researcher.yaml-19-is_optional: false
+generated_teams/baseline_education_team/agents/researcher.yaml-20-is_orchestrator: false
+--
+generated_teams/baseline_education_team/agents/tutor.yaml:17:tools:
+generated_teams/baseline_education_team/agents/tutor.yaml-18-- code_reader
+generated_teams/baseline_education_team/agents/tutor.yaml-19-- diagram_generator
+generated_teams/baseline_education_team/agents/tutor.yaml-20-is_optional: false
+generated_teams/baseline_education_team/agents/tutor.yaml-21-is_orchestrator: true
+--
+generated_teams/code_review_and_testing/agents/code_reviewer.yaml:13:tools:
+generated_teams/code_review_and_testing/agents/code_reviewer.yaml-14-- code_reader_tool
+generated_teams/code_review_and_testing/agents/code_reviewer.yaml-15-- file_writer_tool
+generated_teams/code_review_and_testing/agents/code_reviewer.yaml-16-is_optional: false
+generated_teams/code_review_and_testing/agents/code_reviewer.yaml-17-is_orchestrator: false
+--
+generated_teams/code_review_and_testing/agents/test_runner.yaml:13:tools:
+generated_teams/code_review_and_testing/agents/test_runner.yaml-14-- shell_tool
+generated_teams/code_review_and_testing/agents/test_runner.yaml-15-- file_writer_tool
+generated_teams/code_review_and_testing/agents/test_runner.yaml-16-is_optional: false
+generated_teams/code_review_and_testing/agents/test_runner.yaml-17-is_orchestrator: false
+--
+generated_teams/code_review_and_testing/agents/test_writer.yaml:13:tools:
+generated_teams/code_review_and_testing/agents/test_writer.yaml-14-- code_reader_tool
+generated_teams/code_review_and_testing/agents/test_writer.yaml-15-- file_writer_tool
+generated_teams/code_review_and_testing/agents/test_writer.yaml-16-is_optional: false
+generated_teams/code_review_and_testing/agents/test_writer.yaml-17-is_orchestrator: false
+--
+generated_teams/code_review_team/agents/documentation_writer.yaml:15:tools:
+generated_teams/code_review_team/agents/documentation_writer.yaml-16-- file_read
+generated_teams/code_review_team/agents/documentation_writer.yaml-17-- file_write
+generated_teams/code_review_team/agents/documentation_writer.yaml-18-is_optional: false
+generated_teams/code_review_team/agents/documentation_writer.yaml-19-is_orchestrator: false
+--
+generated_teams/code_review_team/agents/pull_request_reviewer.yaml:15:tools:
+generated_teams/code_review_team/agents/pull_request_reviewer.yaml-16-- code_analysis
+generated_teams/code_review_team/agents/pull_request_reviewer.yaml-17-- web_search
+generated_teams/code_review_team/agents/pull_request_reviewer.yaml-18-is_optional: false
+generated_teams/code_review_team/agents/pull_request_reviewer.yaml-19-is_orchestrator: false
+--
+generated_teams/code_review_testing_team/agents/code_reader.yaml:14:tools:
+generated_teams/code_review_testing_team/agents/code_reader.yaml-15-- FileReadTool
+generated_teams/code_review_testing_team/agents/code_reader.yaml-16-- DirectoryReadTool
+generated_teams/code_review_testing_team/agents/code_reader.yaml-17-is_optional: false
+generated_teams/code_review_testing_team/agents/code_reader.yaml-18-is_orchestrator: false
+--
+generated_teams/code_review_testing_team/agents/test_runner.yaml:13:tools:
+generated_teams/code_review_testing_team/agents/test_runner.yaml-14-- CodeInterpreterTool
+generated_teams/code_review_testing_team/agents/test_runner.yaml-15-is_optional: false
+generated_teams/code_review_testing_team/agents/test_runner.yaml-16-is_orchestrator: false
+--
+generated_teams/code_review_testing_team/agents/test_writer.yaml:13:tools:
+generated_teams/code_review_testing_team/agents/test_writer.yaml-14-- FileWriterTool
+generated_teams/code_review_testing_team/agents/test_writer.yaml-15-- FileReadTool
+generated_teams/code_review_testing_team/agents/test_writer.yaml-16-is_optional: false
+generated_teams/code_review_testing_team/agents/test_writer.yaml-17-is_orchestrator: false
+--
+generated_teams/codebase_scanner/agents/code_scanner.yaml:14:tools:
+generated_teams/codebase_scanner/agents/code_scanner.yaml-15-- file_reader
+generated_teams/codebase_scanner/agents/code_scanner.yaml-16-- directory_traversal
+generated_teams/codebase_scanner/agents/code_scanner.yaml-17-- code_analysis
+generated_teams/codebase_scanner/agents/code_scanner.yaml-18-is_optional: false
+generated_teams/codebase_scanner/agents/code_scanner.yaml-19-is_orchestrator: false
+--
+generated_teams/codebase_scanner/agents/report_writer.yaml:13:tools:
+generated_teams/codebase_scanner/agents/report_writer.yaml-14-- file_writer
+generated_teams/codebase_scanner/agents/report_writer.yaml-15-is_optional: false
+generated_teams/codebase_scanner/agents/report_writer.yaml-16-is_orchestrator: false
+--
+generated_teams/competitive_market_research/agents/competitor_intelligence_gatherer.yaml:13:tools:
+generated_teams/competitive_market_research/agents/competitor_intelligence_gatherer.yaml-14-- web_search
+generated_teams/competitive_market_research/agents/competitor_intelligence_gatherer.yaml-15-- web_scraper
+generated_teams/competitive_market_research/agents/competitor_intelligence_gatherer.yaml-16-is_optional: false
+generated_teams/competitive_market_research/agents/competitor_intelligence_gatherer.yaml-17-is_orchestrator: false
+--
+generated_teams/competitive_market_research/agents/positioning_report_synthesizer.yaml:15:tools:
+generated_teams/competitive_market_research/agents/positioning_report_synthesizer.yaml-16-- file_writer
+generated_teams/competitive_market_research/agents/positioning_report_synthesizer.yaml-17-is_optional: false
+generated_teams/competitive_market_research/agents/positioning_report_synthesizer.yaml-18-is_orchestrator: false
+--
+generated_teams/competitor_pricing_researcher/agents/analyst.yaml:11:tools: []
+generated_teams/competitor_pricing_researcher/agents/analyst.yaml-12-is_optional: false
+generated_teams/competitor_pricing_researcher/agents/analyst.yaml-13-is_orchestrator: false
+--
+generated_teams/competitor_pricing_researcher/agents/memo_writer.yaml:11:tools:
+generated_teams/competitor_pricing_researcher/agents/memo_writer.yaml-12-- file_writer
+generated_teams/competitor_pricing_researcher/agents/memo_writer.yaml-13-is_optional: false
+generated_teams/competitor_pricing_researcher/agents/memo_writer.yaml-14-is_orchestrator: false
+--
+generated_teams/competitor_pricing_researcher/agents/web_researcher.yaml:11:tools:
+generated_teams/competitor_pricing_researcher/agents/web_researcher.yaml-12-- web_scraper
+generated_teams/competitor_pricing_researcher/agents/web_researcher.yaml-13-- search_tool
+generated_teams/competitor_pricing_researcher/agents/web_researcher.yaml-14-is_optional: false
+generated_teams/competitor_pricing_researcher/agents/web_researcher.yaml-15-is_orchestrator: false
+--
+generated_teams/customer_feedback_analyzer/agents/feedback_categorizer.yaml:14:tools:
+generated_teams/customer_feedback_analyzer/agents/feedback_categorizer.yaml-15-- file_read
+generated_teams/customer_feedback_analyzer/agents/feedback_categorizer.yaml-16-- file_write
+generated_teams/customer_feedback_analyzer/agents/feedback_categorizer.yaml-17-is_optional: false
+generated_teams/customer_feedback_analyzer/agents/feedback_categorizer.yaml-18-is_orchestrator: false
+--
+generated_teams/customer_feedback_analyzer/agents/insight_generator.yaml:13:tools:
+generated_teams/customer_feedback_analyzer/agents/insight_generator.yaml-14-- file_read
+generated_teams/customer_feedback_analyzer/agents/insight_generator.yaml-15-- file_write
+generated_teams/customer_feedback_analyzer/agents/insight_generator.yaml-16-is_optional: false
+generated_teams/customer_feedback_analyzer/agents/insight_generator.yaml-17-is_orchestrator: false
+--
+generated_teams/customer_persona_creator/agents/market_analyst.yaml:13:tools:
+generated_teams/customer_persona_creator/agents/market_analyst.yaml-14-- SerperDevTool
+generated_teams/customer_persona_creator/agents/market_analyst.yaml-15-- ScrapeWebsiteTool
+generated_teams/customer_persona_creator/agents/market_analyst.yaml-16-is_optional: false
+generated_teams/customer_persona_creator/agents/market_analyst.yaml-17-is_orchestrator: false
+--
+generated_teams/customer_persona_creator/agents/persona_architect.yaml:14:tools:
+generated_teams/customer_persona_creator/agents/persona_architect.yaml-15-- FileWriterTool
+generated_teams/customer_persona_creator/agents/persona_architect.yaml-16-is_optional: false
+generated_teams/customer_persona_creator/agents/persona_architect.yaml-17-is_orchestrator: false
+--
+generated_teams/customer_persona_creator/agents/product_strategist.yaml:14:tools:
+generated_teams/customer_persona_creator/agents/product_strategist.yaml-15-- FileReadTool
+generated_teams/customer_persona_creator/agents/product_strategist.yaml-16-- FileWriterTool
+generated_teams/customer_persona_creator/agents/product_strategist.yaml-17-is_optional: false
+generated_teams/customer_persona_creator/agents/product_strategist.yaml-18-is_orchestrator: false
+--
+generated_teams/customer_persona_creator/agents/qa_reviewer.yaml:14:tools:
+generated_teams/customer_persona_creator/agents/qa_reviewer.yaml-15-- FileReadTool
+generated_teams/customer_persona_creator/agents/qa_reviewer.yaml-16-is_optional: false
+generated_teams/customer_persona_creator/agents/qa_reviewer.yaml-17-is_orchestrator: false
+--
+generated_teams/customer_persona_creator/agents/user_researcher.yaml:12:tools:
+generated_teams/customer_persona_creator/agents/user_researcher.yaml-13-- SerperDevTool
+generated_teams/customer_persona_creator/agents/user_researcher.yaml-14-- ScrapeWebsiteTool
+generated_teams/customer_persona_creator/agents/user_researcher.yaml-15-is_optional: false
+generated_teams/customer_persona_creator/agents/user_researcher.yaml-16-is_orchestrator: false
+--
+generated_teams/data_pipeline_team/agents/researcher.yaml:13:tools:
+generated_teams/data_pipeline_team/agents/researcher.yaml-14-- web_search
+generated_teams/data_pipeline_team/agents/researcher.yaml-15-- http_request
+generated_teams/data_pipeline_team/agents/researcher.yaml-16-is_optional: false
+generated_teams/data_pipeline_team/agents/researcher.yaml-17-is_orchestrator: false
+--
+generated_teams/data_pipeline_team/agents/schema_designer.yaml:13:tools: []
+generated_teams/data_pipeline_team/agents/schema_designer.yaml-14-is_optional: false
+generated_teams/data_pipeline_team/agents/schema_designer.yaml-15-is_orchestrator: false
+--
+generated_teams/data_pipeline_team/agents/summarizer.yaml:13:tools: []
+generated_teams/data_pipeline_team/agents/summarizer.yaml-14-is_optional: false
+generated_teams/data_pipeline_team/agents/summarizer.yaml-15-is_orchestrator: false
+--
+generated_teams/devops_team/agents/cicd_manager.yaml:13:tools:
+generated_teams/devops_team/agents/cicd_manager.yaml-14-- shell_command
+generated_teams/devops_team/agents/cicd_manager.yaml-15-is_optional: false
+generated_teams/devops_team/agents/cicd_manager.yaml-16-is_orchestrator: false
+--
+generated_teams/devops_team/agents/deployment_agent.yaml:13:tools:
+generated_teams/devops_team/agents/deployment_agent.yaml-14-- docker_runner
+generated_teams/devops_team/agents/deployment_agent.yaml-15-- shell_command
+generated_teams/devops_team/agents/deployment_agent.yaml-16-is_optional: false
+generated_teams/devops_team/agents/deployment_agent.yaml-17-is_orchestrator: false
+--
+generated_teams/devops_team/agents/test_runner_agent.yaml:13:tools:
+generated_teams/devops_team/agents/test_runner_agent.yaml-14-- test_runner
+generated_teams/devops_team/agents/test_runner_agent.yaml-15-- shell_command
+generated_teams/devops_team/agents/test_runner_agent.yaml-16-is_optional: false
+generated_teams/devops_team/agents/test_runner_agent.yaml-17-is_orchestrator: false
+--
+generated_teams/fast_code_gen/agents/coder.yaml:12:tools: []
+generated_teams/fast_code_gen/agents/coder.yaml-13-is_optional: false
+generated_teams/fast_code_gen/agents/coder.yaml-14-is_orchestrator: false
+--
+generated_teams/fusion_policy_research_team/agents/literature_summarizer.yaml:14:tools:
+generated_teams/fusion_policy_research_team/agents/literature_summarizer.yaml-15-- file_writer
+generated_teams/fusion_policy_research_team/agents/literature_summarizer.yaml-16-is_optional: false
+generated_teams/fusion_policy_research_team/agents/literature_summarizer.yaml-17-is_orchestrator: false
+--
+generated_teams/fusion_policy_research_team/agents/policy_analyst.yaml:14:tools:
+generated_teams/fusion_policy_research_team/agents/policy_analyst.yaml-15-- file_reader
+generated_teams/fusion_policy_research_team/agents/policy_analyst.yaml-16-- text_analysis
+generated_teams/fusion_policy_research_team/agents/policy_analyst.yaml-17-is_optional: false
+generated_teams/fusion_policy_research_team/agents/policy_analyst.yaml-18-is_orchestrator: false
+--
+generated_teams/fusion_policy_research_team/agents/web_researcher.yaml:14:tools:
+generated_teams/fusion_policy_research_team/agents/web_researcher.yaml-15-- web_search
+generated_teams/fusion_policy_research_team/agents/web_researcher.yaml-16-- web_scraper
+generated_teams/fusion_policy_research_team/agents/web_researcher.yaml-17-- url_reader
+generated_teams/fusion_policy_research_team/agents/web_researcher.yaml-18-is_optional: false
+generated_teams/fusion_policy_research_team/agents/web_researcher.yaml-19-is_orchestrator: false
+--
+generated_teams/github_automation_team/agents/github_automation_agent.yaml:15:tools:
+generated_teams/github_automation_team/agents/github_automation_agent.yaml-16-- git_account_tool
+generated_teams/github_automation_team/agents/github_automation_agent.yaml-17-- shell_tool
+generated_teams/github_automation_team/agents/github_automation_agent.yaml-18-- file_read_tool
+generated_teams/github_automation_team/agents/github_automation_agent.yaml-19-- file_write_tool
+generated_teams/github_automation_team/agents/github_automation_agent.yaml-20-is_optional: false
+generated_teams/github_automation_team/agents/github_automation_agent.yaml-21-is_orchestrator: false
+--
+generated_teams/market_analysis_team/agents/market_researcher.yaml:13:tools: []
+generated_teams/market_analysis_team/agents/market_researcher.yaml-14-is_optional: false
+generated_teams/market_analysis_team/agents/market_researcher.yaml-15-is_orchestrator: false
+--
+generated_teams/market_analysis_team/agents/report_writer.yaml:13:tools: []
+generated_teams/market_analysis_team/agents/report_writer.yaml-14-is_optional: false
+generated_teams/market_analysis_team/agents/report_writer.yaml-15-is_orchestrator: false
+--
+generated_teams/meeting_summarizer/agents/action_item_extractor.yaml:12:tools: []
+generated_teams/meeting_summarizer/agents/action_item_extractor.yaml-13-is_optional: false
+generated_teams/meeting_summarizer/agents/action_item_extractor.yaml-14-is_orchestrator: false
+--
+generated_teams/meeting_summarizer/agents/summary_writer.yaml:12:tools: []
+generated_teams/meeting_summarizer/agents/summary_writer.yaml-13-is_optional: false
+generated_teams/meeting_summarizer/agents/summary_writer.yaml-14-is_orchestrator: false
+--
+generated_teams/pitch_and_critique/agents/pitch_drafter.yaml:15:tools: []
+generated_teams/pitch_and_critique/agents/pitch_drafter.yaml-16-is_optional: false
+generated_teams/pitch_and_critique/agents/pitch_drafter.yaml-17-is_orchestrator: false
+--
+generated_teams/pitch_and_critique/agents/skeptical_vc.yaml:31:tools: []
+generated_teams/pitch_and_critique/agents/skeptical_vc.yaml-32-is_optional: false
+generated_teams/pitch_and_critique/agents/skeptical_vc.yaml-33-is_orchestrator: false
+--
+generated_teams/research_team/agents/web_researcher.yaml:11:tools: []
+generated_teams/research_team/agents/web_researcher.yaml-12-is_optional: false
+generated_teams/research_team/agents/web_researcher.yaml-13-is_orchestrator: false
+--
+generated_teams/research_write_review/agents/researcher.yaml:13:tools:
+generated_teams/research_write_review/agents/researcher.yaml-14-- web_search
+generated_teams/research_write_review/agents/researcher.yaml-15-- scrape_webpage
+generated_teams/research_write_review/agents/researcher.yaml-16-is_optional: false
+generated_teams/research_write_review/agents/researcher.yaml-17-is_orchestrator: false
+--
+generated_teams/research_write_review/agents/reviewer.yaml:13:tools:
+generated_teams/research_write_review/agents/reviewer.yaml-14-- web_search
+generated_teams/research_write_review/agents/reviewer.yaml-15-is_optional: false
+generated_teams/research_write_review/agents/reviewer.yaml-16-is_orchestrator: false
+--
+generated_teams/research_write_review/agents/writer.yaml:13:tools: []
+generated_teams/research_write_review/agents/writer.yaml-14-is_optional: false
+generated_teams/research_write_review/agents/writer.yaml-15-is_orchestrator: false
+--
+generated_teams/scifi_story_team/agents/critical_editor.yaml:32:tools: []
+generated_teams/scifi_story_team/agents/critical_editor.yaml-33-is_optional: false
+generated_teams/scifi_story_team/agents/critical_editor.yaml-34-is_orchestrator: false
+--
+generated_teams/scifi_story_team/agents/prose_polisher.yaml:16:tools: []
+generated_teams/scifi_story_team/agents/prose_polisher.yaml-17-is_optional: false
+generated_teams/scifi_story_team/agents/prose_polisher.yaml-18-is_orchestrator: false
+--
+generated_teams/scifi_story_team/agents/story_architect_and_writer.yaml:23:tools: []
+generated_teams/scifi_story_team/agents/story_architect_and_writer.yaml-24-is_optional: false
+generated_teams/scifi_story_team/agents/story_architect_and_writer.yaml-25-is_orchestrator: false
+--
+generated_teams/security_monitor/agents/remediation_report_writer.yaml:13:tools:
+generated_teams/security_monitor/agents/remediation_report_writer.yaml-14-- file_writer
+generated_teams/security_monitor/agents/remediation_report_writer.yaml-15-is_optional: false
+generated_teams/security_monitor/agents/remediation_report_writer.yaml-16-is_orchestrator: false
+--
+generated_teams/security_monitor/agents/vulnerability_scanner.yaml:13:tools:
+generated_teams/security_monitor/agents/vulnerability_scanner.yaml-14-- code_reader
+generated_teams/security_monitor/agents/vulnerability_scanner.yaml-15-- file_search
+generated_teams/security_monitor/agents/vulnerability_scanner.yaml-16-is_optional: false
+generated_teams/security_monitor/agents/vulnerability_scanner.yaml-17-is_orchestrator: false
+--
+generated_teams/security_monitoring_team/agents/remediation_report_writer.yaml:13:tools:
+generated_teams/security_monitoring_team/agents/remediation_report_writer.yaml-14-- file_writer
+generated_teams/security_monitoring_team/agents/remediation_report_writer.yaml-15-is_optional: false
+generated_teams/security_monitoring_team/agents/remediation_report_writer.yaml-16-is_orchestrator: false
+--
+generated_teams/security_monitoring_team/agents/vulnerability_scanner.yaml:12:tools:
+generated_teams/security_monitoring_team/agents/vulnerability_scanner.yaml-13-- code_reader
+generated_teams/security_monitoring_team/agents/vulnerability_scanner.yaml-14-- file_search
+generated_teams/security_monitoring_team/agents/vulnerability_scanner.yaml-15-- shell_tool
+generated_teams/security_monitoring_team/agents/vulnerability_scanner.yaml-16-is_optional: false
+generated_teams/security_monitoring_team/agents/vulnerability_scanner.yaml-17-is_orchestrator: false
+--
+generated_teams/simple_test_team/agents/editor.yaml:11:tools: []
+generated_teams/simple_test_team/agents/editor.yaml-12-is_optional: false
+generated_teams/simple_test_team/agents/editor.yaml-13-is_orchestrator: false
+--
+generated_teams/simple_test_team/agents/researcher.yaml:11:tools: []
+generated_teams/simple_test_team/agents/researcher.yaml-12-is_optional: false
+generated_teams/simple_test_team/agents/researcher.yaml-13-is_orchestrator: false
+--
+generated_teams/simple_test_team/agents/writer.yaml:12:tools: []
+generated_teams/simple_test_team/agents/writer.yaml-13-is_optional: false
+generated_teams/simple_test_team/agents/writer.yaml-14-is_orchestrator: false
+--
+generated_teams/tagline_forge/agents/brainstormer.yaml:15:tools: []
+generated_teams/tagline_forge/agents/brainstormer.yaml-16-is_optional: false
+generated_teams/tagline_forge/agents/brainstormer.yaml-17-is_orchestrator: false
+--
+generated_teams/tagline_forge/agents/final_editor.yaml:15:tools: []
+generated_teams/tagline_forge/agents/final_editor.yaml-16-is_optional: false
+generated_teams/tagline_forge/agents/final_editor.yaml-17-is_orchestrator: false
+--
+generated_teams/tagline_forge/agents/skeptical_critic.yaml:18:tools: []
+generated_teams/tagline_forge/agents/skeptical_critic.yaml-19-is_optional: false
+generated_teams/tagline_forge/agents/skeptical_critic.yaml-20-is_orchestrator: false
+--
+generated_teams/text_analysis_team/agents/text_analyzer.yaml:13:tools: []
+generated_teams/text_analysis_team/agents/text_analyzer.yaml-14-is_optional: false
+generated_teams/text_analysis_team/agents/text_analyzer.yaml-15-is_orchestrator: false
+--
+generated_teams/thesis_outliner/agents/argument_architect.yaml:13:tools: []
+generated_teams/thesis_outliner/agents/argument_architect.yaml-14-is_optional: false
+generated_teams/thesis_outliner/agents/argument_architect.yaml-15-is_orchestrator: false
+--
+generated_teams/thesis_outliner/agents/chapter_planner.yaml:13:tools: []
+generated_teams/thesis_outliner/agents/chapter_planner.yaml-14-is_optional: false
+generated_teams/thesis_outliner/agents/chapter_planner.yaml-15-is_orchestrator: false
+--
+generated_teams/thesis_outliner/agents/editor_reviewer.yaml:13:tools: []
+generated_teams/thesis_outliner/agents/editor_reviewer.yaml-14-is_optional: false
+generated_teams/thesis_outliner/agents/editor_reviewer.yaml-15-is_orchestrator: false
+--
+generated_teams/thesis_outliner/agents/literature_advisor.yaml:14:tools: []
+generated_teams/thesis_outliner/agents/literature_advisor.yaml-15-is_optional: false
+generated_teams/thesis_outliner/agents/literature_advisor.yaml-16-is_orchestrator: false
+--
+generated_teams/thesis_outliner/agents/notes_analyst.yaml:13:tools:
+generated_teams/thesis_outliner/agents/notes_analyst.yaml-14-- file_read
+generated_teams/thesis_outliner/agents/notes_analyst.yaml-15-- text_summarizer
+generated_teams/thesis_outliner/agents/notes_analyst.yaml-16-is_optional: false
+generated_teams/thesis_outliner/agents/notes_analyst.yaml-17-is_orchestrator: false
+--
+generated_teams/weekly_newsletter_team/agents/newsletter_drafter.yaml:13:tools: []
+generated_teams/weekly_newsletter_team/agents/newsletter_drafter.yaml-14-is_optional: false
+generated_teams/weekly_newsletter_team/agents/newsletter_drafter.yaml-15-is_orchestrator: false
+--
+generated_teams/weekly_newsletter_team/agents/reviewer_and_copy_editor.yaml:19:tools: []
+generated_teams/weekly_newsletter_team/agents/reviewer_and_copy_editor.yaml-20-is_optional: false
+generated_teams/weekly_newsletter_team/agents/reviewer_and_copy_editor.yaml-21-is_orchestrator: false
+--
+generated_teams/weekly_planner/agents/intake_agent.yaml:12:tools: []
+generated_teams/weekly_planner/agents/intake_agent.yaml-13-is_optional: false
+generated_teams/weekly_planner/agents/intake_agent.yaml-14-is_orchestrator: false
+--
+generated_teams/weekly_planner/agents/planner_agent.yaml:12:tools: []
+generated_teams/weekly_planner/agents/planner_agent.yaml-13-is_optional: false
+generated_teams/weekly_planner/agents/planner_agent.yaml-14-is_orchestrator: false
+--
+generated_teams/weekly_planner/agents/scheduler_agent.yaml:13:tools: []
+generated_teams/weekly_planner/agents/scheduler_agent.yaml-14-is_optional: false
+generated_teams/weekly_planner/agents/scheduler_agent.yaml-15-is_orchestrator: false
+--
+generated_teams/writing_team/agents/content_strategist.yaml:14:tools:
+generated_teams/writing_team/agents/content_strategist.yaml-15-- search_tool
+generated_teams/writing_team/agents/content_strategist.yaml-16-- scrape_tool
+generated_teams/writing_team/agents/content_strategist.yaml-17-is_optional: false
+generated_teams/writing_team/agents/content_strategist.yaml-18-is_orchestrator: false
+--
+generated_teams/writing_team/agents/editor.yaml:13:tools: []
+generated_teams/writing_team/agents/editor.yaml-14-is_optional: false
+generated_teams/writing_team/agents/editor.yaml-15-is_orchestrator: false
+--
+generated_teams/writing_team/agents/researcher.yaml:14:tools:
+generated_teams/writing_team/agents/researcher.yaml-15-- search_tool
+generated_teams/writing_team/agents/researcher.yaml-16-- scrape_tool
+generated_teams/writing_team/agents/researcher.yaml-17-is_optional: false
+generated_teams/writing_team/agents/researcher.yaml-18-is_orchestrator: false
+--
+generated_teams/writing_team/agents/seo_specialist.yaml:13:tools:
+generated_teams/writing_team/agents/seo_specialist.yaml-14-- search_tool
+generated_teams/writing_team/agents/seo_specialist.yaml-15-is_optional: false
+generated_teams/writing_team/agents/seo_specialist.yaml-16-is_orchestrator: false
+--
+generated_teams/writing_team/agents/writer.yaml:14:tools: []
+generated_teams/writing_team/agents/writer.yaml-15-is_optional: false
+generated_teams/writing_team/agents/writer.yaml-16-is_orchestrator: false

@@ -23,6 +23,20 @@ def _run(request: TeamCreationRequest) -> PipelineResult:
     return PipelineRunner().run(request)
 
 
+def _authorize_risky_tools(monkeypatch, tmp_path, *tool_names: str) -> None:
+    """Phase 7's validator now checks RISKY-tool authorization (FR-037) —
+    denied by default (FR-052) absent an operator policy. These pipeline
+    tests are about build mechanics, not authorization semantics (that has
+    its own dedicated coverage under tests/unit/tools/ and
+    tests/unit/runtime/test_preflight.py), so they authorize what their
+    fixture's roles declare, exactly as a real operator enabling their
+    default template would."""
+    policy_file = tmp_path / "team_maker.tools.yaml"
+    enabled = "\n".join(f"  - {name}" for name in tool_names)
+    policy_file.write_text(f"enabled_tools:\n{enabled}\n", encoding="utf-8")
+    monkeypatch.setenv("TEAM_MAKER_TOOL_POLICY", str(policy_file))
+
+
 def _required_files():
     return [
         "README.md",
@@ -63,7 +77,8 @@ def test_full_pipeline_produces_task_files(full_request):
         assert path.exists(), f"Missing task file: tasks/{task.name}.yaml"
 
 
-def test_full_pipeline_validation_passes(full_request):
+def test_full_pipeline_validation_passes(full_request, monkeypatch, tmp_path):
+    _authorize_risky_tools(monkeypatch, tmp_path, "code_writer", "test_runner")
     result = _run(full_request)
     assert result.validation.passed, f"Validation issues: {result.validation.issues}"
 
@@ -94,7 +109,7 @@ def test_team_config_contains_team_name(full_request):
 
 def test_generation_report_contains_validation_status(full_request):
     result = _run(full_request)
-    report = (result.output_path / "generation_report.md").read_text()
+    report = (result.output_path / "generation_report.md").read_text(encoding="utf-8")
     assert "PASSED" in report or "FAILED" in report
 
 

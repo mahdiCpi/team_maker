@@ -252,6 +252,33 @@ def test_orchestrator_agent_selects_hierarchical_process_with_manager(monkeypatc
     assert [a.role for a in crew.agents] == ["engineer"]
 
 
+def test_hierarchical_manager_carries_no_tools_even_when_its_role_declares_them(monkeypatch):
+    """CrewAI 1.14.6 raises "Manager agent should not have tools" if a
+    hierarchical crew's `manager_agent` carries any `tools` — it only ever
+    delegates, never executes directly. Found while adding Phase 5's
+    resolver: a coordinator role declaring tools (e.g. `state_reader`,
+    `state_writer` — the software_delivery template's own default) used to
+    be silently safe only because RC-5 dropped every agent's tools
+    entirely; fixing RC-5 exposed this crewai constraint, which
+    `_build_crew` must respect by stripping the manager's tools specifically.
+    There is no "sequential orchestrator" case to contrast with: any
+    `is_orchestrator=True` agent always selects the hierarchical branch in
+    `_build_crew` (`next(... if a.is_orchestrator)`), regardless of
+    `topology_pattern`."""
+    team = _team(
+        [_agent("coordinator", is_orchestrator=True, tools=["shell"]), _agent("engineer")],
+        [_task("build", "engineer")],
+    )
+    captured: list = []
+    _install_fake_kickoff(
+        monkeypatch, captured, _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("x")])
+    )
+
+    CrewAIExecutionEngine().run(_runnable(team, "goal"), _creds(team, _ANTHROPIC_KEYS), "goal")
+
+    assert captured[0].manager_agent.tools == []
+
+
 def test_kickoff_receives_no_interpolation_inputs(monkeypatch):
     """Story 2.4 AC 5 superseded this test's original claim (that the goal
     reached the run via `kickoff(inputs={"goal": ...})`). Measured against the
@@ -343,6 +370,39 @@ def test_task_output_count_mismatch_raises_clear_error_instead_of_silent_truncat
 
     with pytest.raises(RuntimeError, match="task output"):
         CrewAIExecutionEngine().run(_runnable(team, "goal"), _creds(team, _ANTHROPIC_KEYS), "goal")
+
+
+def test_agent_declaring_tools_is_constructed_with_them(monkeypatch):
+    """RC-12 / audit §9 Step 0 regression oracle (spec FR-034, FR-036).
+
+    `AgentSpec.tools` is read off disk by `loader.py` and then discarded:
+    `_build_agent` never passes a `tools=` argument to `Agent(...)`. Every
+    pre-existing test here uses the shared `tools=[]` factory default, so an
+    engine that honours declared tools and one that silently drops them are
+    behaviourally identical under test — that is RC-12 exactly, and it is why
+    P0-1 shipped undetected.
+
+    This test is the fix for that blind spot: it declares a non-empty tool
+    list and asserts the constructed `Agent` actually carries a matching
+    tool. It MUST fail against the current engine (no `tools=` wiring exists
+    yet) and MUST start passing only once the Phase 5 resolver boundary
+    attaches resolved instances in `_build_agent`.
+    """
+    team = _team([_agent("architect", tools=["shell"])], [_task("design", "architect")])
+    captured: list = []
+    _install_fake_kickoff(
+        monkeypatch, captured, _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("design output")])
+    )
+
+    CrewAIExecutionEngine().run(_runnable(team, "ship it"), _creds(team, _ANTHROPIC_KEYS), "ship it")
+
+    [agent_obj] = captured[0].agents
+    tool_names = {getattr(t, "name", None) for t in (agent_obj.tools or [])}
+    assert "shell" in tool_names, (
+        f"agent declared tools=['shell'] but the constructed Agent carries no "
+        f"matching tool (got {tool_names!r}) - RC-5: _build_agent drops "
+        f"AgentSpec.tools entirely"
+    )
 
 
 def test_kickoff_failure_returns_a_run_result_with_error_set_instead_of_raising(monkeypatch):

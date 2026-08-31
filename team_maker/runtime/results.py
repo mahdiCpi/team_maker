@@ -58,6 +58,33 @@ class TranscriptEntry:
 
 
 @dataclass
+class ToolReceipt:
+    """Records that a tool executed — the sole admissible evidence for the
+    completion rule in `runtime/completion.py` (spec FR-026 to FR-029; audit
+    RC-11, P0-4).
+
+    Holds primitives only, matching `TranscriptEntry`'s own constraint
+    (AD-9/NFR3): no credential, no engine object. ``output_ref`` identifies
+    the corresponding transcript entry rather than carrying the output text
+    itself, so a receipt can never become a second place a secret leaks.
+
+    One receipt per execution. Repeated invocations of the same tool
+    produce repeated receipts. A receipt for a task that did not declare the
+    tool is still recorded — the completion rule keys on the declaring task
+    and ignores it.
+    """
+
+    sequence: int
+    tool_name: str
+    agent_role: str
+    task_name: str
+    arguments: dict[str, str]
+    succeeded: bool
+    timestamp: str
+    output_ref: str
+
+
+@dataclass
 class RunResult:
     """The final output plus every task's individual output, in batch.
 
@@ -71,9 +98,20 @@ class RunResult:
     with an exception. ``None`` means the run succeeded; every other field is
     then fully populated. A caller MUST check this field before treating a
     returned `RunResult` as a success.
+
+    ``tool_receipts`` and ``unevidenced_capabilities`` are additive too
+    (Phase 6, spec FR-028): every tool execution recorded during the run,
+    and which declared-REQUIRED capabilities produced no receipt. ``error``
+    keeps its existing meaning — a run that failed partway. A non-empty
+    ``unevidenced_capabilities`` is a **distinct** outcome (D-6): the run
+    completed without raising, but made a claim it cannot evidence, so it
+    MUST NOT be reported as successfully complete either — see
+    `runtime/completion.py`.
     """
 
     final_output: str
     task_results: list[TaskResult]
     transcript: list[TranscriptEntry] = field(default_factory=list)
     error: str | None = None
+    tool_receipts: list[ToolReceipt] = field(default_factory=list)
+    unevidenced_capabilities: list[str] = field(default_factory=list)

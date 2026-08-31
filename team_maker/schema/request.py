@@ -8,6 +8,9 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from team_maker.tools.catalog import is_canonical
+from team_maker.tools.validation import validate_declarations, validate_suggested_tool_credentials
+
 
 class DocumentationLevel(str, Enum):
     MINIMAL = "minimal"
@@ -125,7 +128,11 @@ class SandboxConfig(BaseModel):
         description="Host path mounted as /workspace inside the container",
     )
     extra_env: Dict[str, str] = Field(default_factory=dict)
-    network: Literal["none", "host", "bridge"] = "bridge"
+    # FR-073: network denied by default; "host" removed entirely — it defeats
+    # the sandbox regardless of who requests it (spec Amendment 6, D-IMPL-003).
+    # The operator's tool-policy `network_allowed` flag is the actual gate: this
+    # field only narrows further, it never widens past what the operator permits.
+    network: Literal["none", "bridge"] = "none"
 
 
 class TaskHint(BaseModel):
@@ -371,20 +378,45 @@ class TeamCreationRequest(BaseModel):
                         "telegram_chat_id_env": creds.get("chat_id_env", "TELEGRAM_CHAT_ID"),
                     }
 
-        # 4. Promote recognized tools from suggested_tools → tools in desired_roles.
+        # 4. Promote recognized tools from suggested_tools -> tools in desired_roles.
         #    suggested_tools may contain domain-specific names the planner reads as
-        #    hints; only the names that exist in the real tool registry are surfaced
-        #    as concrete tool assignments on the AgentSpec.
-        _REGISTRY_TOOLS = {
-            "git_account", "code_writer", "test_runner", "linter", "context_reader",
-            "shell", "filesystem", "docker_runner", "web_search", "http_client",
-            "ci_tool", "code_reader", "state_reader", "state_writer",
-        }
+        #    hints; only names in the canonical catalog (spec FR-001) are surfaced
+        #    as concrete tool assignments on the AgentSpec. Previously checked
+        #    against a locally-hardcoded `_REGISTRY_TOOLS` copy that had drifted
+        #    from the other two allowlists and carried a phantom "linter" entry
+        #    (audit RC-3, §2.2(a)) — now derives from the single canonical source.
         for role in values.get("desired_roles", []):
             if isinstance(role, dict) and "suggested_tools" in role and not role.get("tools"):
-                known = [t for t in role["suggested_tools"] if t in _REGISTRY_TOOLS]
+                known = [t for t in role["suggested_tools"] if is_canonical(t)]
                 if known:
                     role["tools"] = known
+
+        # 4.5. Gate every declared tool name against the canonical catalog (spec
+        #      FR-002, FR-003, FR-004; audit RC-3). This is the surface the old
+        #      `_REGISTRY_TOOLS` filter never saw: explicit `desired_roles[].tools`
+        #      declarations, not just the suggested_tools promotion above. An
+        #      unknown or alias-only name here fails schema validation, which the
+        #      Composer's repair loop treats as retry-worthy and, if the repair
+        #      budget is exhausted, surfaces visibly to the user (FR-056) rather
+        #      than silently reaching a generated package.
+        _tool_declarations: list[tuple[str, str]] = []
+        for role in values.get("desired_roles", []):
+            if isinstance(role, dict):
+                role_name = role.get("name", "<unnamed role>")
+                for tool_name in role.get("tools", []) or []:
+                    _tool_declarations.append((tool_name, role_name))
+        _outcome = validate_declarations(_tool_declarations, stage="compose")
+        if values.get("suggested_tools"):
+            _cred_outcome = validate_suggested_tool_credentials(values["suggested_tools"])
+        else:
+            _cred_outcome = None
+        _all_rejections = list(_outcome.rejections) + (
+            list(_cred_outcome.rejections) if _cred_outcome else []
+        )
+        if _all_rejections:
+            raise ValueError(
+                "Invalid tool declaration(s): " + "; ".join(str(r) for r in _all_rejections)
+            )
 
         # 5. Resolve model_registry string references.
         registry = values.get("model_registry")

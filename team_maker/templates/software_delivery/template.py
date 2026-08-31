@@ -38,7 +38,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "database_design",
             "technical_leadership",
         ],
-        "tools": ["code_reader", "diagram_generator"],
+        "tools": ["code_reader"],
     },
     "backend_engineer": {
         "display_name": "Backend Engineer",
@@ -55,7 +55,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "unit_testing",
             "code_review",
         ],
-        "tools": ["code_writer", "test_runner", "linter"],
+        "tools": ["code_writer", "test_runner"],
     },
     "frontend_engineer": {
         "display_name": "Frontend Engineer",
@@ -72,7 +72,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "performance_optimisation",
             "component_testing",
         ],
-        "tools": ["code_writer", "browser_preview", "linter"],
+        "tools": ["code_writer"],
     },
     "reviewer_qa": {
         "display_name": "Code Reviewer & QA Engineer",
@@ -89,7 +89,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "security_review",
             "documentation_review",
         ],
-        "tools": ["code_reader", "test_runner", "static_analyser"],
+        "tools": ["code_reader", "test_runner"],
     },
     "devops": {
         "display_name": "DevOps / Platform Engineer",
@@ -109,7 +109,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "deployment_automation",
             "security_hardening",
         ],
-        "tools": ["cli_runner", "config_generator", "monitoring_dashboard"],
+        "tools": [],
     },
     "coordinator": {
         "display_name": "Team Coordinator",
@@ -126,7 +126,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "blocker_resolution",
             "progress_reporting",
         ],
-        "tools": ["task_tracker", "communication_channel"],
+        "tools": ["state_reader", "state_writer"],
         "is_orchestrator": True,
     },
 }

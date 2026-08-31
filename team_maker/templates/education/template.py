@@ -35,7 +35,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "curriculum_design",
             "adaptive_learning",
         ],
-        "tools": ["code_reader", "diagram_generator"],
+        "tools": ["code_reader"],
         "is_orchestrator": True,
     },
     "researcher": {
@@ -71,7 +71,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "quality_assurance",
             "audience_analysis",
         ],
-        "tools": ["code_reader", "text_analyser"],
+        "tools": ["code_reader"],
         "is_orchestrator": False,
     },
 }

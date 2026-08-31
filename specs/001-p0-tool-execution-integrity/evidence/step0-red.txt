@@ -1,0 +1,71 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-9.1.1, pluggy-1.6.0 -- C:\Projects\CoinPela\Projects\team_maker\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Projects\CoinPela\Projects\team_maker
+configfile: pyproject.toml
+plugins: anyio-4.14.2, cov-7.1.0
+collecting ... collected 14 items / 13 deselected / 1 selected
+
+tests/unit/adapters/test_crewai_execution_engine.py::test_agent_declaring_tools_is_constructed_with_them FAILED [100%]
+
+================================== FAILURES ===================================
+_____________ test_agent_declaring_tools_is_constructed_with_them _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000209D820AFD0>
+
+    def test_agent_declaring_tools_is_constructed_with_them(monkeypatch):
+        """RC-12 / audit §9 Step 0 regression oracle (spec FR-034, FR-036).
+    
+        `AgentSpec.tools` is read off disk by `loader.py` and then discarded:
+        `_build_agent` never passes a `tools=` argument to `Agent(...)`. Every
+        pre-existing test here uses the shared `tools=[]` factory default, so an
+        engine that honours declared tools and one that silently drops them are
+        behaviourally identical under test — that is RC-12 exactly, and it is why
+        P0-1 shipped undetected.
+    
+        This test is the fix for that blind spot: it declares a non-empty tool
+        list and asserts the constructed `Agent` actually carries a matching
+        tool. It MUST fail against the current engine (no `tools=` wiring exists
+        yet) and MUST start passing only once the Phase 5 resolver boundary
+        attaches resolved instances in `_build_agent`.
+        """
+        team = _team([_agent("architect", tools=["shell"])], [_task("design", "architect")])
+        captured: list = []
+        _install_fake_kickoff(
+            monkeypatch, captured, _FakeCrewOutput(raw="final", tasks_output=[_FakeTaskOutput("design output")])
+        )
+    
+        CrewAIExecutionEngine().run(_runnable(team, "ship it"), _creds(team, _ANTHROPIC_KEYS), "ship it")
+    
+        [agent_obj] = captured[0].agents
+        tool_names = {getattr(t, "name", None) for t in (agent_obj.tools or [])}
+>       assert "shell" in tool_names, (
+            f"agent declared tools=['shell'] but the constructed Agent carries no "
+            f"matching tool (got {tool_names!r}) - RC-5: _build_agent drops "
+            f"AgentSpec.tools entirely"
+        )
+E       AssertionError: agent declared tools=['shell'] but the constructed Agent carries no matching tool (got set()) - RC-5: _build_agent drops AgentSpec.tools entirely
+E       assert 'shell' in set()
+
+tests\unit\adapters\test_crewai_execution_engine.py:374: AssertionError
+============================== warnings summary ===============================
+tests/unit/adapters/test_crewai_execution_engine.py::test_agent_declaring_tools_is_constructed_with_them
+  C:\Projects\CoinPela\Projects\team_maker\.venv\Lib\site-packages\crewai\agent\core.py:358: DeprecationWarning: function_calling_llm is deprecated and will be removed in a future release.
+    if self.function_calling_llm and not isinstance(
+
+tests/unit/adapters/test_crewai_execution_engine.py::test_agent_declaring_tools_is_constructed_with_them
+  C:\Projects\CoinPela\Projects\team_maker\.venv\Lib\site-packages\crewai\agent\core.py:366: DeprecationWarning: deprecated
+    if self.allow_code_execution:
+
+tests/unit/adapters/test_crewai_execution_engine.py::test_agent_declaring_tools_is_constructed_with_them
+  C:\Projects\CoinPela\Projects\team_maker\.venv\Lib\site-packages\crewai\agent\core.py:377: DeprecationWarning: deprecated
+    if self.reasoning and self.planning_config is None:
+
+tests/unit/adapters/test_crewai_execution_engine.py::test_agent_declaring_tools_is_constructed_with_them
+  C:\Projects\CoinPela\Projects\team_maker\.venv\Lib\site-packages\crewai\crew.py:627: DeprecationWarning: function_calling_llm is deprecated and will be removed in a future release.
+    if self.function_calling_llm and not isinstance(self.function_calling_llm, LLM):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/unit/adapters/test_crewai_execution_engine.py::test_agent_declaring_tools_is_constructed_with_them
+================ 1 failed, 13 deselected, 4 warnings in 5.96s =================

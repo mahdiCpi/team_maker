@@ -36,7 +36,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "data_analysis",
             "context_research",
         ],
-        "tools": ["code_reader", "web_search", "data_analyser"],
+        "tools": ["code_reader", "web_search"],
         "is_orchestrator": False,
     },
     "writer": {
@@ -54,7 +54,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "audience_adaptation",
             "style_consistency",
         ],
-        "tools": ["code_writer", "text_editor", "outline_generator"],
+        "tools": ["code_writer"],
         "is_orchestrator": False,
     },
     "fact_checker": {
@@ -73,7 +73,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "citation_checking",
             "accuracy_auditing",
         ],
-        "tools": ["code_reader", "web_search", "source_validator"],
+        "tools": ["code_reader", "web_search"],
         "is_orchestrator": False,
     },
     "editor": {
@@ -92,7 +92,7 @@ _ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
             "clarity_improvement",
             "final_review",
         ],
-        "tools": ["code_reader", "text_analyser", "style_guide"],
+        "tools": ["code_reader"],
         "is_orchestrator": True,
     },
 }

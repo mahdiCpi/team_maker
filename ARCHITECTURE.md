@@ -130,6 +130,49 @@ from team_maker.templates.my_team.template import MyTeamTemplate  # noqa
 
 ---
 
+## Tool execution integrity (P0 remediation, spec `specs/001-p0-tool-execution-integrity/`)
+
+Runtime execution (`team_maker/runtime/`, `team_maker/adapters/runtime_crewai/`,
+`team_maker/ports/execution_engine.py`) predates this section and is unchanged by it except where
+noted below.
+
+- **Canonical catalog** (`tools/catalog.py`) — the single source of tool identity. `prompts.py`,
+  `schema/request.py` and the generated registry all derive their view from `TOOL_CATALOG` rather than
+  restating it. Each entry carries a `RiskClass` (SAFE/RISKY) and `required_credentials`.
+  `CONDITIONALLY_AVAILABLE_TOOL_NAMES` marks the few entries whose codegen binding depends on an
+  optional dependency (`crewai-tools`, never a team_maker dependency itself).
+- **Authorization boundary** (`tools/authorization.py`, `tools/config.py`) — a RISKY tool executes only
+  when assigned, canonical, and either SAFE or explicitly operator-enabled. Authorization policy is a
+  single operator-owned file (`team_maker.tools.yaml`, mirroring the `team_maker.keys` convention),
+  entirely separate from the team-authoring schema — the requesting user's request can never grant
+  itself permission.
+- **Execution policy** (`tools/policy.py`, `tools/limits.py`, `tools/identifiers.py`) — mandatory
+  Docker sandboxing with no opt-out, a mount allowlist evaluated resolve→allow→deny→mode, a
+  dangerous-location floor that no configuration can reduce, and a single defaults table for every
+  resource control (network, timeouts, CPU/memory/process/output/storage). The same algorithm is
+  rendered as self-contained Python into the generated package's `tools.py` (no team_maker import
+  there) so a standalone run enforces identically to the product's own run path.
+- **`ToolResolver` port** (`ports/tool_resolver.py`) and its **`PackageToolResolver` adapter**
+  (`adapters/tools/package_tool_resolver.py`) — the one seam where a declared tool name becomes a
+  usable instance, and the only code that ever loads a generated package's `tools.py`. Wired into
+  `CrewAIExecutionEngine` via an optional `tool_resolver` constructor argument (defaults to a
+  no-package fallback so the engine's own unit tests need no package on disk). Detects and refuses a
+  pre-remediation-shape package outright rather than partially loading it.
+- **Receipts and completion** (`runtime/results.py`'s `ToolReceipt`, `runtime/completion.py`) — every
+  tool execution is recorded (success or failure) via `transcript_capture.py`'s existing crewai event
+  subscription; a task cannot be reported successfully complete unless every capability it marks
+  *required* has a receipt, and a claimed action needs a *successful* receipt specifically.
+- **Preflight gate** (`runtime/preflight.py`) — before any agent is constructed:
+  `check_tool_authorization` (denied vs. permitted) and `check_tool_availability` (unknown, missing
+  credential, unresolvable) are deliberately separate checks/exceptions, so a diagnostic can always
+  tell "not permitted here" from "not available here". `check_mount_allowlist_safety` catches an
+  operator policy edited to add a dangerous mount between build and run.
+- **Unchanged by this remediation**: the CrewAI version pin and AD-7's provider-routing/credential
+  conformance gate (`tests/conformance/`) — verified, not merely assumed, by running that suite
+  unmodified against every change above.
+
+---
+
 ## Future work (V2+)
 
 - Multiple output formats: JSON schema, LangGraph configs, AutoGen configs

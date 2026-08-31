@@ -41,7 +41,12 @@ from team_maker.domain.models import GeneratedTeam
 from team_maker.keyconfig import KeyConfig
 from team_maker.ports.execution_engine import ExecutionEngine
 from team_maker.runtime.loader import load_team_package
-from team_maker.runtime.preflight import check_credentials
+from team_maker.runtime.preflight import (
+    check_credentials,
+    check_mount_allowlist_safety,
+    check_tool_authorization,
+    check_tool_availability,
+)
 from team_maker.runtime.results import RunResult
 from team_maker.runtime.run_context import RunDocument, augment_team_for_run
 
@@ -118,10 +123,27 @@ def run_team_package(
         credentials = check_credentials(team, key_config)
 
         if engine is None:
+            # FR-058: the full tool pre-run gate runs before any agent is
+            # constructed (FR-023, FR-055) — declaring a tool is not
+            # authorization (FR-051). Two separate checks so "not permitted
+            # here" (authorization) and "not available here" (unknown,
+            # uncredentialed, unresolvable) stay distinct reason classes
+            # (T107), rather than one undifferentiated refusal. Only for the
+            # default engine: a caller supplying its own `engine` (every
+            # pre-Phase-5 test) is unaffected, matching the existing
+            # `engine=None` convention.
             from team_maker.adapters.runtime_crewai.crewai_execution_engine import (
                 CrewAIExecutionEngine,
             )
+            from team_maker.adapters.tools.package_tool_resolver import PackageToolResolver
+            from team_maker.tools.config import load_tool_policy
 
-            engine = CrewAIExecutionEngine()
+            policy = load_tool_policy()
+            check_tool_authorization(team, policy.authorization)
+            check_tool_availability(team, package_path)
+            check_mount_allowlist_safety(policy)
+
+            resolver = PackageToolResolver(package_path, key_config)
+            engine = CrewAIExecutionEngine(tool_resolver=resolver)
 
         return engine.run(team, credentials, goal)

@@ -24,6 +24,19 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _authorize_risky_tools(monkeypatch, tmp_path, *tool_names: str) -> None:
+    """Phase 7's validator checks RISKY-tool authorization (FR-037), denied
+    by default (FR-052) absent an operator policy. These tests are about
+    starter-team build mechanics, not authorization semantics, so they
+    authorize what the fixture's roles declare — `research_content_team`'s
+    `writer` role declares `code_writer` — exactly as a real operator
+    enabling their starter template would."""
+    policy_file = tmp_path / "team_maker.tools.yaml"
+    enabled = "\n".join(f"  - {name}" for name in tool_names)
+    policy_file.write_text(f"enabled_tools:\n{enabled}\n", encoding="utf-8")
+    monkeypatch.setenv("TEAM_MAKER_TOOL_POLICY", str(policy_file))
+
+
 # ---------------------------------------------------------------------------
 # Fixture: load example YAMLs
 # ---------------------------------------------------------------------------
@@ -81,15 +94,16 @@ def test_baseline_education_team_builds_and_validates(
 
 
 def test_research_content_team_builds_and_validates(
-    research_content_request: TeamCreationRequest, tmp_path
+    research_content_request: TeamCreationRequest, tmp_path, monkeypatch
 ) -> None:
     """AC 3: research_content_team_request.yaml builds to a valid package.
-    
+
     Given the curated research/content team YAML,
     when loaded, validated against TeamCreationRequest, and run through
     PipelineRunner().run(),
     then it produces a PipelineResult whose validation.passed is True.
     """
+    _authorize_risky_tools(monkeypatch, tmp_path, "code_writer")
     # Point output to temp directory to avoid filesystem conflicts
     research_content_request.output_path = str(tmp_path / "research_content_team")
     research_content_request.overwrite = True
@@ -127,8 +141,10 @@ def test_all_starter_teams_validate(
     yaml_filename: str,
     expected_template: str,
     tmp_path,
+    monkeypatch,
 ) -> None:
     """Parameterized test: both starter team YAMLs build and validate successfully."""
+    _authorize_risky_tools(monkeypatch, tmp_path, "code_writer")
     yaml_path = repo_root / "examples" / "starters" / yaml_filename
     raw = load_yaml(yaml_path)
     request = TeamCreationRequest(**raw)

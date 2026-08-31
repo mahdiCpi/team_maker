@@ -17,7 +17,9 @@ Engine-agnostic by construction — no crewai import, enforced by
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Sequence
 
 from team_maker.adapters.providers.registry import (
@@ -28,6 +30,8 @@ from team_maker.adapters.providers.registry import (
 from team_maker.adapters.providers.resolution import UnqualifiedModelError, resolve_credential
 from team_maker.domain.models import GeneratedTeam, ResolvedCredential
 from team_maker.keyconfig import KeyConfig
+from team_maker.tools.authorization import AuthorizationPolicy
+from team_maker.tools.config import ToolPolicyConfig
 
 
 @dataclass(frozen=True)
@@ -138,6 +142,170 @@ def check_credentials(
         )
 
     return resolved
+
+
+class UnauthorizedToolError(Exception):
+    """One or more declared RISKY tools are not authorized by operator
+    policy (spec FR-050 to FR-055, FR-058).
+
+    Distinct from an unresolvable tool (`UnresolvableToolError`) — this
+    tool exists and could run, but the operator has not permitted it. FR-051:
+    a team declaring a tool is not authorization, so this check runs at
+    preflight, before any agent is constructed, exactly like
+    `check_credentials`.
+    """
+
+    def __init__(self, denied: Sequence[str]) -> None:
+        self.denied = tuple(denied)
+        super().__init__(self.denied)
+
+    def __str__(self) -> str:
+        return (
+            f"tool(s) {list(self.denied)} are RISKY and not authorized by operator policy. "
+            f"RISKY tools are denied by default — the operator must explicitly enable them "
+            f"before a run declaring them can start."
+        )
+
+
+def check_tool_authorization(team: GeneratedTeam, policy: AuthorizationPolicy) -> None:
+    """Evaluate RISKY-tool authorization for every agent's declared tools,
+    before any agent is constructed (spec FR-055, FR-058, Amendment 1).
+
+    Collect-don't-short-circuit, matching `check_credentials`: every denied
+    tool is named in one refusal. Applies identically regardless of package
+    provenance (FR-080) — this function takes only the team and the policy,
+    never anything that could differ for a hand-edited or third-party
+    package.
+    """
+    from team_maker.tools.authorization import check_authorization
+
+    declared = sorted({t for agent in team.agents for t in agent.tools})
+    denied = check_authorization(declared, policy)
+    if denied:
+        raise UnauthorizedToolError(denied)
+
+
+class UnavailableToolError(Exception):
+    """One or more declared tools are unknown, invalid, unresolvable in this
+    package, or missing a required credential in this environment (spec
+    FR-030, FR-031, FR-067, FR-068).
+
+    Distinct from `UnauthorizedToolError` (T107, FR-058): a diagnostic can
+    tell "not permitted here" (authorization — the tool could run if
+    enabled) from "not available here" (this exception — the tool cannot
+    run regardless of authorization). Collect-don't-short-circuit: every
+    problem is named in one refusal (FR-031), never a credential's value
+    (AD-9).
+    """
+
+    def __init__(self, problems: Sequence[str]) -> None:
+        self.problems = tuple(problems)
+        super().__init__(self.problems)
+
+    def __str__(self) -> str:
+        return "; ".join(self.problems)
+
+
+class UnsafeMountPolicyError(Exception):
+    """The operator's own mount allowlist contains an entry that itself
+    resolves to a dangerous location (spec FR-032) — caught here, before
+    any agent runs, rather than only when a `docker_runner` call is
+    actually attempted deep into the run."""
+
+    def __init__(self, aliases: Sequence[str]) -> None:
+        self.aliases = tuple(aliases)
+        super().__init__(self.aliases)
+
+    def __str__(self) -> str:
+        return (
+            f"operator mount allowlist entries {list(self.aliases)} resolve to a "
+            f"dangerous location and must be removed from the policy file"
+        )
+
+
+def check_tool_availability(team: GeneratedTeam, package_path: Path) -> None:
+    """FR-030, FR-031, FR-058, FR-067, FR-068: hard-fail when a declared
+    tool is unknown/invalid, missing a required credential, or unresolvable
+    in this package — before any agent is constructed. Deliberately
+    excludes authorization (T107; see `check_tool_authorization`), so a
+    caller can tell "not permitted here" from "not available here" instead
+    of one undifferentiated refusal.
+
+    Applies identically regardless of package provenance (FR-080): this
+    function consults only `team` and `package_path`, so a hand-edited or
+    third-party package gets the exact same checks as a factory-built one.
+    Collect-don't-short-circuit (FR-031): every problem is named in one
+    refusal, naming the tool and what would satisfy it (FR-068), never a
+    credential's value (AD-9).
+    """
+    from team_maker.adapters.tools.package_tool_resolver import (
+        PackageToolResolver,
+        PreRemediationPackageError,
+    )
+    from team_maker.ports.tool_resolver import (
+        ToolPolicyError,
+        UnknownToolError,
+        UnresolvableToolError,
+    )
+    from team_maker.tools.catalog import CONDITIONALLY_AVAILABLE_TOOL_NAMES, TOOL_CATALOG
+    from team_maker.tools.validation import validate_declarations
+
+    declarations = [(name, agent.role) for agent in team.agents for name in agent.tools]
+    if not declarations:
+        return
+
+    problems: list[str] = []
+
+    outcome = validate_declarations(declarations, stage="preflight")
+    problems.extend(str(rejection) for rejection in outcome.rejections)
+    unknown_names = {rejection.tool_name for rejection in outcome.rejections}
+    canonical_names = sorted({name for name, _ in declarations if name not in unknown_names})
+
+    # FR-067/FR-068: required credentials, named never valued (AD-9).
+    # Skips CONDITIONALLY_AVAILABLE_TOOL_NAMES (D-IMPL-007): those three
+    # names' own missing-credential case is already handled leniently by
+    # `PackageToolResolver.resolve_all` below (warn and omit, since Phase 7's
+    # proper actionable-hard-failure treatment doesn't fully exist yet) —
+    # hard-failing on the credential here would silently re-break exactly
+    # what that mechanism exists to keep working.
+    for name in canonical_names:
+        if name in CONDITIONALLY_AVAILABLE_TOOL_NAMES:
+            continue
+        for env_var in TOOL_CATALOG[name].required_credentials:
+            if not os.environ.get(env_var):
+                problems.append(
+                    f"tool '{name}' requires credential '{env_var}', which is not set "
+                    f"in the environment — set {env_var} to use this tool"
+                )
+
+    try:
+        PackageToolResolver(package_path).resolve_all(canonical_names)
+    except PreRemediationPackageError as exc:
+        problems.append(str(exc))
+    except (UnresolvableToolError, UnknownToolError, ToolPolicyError) as exc:
+        problems.append(str(exc))
+
+    if problems:
+        raise UnavailableToolError(problems)
+
+
+def check_mount_allowlist_safety(policy: ToolPolicyConfig) -> None:
+    """FR-032, FR-016, FR-079: every mount the operator's current policy
+    would permit still satisfies the dangerous-location floor at run time.
+    The rendered package already re-checks this on every actual
+    `docker_runner` call (`tools.py.j2`'s `_evaluate_mount`); this is the
+    same guarantee applied once, up front, so a policy file edited to add a
+    dangerous entry between build and run is refused before the run starts
+    rather than only when that call is eventually reached."""
+    from team_maker.tools.policy import is_dangerous
+
+    dangerous = [
+        entry.alias
+        for entry in policy.mount_allowlist.entries
+        if is_dangerous(Path(entry.host_path).expanduser().resolve())
+    ]
+    if dangerous:
+        raise UnsafeMountPolicyError(dangerous)
 
 
 def _reject_duplicate_roles(team: GeneratedTeam) -> None:

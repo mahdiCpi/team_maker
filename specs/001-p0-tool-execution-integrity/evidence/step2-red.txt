@@ -1,0 +1,454 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-9.1.1, pluggy-1.6.0 -- C:\Projects\CoinPela\Projects\team_maker\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Projects\CoinPela\Projects\team_maker
+configfile: pyproject.toml
+plugins: anyio-4.14.2, cov-7.1.0
+collecting ... collected 43 items
+
+tests/security/test_mount_allowlist.py::test_non_allowlisted_mount_refused_product_side PASSED [  2%]
+tests/security/test_mount_allowlist.py::test_deny_beats_allow_product_side PASSED [  4%]
+tests/security/test_mount_allowlist.py::test_mount_without_explicit_writable_defaults_read_only PASSED [  6%]
+tests/security/test_mount_allowlist.py::test_refusal_never_degrades_to_running_without_the_mount FAILED [  9%]
+tests/security/test_mount_allowlist.py::test_generated_package_mirror_refuses_non_allowlisted_mount FAILED [ 11%]
+tests/security/test_mount_allowlist.py::test_generated_package_mirror_denies_dangerous_location_even_if_allowlisted FAILED [ 13%]
+tests/security/test_mount_allowlist.py::test_generated_package_mirror_accepts_allowlisted_safe_path FAILED [ 16%]
+tests/security/test_no_stub_shadowing.py::test_each_risky_tool_defined_exactly_once FAILED [ 18%]
+tests/security/test_no_stub_shadowing.py::test_registry_has_no_duplicate_keys PASSED [ 20%]
+tests/security/test_no_stub_shadowing.py::test_registry_resolves_to_the_real_implementation FAILED [ 23%]
+tests/security/test_no_stub_shadowing.py::test_suggested_tool_matching_a_real_name_does_not_shadow_it FAILED [ 25%]
+tests/security/test_safe_error_identifiers.py::test_non_allowlisted_refusal_names_a_sanitized_identifier_not_the_raw_path PASSED [ 27%]
+tests/security/test_safe_error_identifiers.py::test_dangerous_location_refusal_names_the_operator_alias_not_the_raw_path PASSED [ 30%]
+tests/security/test_safe_error_identifiers.py::test_sanitized_identifier_is_stable_and_non_reversible PASSED [ 32%]
+tests/security/test_safe_error_identifiers.py::test_generated_package_mirror_never_leaks_the_raw_path_on_refusal FAILED [ 34%]
+tests/security/test_safe_tool_boundary.py::test_catalog_agrees_these_names_are_safe PASSED [ 37%]
+tests/security/test_safe_tool_boundary.py::test_no_safe_tool_calls_subprocess_directly FAILED [ 39%]
+tests/security/test_safe_tool_boundary.py::test_no_safe_tool_writes_outside_the_sandbox_workspace PASSED [ 41%]
+tests/security/test_safe_tool_boundary.py::test_context_reader_only_reads_within_its_declared_directory PASSED [ 44%]
+tests/security/test_sandbox_controls.py::test_network_denied_by_default PASSED [ 46%]
+tests/security/test_sandbox_controls.py::test_network_permitted_only_when_operator_policy_allows PASSED [ 48%]
+tests/security/test_sandbox_controls.py::test_every_docker_invocation_carries_the_resource_flags FAILED [ 51%]
+tests/security/test_sandbox_controls.py::test_per_class_timeouts_preserved_and_distinct PASSED [ 53%]
+tests/security/test_sandbox_controls.py::test_process_timeout_breach_terminates FAILED [ 55%]
+tests/security/test_sandbox_controls.py::test_output_size_breach_terminates_rather_than_truncating FAILED [ 58%]
+tests/security/test_sandbox_controls.py::test_output_at_exactly_the_cap_is_not_a_breach FAILED [ 60%]
+tests/security/test_sandbox_controls.py::test_agent_supplied_control_values_are_ignored_not_merged FAILED [ 62%]
+tests/security/test_sandbox_fail_closed.py::test_no_environment_variable_or_config_can_disable_sandboxing FAILED [ 65%]
+tests/security/test_sandbox_fail_closed.py::test_runtime_absent_refuses FAILED [ 67%]
+tests/security/test_sandbox_fail_closed.py::test_runtime_present_but_unreachable_refuses_on_timeout FAILED [ 69%]
+tests/security/test_sandbox_fail_closed.py::test_runtime_present_but_unreachable_refuses_on_oserror FAILED [ 72%]
+tests/security/test_sandbox_fail_closed.py::test_daemon_unreachable_nonzero_returncode_refuses FAILED [ 74%]
+tests/security/test_sandbox_fail_closed.py::test_sandbox_image_unavailable_refuses_distinctly FAILED [ 76%]
+tests/security/test_sandbox_fail_closed.py::test_declared_control_unenforceable_refuses_distinctly FAILED [ 79%]
+tests/security/test_sandbox_fail_closed.py::test_generic_container_creation_failure_refuses_distinctly FAILED [ 81%]
+tests/security/test_sandbox_fail_closed.py::test_containerized_command_failure_is_not_a_sandbox_refusal FAILED [ 83%]
+tests/security/test_sandbox_fail_closed.py::test_sandbox_unavailable_mid_run_refuses_on_next_call FAILED [ 86%]
+tests/security/test_sandbox_fail_closed.py::test_sandbox_unavailable_never_falls_back_to_host_execution FAILED [ 88%]
+tests/security/test_tool_authorization.py::test_risky_tool_declared_without_operator_enablement_is_denied PASSED [ 90%]
+tests/security/test_tool_authorization.py::test_every_risky_tool_is_denied_under_empty_policy PASSED [ 93%]
+tests/security/test_tool_authorization.py::test_absent_policy_file_denies_every_risky_tool PASSED [ 95%]
+tests/security/test_tool_authorization.py::test_malformed_policy_file_denies_rather_than_raising PASSED [ 97%]
+tests/security/test_tool_authorization.py::test_no_agent_supplied_input_reaches_the_policy_decision PASSED [100%]
+
+================================== FAILURES ===================================
+__________ test_refusal_never_degrades_to_running_without_the_mount ___________
+
+tmp_path = WindowsPath('C:/Users/gurua/AppData/Local/Temp/pytest-of-gurua/pytest-556/test_refusal_never_degrades_to0')
+
+    def test_refusal_never_degrades_to_running_without_the_mount(tmp_path):
+        """`docker_runner_tool` must raise on a non-allowlisted mount rather than
+        silently running the container without it."""
+        module = load_tools_module()
+>       with pytest.raises(module.ToolPolicyRefusal, match="not in the operator-configured allowlist"):
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'ToolPolicyRefusal'
+
+tests\security\test_mount_allowlist.py:56: AttributeError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+------------------------------ Captured log call ------------------------------
+WARNING  dotenv.main:main.py:35 python-dotenv could not parse statement starting at line 1
+WARNING  dotenv.main:main.py:35 python-dotenv could not parse statement starting at line 1
+WARNING  dotenv.main:main.py:35 python-dotenv could not parse statement starting at line 1
+WARNING  dotenv.main:main.py:35 python-dotenv could not parse statement starting at line 1
+WARNING  dotenv.main:main.py:35 python-dotenv could not parse statement starting at line 1
+WARNING  dotenv.main:main.py:35 python-dotenv could not parse statement starting at line 1
+WARNING  dotenv.main:main.py:35 python-dotenv could not parse statement starting at line 1
+WARNING  dotenv.main:main.py:35 python-dotenv could not parse statement starting at line 1
+_________ test_generated_package_mirror_refuses_non_allowlisted_mount _________
+
+    def test_generated_package_mirror_refuses_non_allowlisted_mount():
+        module = load_tools_module()
+>       with pytest.raises(module.ToolPolicyRefusal, match="not in the operator-configured allowlist"):
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'ToolPolicyRefusal'
+
+tests\security\test_mount_allowlist.py:62: AttributeError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+_ test_generated_package_mirror_denies_dangerous_location_even_if_allowlisted _
+
+    def test_generated_package_mirror_denies_dangerous_location_even_if_allowlisted():
+        entry = {"alias": "dangerous-root", "host_path": "/", "writable": True}
+        module = load_tools_module(mount_allowlist=[entry])
+>       with pytest.raises(module.ToolPolicyRefusal, match="dangerous-location floor"):
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'ToolPolicyRefusal'
+
+tests\security\test_mount_allowlist.py:69: AttributeError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+_________ test_generated_package_mirror_accepts_allowlisted_safe_path _________
+
+non_home_workspace = WindowsPath('C:/Projects/CoinPela/Projects/team_maker/_test_scratch_security_non_home_workspace')
+
+    def test_generated_package_mirror_accepts_allowlisted_safe_path(non_home_workspace):
+        workspace = non_home_workspace / "workspace"
+        workspace.mkdir(exist_ok=True)
+        entry = {"alias": "ws", "host_path": str(workspace), "writable": False}
+        module = load_tools_module(mount_allowlist=[entry])
+>       matched = module._evaluate_mount(str(workspace))
+                  ^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute '_evaluate_mount'
+
+tests\security\test_mount_allowlist.py:78: AttributeError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+__________________ test_each_risky_tool_defined_exactly_once __________________
+
+    def test_each_risky_tool_defined_exactly_once():
+        source = render_tools_source()
+        for name in _RISKY_NAMES:
+>           assert len(re.findall(rf'@tool\("{name}"\)', source)) == 1, f"{name} decorated more than once"
+E           AssertionError: shell decorated more than once
+E           assert 0 == 1
+E            +  where 0 = len([])
+E            +    where [] = <function findall at 0x00000236B02ED1C0>('@tool\\("shell"\\)', '"""\ntools.py — Tool bindings for this generated team.\n\nMaps the tool names in agents/*.yaml to real instances.\nRisky tools (shell, code_writer, docker_runner) run inside a Docker sandbox\nwhen SANDBOX_ENABLED=true.\n\nRequirements:\n    pip install crewai crewai-tools PyGithub\n"""\nfrom __future__ import annotations\n\nimport json\nimport os\nimport subprocess\nfrom pathlib import Path\nfrom typing import Any\n\nfrom crewai.tools import tool\nfrom state_store import read_state, write_state\n\ntry:\n    from crewai_tools import FileReadTool, FileWriterTool, CodeDocsSearchTool, SerperDevTool\n    _crewai_tools = True\nexcept ImportError:\n    _crewai_tools = False\n    print("[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.")\n\n# ---------------------------------------------------------------------------\n# Sandbox configuration\n# ---------------------------------------------------------------------------\nWORKSPACE_ROOT = os.environ.get("WORKSPACE_ROOT") or os.path.abspath("./workspace")\nSANDBOX_IMAGE = "python:3.12-slim"\nSANDBOX_WORKSPACE = WORKSPACE_ROOT\nSANDBOX_NETWORK = "none"\nSANDBOX_EXTRA_ENV: dict[str, str] = {}\nUSE_SANDBOX = o...n    "test_runner":  test_runner_tool,\n    "docker_runner": docker_runner_tool,\n    "git_account":  git_account_tool,\n    "state_reader": state_reader_tool,\n    "state_writer": state_writer_tool,\n    "ci_tool":      ci_tool_tool,\n}\n\nif _crewai_tools:\n    TOOL_REGISTRY.update({\n        "filesystem": [FileReadTool(), FileWriterTool()],\n    })\n    if os.environ.get("OPENAI_API_KEY"):\n        TOOL_REGISTRY["code_reader"] = CodeDocsSearchTool()\n    else:\n        print("[warn] OPENAI_API_KEY not set — code_reader unavailable.")\n    if os.environ.get("SERPER_API_KEY"):\n        TOOL_REGISTRY["web_search"] = SerperDevTool()\n    else:\n        print("[warn] SERPER_API_KEY not set — web_search unavailable.")\n\n\ndef get_tools_for(tool_names: list[str]) -> list:\n    """Return tool instances for the given YAML tool name list."""\n    result = []\n    for name in tool_names:\n        entry = TOOL_REGISTRY.get(name)\n        if entry is None:\n            print(f"[warn] tool \'{name}\' not in registry — skipping.")\n            continue\n        if isinstance(entry, list):\n            result.extend(entry)\n        else:\n            result.append(entry)\n    return result\n')
+E            +      where <function findall at 0x00000236B02ED1C0> = re.findall
+
+tests\security\test_no_stub_shadowing.py:22: AssertionError
+______________ test_registry_resolves_to_the_real_implementation ______________
+
+    def test_registry_resolves_to_the_real_implementation():
+        module = load_tools_module()
+>       assert module.TOOL_REGISTRY["shell"].func is module.shell_tool.func
+                                                     ^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'shell_tool'
+
+tests\security\test_no_stub_shadowing.py:34: AttributeError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+_________ test_suggested_tool_matching_a_real_name_does_not_shadow_it _________
+
+    def test_suggested_tool_matching_a_real_name_does_not_shadow_it():
+        """RC-4's exact reproduction: an alias-shaped `suggested_tools` entry
+        used to render a second, later definition that won Python's rebinding
+        and made the real tool dead code. The stub-emission block is deleted
+        entirely (T044, T045) — this is not "no longer wins", it "no longer
+        exists"."""
+        from team_maker.schema.request import ToolSuggestion
+    
+        suggested = [
+            ToolSuggestion(name="shell_command", description="Run shell commands."),
+            ToolSuggestion(name="test_runner", description="Run tests."),
+            ToolSuggestion(name="docker_runner", description="Run containers."),
+        ]
+        source = render_tools_source(suggested_tools=suggested)
+        for name in _RISKY_NAMES:
+>           assert len(re.findall(rf'@tool\("{name}"\)', source)) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+E            +    where [] = <function findall at 0x00000236B02ED1C0>('@tool\\("shell"\\)', '"""\ntools.py — Tool bindings for this generated team.\n\nMaps the tool names in agents/*.yaml to real instances.\nRisky tools (shell, code_writer, docker_runner) run inside a Docker sandbox\nwhen SANDBOX_ENABLED=true.\n\nRequirements:\n    pip install crewai crewai-tools PyGithub\n"""\nfrom __future__ import annotations\n\nimport json\nimport os\nimport subprocess\nfrom pathlib import Path\nfrom typing import Any\n\nfrom crewai.tools import tool\nfrom state_store import read_state, write_state\n\ntry:\n    from crewai_tools import FileReadTool, FileWriterTool, CodeDocsSearchTool, SerperDevTool\n    _crewai_tools = True\nexcept ImportError:\n    _crewai_tools = False\n    print("[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.")\n\n# ---------------------------------------------------------------------------\n# Sandbox configuration\n# ---------------------------------------------------------------------------\nWORKSPACE_ROOT = os.environ.get("WORKSPACE_ROOT") or os.path.abspath("./workspace")\nSANDBOX_IMAGE = "python:3.12-slim"\nSANDBOX_WORKSPACE = WORKSPACE_ROOT\nSANDBOX_NETWORK = "none"\nSANDBOX_EXTRA_ENV: dict[str, str] = {}\nUSE_SANDBOX = o...   "state_reader": state_reader_tool,\n    "state_writer": state_writer_tool,\n    "ci_tool":      ci_tool_tool,\n    "shell_command": shell_command_tool,\n    "test_runner": test_runner_tool,\n    "docker_runner": docker_runner_tool,\n}\n\nif _crewai_tools:\n    TOOL_REGISTRY.update({\n        "filesystem": [FileReadTool(), FileWriterTool()],\n    })\n    if os.environ.get("OPENAI_API_KEY"):\n        TOOL_REGISTRY["code_reader"] = CodeDocsSearchTool()\n    else:\n        print("[warn] OPENAI_API_KEY not set — code_reader unavailable.")\n    if os.environ.get("SERPER_API_KEY"):\n        TOOL_REGISTRY["web_search"] = SerperDevTool()\n    else:\n        print("[warn] SERPER_API_KEY not set — web_search unavailable.")\n\n\ndef get_tools_for(tool_names: list[str]) -> list:\n    """Return tool instances for the given YAML tool name list."""\n    result = []\n    for name in tool_names:\n        entry = TOOL_REGISTRY.get(name)\n        if entry is None:\n            print(f"[warn] tool \'{name}\' not in registry — skipping.")\n            continue\n        if isinstance(entry, list):\n            result.extend(entry)\n        else:\n            result.append(entry)\n    return result\n')
+E            +      where <function findall at 0x00000236B02ED1C0> = re.findall
+
+tests\security\test_no_stub_shadowing.py:54: AssertionError
+______ test_generated_package_mirror_never_leaks_the_raw_path_on_refusal ______
+
+tmp_path = WindowsPath('C:/Users/gurua/AppData/Local/Temp/pytest-of-gurua/pytest-556/test_generated_package_mirror_0')
+
+    def test_generated_package_mirror_never_leaks_the_raw_path_on_refusal(tmp_path):
+        secret = str(tmp_path / "secret_workspace")
+        module = load_tools_module()
+>       with pytest.raises(module.ToolPolicyRefusal) as exc_info:
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'ToolPolicyRefusal'
+
+tests\security\test_safe_error_identifiers.py:41: AttributeError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+_________________ test_no_safe_tool_calls_subprocess_directly _________________
+
+    def test_no_safe_tool_calls_subprocess_directly():
+        module = load_tools_module(context_dir="/tmp/ctx")
+        for name in _LOCAL_SAFE_TOOL_NAMES:
+            fn = getattr(module, f"{name}_tool").func
+            source = inspect.getsource(fn)
+>           assert "subprocess." not in source, f"{name}_tool calls subprocess directly"
+E           AssertionError: git_account_tool calls subprocess directly
+E           assert 'subprocess.' not in '@tool("git_...or] {exc}"\n'
+E             
+E             'subprocess.' is contained here:
+E               @tool("git_account")
+E               def git_account_tool(action: str, repo: str = "", body: str = "") -> str:
+E                   """
+E                   Manage GitHub repos and PRs.
+E                   action: create_repo | clone | list_repos | create_pr | list_prs...
+E             
+E             ...Full output truncated (38 lines hidden), use '-vv' to show
+
+tests\security\test_safe_tool_boundary.py:41: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+___________ test_every_docker_invocation_carries_the_resource_flags ___________
+
+    def test_every_docker_invocation_carries_the_resource_flags():
+        module = load_tools_module()
+>       flags = module._docker_resource_flags()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute '_docker_resource_flags'
+
+tests\security\test_sandbox_controls.py:38: AttributeError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+___________________ test_process_timeout_breach_terminates ____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000236CDC309D0>
+
+    def test_process_timeout_breach_terminates(monkeypatch):
+        module = load_tools_module()
+>       monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/docker")
+                            ^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'shutil'
+
+tests\security\test_sandbox_controls.py:54: AttributeError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+__________ test_output_size_breach_terminates_rather_than_truncating __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000236CDC30B00>
+
+    def test_output_size_breach_terminates_rather_than_truncating(monkeypatch):
+        """FR-077: exceeding the output cap is a limit breach, not a silent
+        truncate-and-succeed."""
+        module = load_tools_module()
+>       oversized = "x" * (module.MAX_OUTPUT_BYTES + 1)
+                           ^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'MAX_OUTPUT_BYTES'
+
+tests\security\test_sandbox_controls.py:72: AttributeError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+_______________ test_output_at_exactly_the_cap_is_not_a_breach ________________
+
+    def test_output_at_exactly_the_cap_is_not_a_breach():
+        module = load_tools_module()
+>       exact = "x" * module.MAX_OUTPUT_BYTES
+                      ^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'MAX_OUTPUT_BYTES'
+
+tests\security\test_sandbox_controls.py:79: AttributeError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+__________ test_agent_supplied_control_values_are_ignored_not_merged __________
+
+    def test_agent_supplied_control_values_are_ignored_not_merged():
+        """FR-076: no tool parameter exists anywhere in the generated module
+        through which a control value could be supplied — the controls are
+        build-time module constants, not per-call arguments."""
+        import inspect
+    
+        module = load_tools_module()
+>       for fn in (module.shell_tool.func, module.docker_runner_tool.func, module.test_runner_tool.func):
+                   ^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'shell_tool'
+
+tests\security\test_sandbox_controls.py:90: AttributeError
+---------------------------- Captured stdout call -----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+________ test_no_environment_variable_or_config_can_disable_sandboxing ________
+
+    def test_no_environment_variable_or_config_can_disable_sandboxing():
+        """D-7: the toggle is deleted, not defaulted to true. No name in the
+        rendered source reads an opt-out."""
+        from .conftest import render_tools_source
+    
+        source = render_tools_source()
+>       assert "USE_SANDBOX" not in source
+E       assert 'USE_SANDBOX' not in '"""\ntools....urn result\n'
+E         
+E         'USE_SANDBOX' is contained here:
+E           """
+E           tools.py — Tool bindings for this generated team.
+E           
+E           Maps the tool names in agents/*.yaml to real instances.
+E           Risky tools (shell, code_writer, docker_runner) run inside a Docker sandbox...
+E         
+E         ...Full output truncated (262 lines hidden), use '-vv' to show
+
+tests\security\test_sandbox_fail_closed.py:30: AssertionError
+_________________________ test_runtime_absent_refuses _________________________
+
+module = <module 'generated_tools_under_test'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000236CDC269F0>
+
+    def test_runtime_absent_refuses(module, monkeypatch):
+>       monkeypatch.setattr(module.shutil, "which", lambda name: None)
+                            ^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'shutil'
+
+tests\security\test_sandbox_fail_closed.py:35: AttributeError
+---------------------------- Captured stdout setup ----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+___________ test_runtime_present_but_unreachable_refuses_on_timeout ___________
+
+module = <module 'generated_tools_under_test'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000236CDC4E580>
+
+    def test_runtime_present_but_unreachable_refuses_on_timeout(module, monkeypatch):
+>       monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/docker")
+                            ^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'shutil'
+
+tests\security\test_sandbox_fail_closed.py:41: AttributeError
+---------------------------- Captured stdout setup ----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+___________ test_runtime_present_but_unreachable_refuses_on_oserror ___________
+
+module = <module 'generated_tools_under_test'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000236CDC4C7C0>
+
+    def test_runtime_present_but_unreachable_refuses_on_oserror(module, monkeypatch):
+>       monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/docker")
+                            ^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'shutil'
+
+tests\security\test_sandbox_fail_closed.py:52: AttributeError
+---------------------------- Captured stdout setup ----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+_____________ test_daemon_unreachable_nonzero_returncode_refuses ______________
+
+module = <module 'generated_tools_under_test'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000236CC76BE50>
+
+    def test_daemon_unreachable_nonzero_returncode_refuses(module, monkeypatch):
+>       monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/docker")
+                            ^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'shutil'
+
+tests\security\test_sandbox_fail_closed.py:63: AttributeError
+---------------------------- Captured stdout setup ----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+______________ test_sandbox_image_unavailable_refuses_distinctly ______________
+
+module = <module 'generated_tools_under_test'>
+
+    def test_sandbox_image_unavailable_refuses_distinctly(module):
+>       with pytest.raises(module.ToolPolicyRefusal, match="image is unavailable"):
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'ToolPolicyRefusal'
+
+tests\security\test_sandbox_fail_closed.py:74: AttributeError
+---------------------------- Captured stdout setup ----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+___________ test_declared_control_unenforceable_refuses_distinctly ____________
+
+module = <module 'generated_tools_under_test'>
+
+    def test_declared_control_unenforceable_refuses_distinctly(module):
+>       with pytest.raises(module.ToolPolicyRefusal, match="resource control could not be enforced"):
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'ToolPolicyRefusal'
+
+tests\security\test_sandbox_fail_closed.py:79: AttributeError
+---------------------------- Captured stdout setup ----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+_________ test_generic_container_creation_failure_refuses_distinctly __________
+
+module = <module 'generated_tools_under_test'>
+
+    def test_generic_container_creation_failure_refuses_distinctly(module):
+>       with pytest.raises(module.ToolPolicyRefusal, match="container creation failed"):
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'ToolPolicyRefusal'
+
+tests\security\test_sandbox_fail_closed.py:84: AttributeError
+---------------------------- Captured stdout setup ----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+_________ test_containerized_command_failure_is_not_a_sandbox_refusal _________
+
+module = <module 'generated_tools_under_test'>
+
+    def test_containerized_command_failure_is_not_a_sandbox_refusal(module):
+        """A non-125 exit code is the CONTAINERIZED COMMAND's own status (e.g. a
+        failing shell command or test run) — ordinary tool output, never
+        conflated with a sandbox-establishment failure."""
+>       module._raise_on_docker_cli_failure(1, "some command printed to stderr and exited 1")  # must not raise
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute '_raise_on_docker_cli_failure'
+
+tests\security\test_sandbox_fail_closed.py:92: AttributeError
+---------------------------- Captured stdout setup ----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+____________ test_sandbox_unavailable_mid_run_refuses_on_next_call ____________
+
+module = <module 'generated_tools_under_test'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000236CDCC4750>
+
+    def test_sandbox_unavailable_mid_run_refuses_on_next_call(module, monkeypatch):
+        """FR-082: re-checked on every call, not just once — a sandbox available
+        at the start of a run but gone later is still caught."""
+        calls = {"n": 0}
+    
+        def _which(name):
+            calls["n"] += 1
+            return "/usr/bin/docker" if calls["n"] == 1 else None
+    
+>       monkeypatch.setattr(module.shutil, "which", _which)
+                            ^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'shutil'
+
+tests\security\test_sandbox_fail_closed.py:104: AttributeError
+---------------------------- Captured stdout setup ----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+_________ test_sandbox_unavailable_never_falls_back_to_host_execution _________
+
+module = <module 'generated_tools_under_test'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000236CDC3F3E0>
+
+    def test_sandbox_unavailable_never_falls_back_to_host_execution(module, monkeypatch):
+        """No else-branch exists (D-7): refusing to establish the sandbox must
+        prevent `_run_sandboxed` from reaching `subprocess.run` at all."""
+>       monkeypatch.setattr(module.shutil, "which", lambda name: None)
+                            ^^^^^^^^^^^^^
+E       AttributeError: module 'generated_tools_under_test' has no attribute 'shutil'
+
+tests\security\test_sandbox_fail_closed.py:118: AttributeError
+---------------------------- Captured stdout setup ----------------------------
+[warn] crewai-tools not installed — filesystem/web_search/code_reader unavailable.
+=========================== short test summary info ===========================
+FAILED tests/security/test_mount_allowlist.py::test_refusal_never_degrades_to_running_without_the_mount
+FAILED tests/security/test_mount_allowlist.py::test_generated_package_mirror_refuses_non_allowlisted_mount
+FAILED tests/security/test_mount_allowlist.py::test_generated_package_mirror_denies_dangerous_location_even_if_allowlisted
+FAILED tests/security/test_mount_allowlist.py::test_generated_package_mirror_accepts_allowlisted_safe_path
+FAILED tests/security/test_no_stub_shadowing.py::test_each_risky_tool_defined_exactly_once
+FAILED tests/security/test_no_stub_shadowing.py::test_registry_resolves_to_the_real_implementation
+FAILED tests/security/test_no_stub_shadowing.py::test_suggested_tool_matching_a_real_name_does_not_shadow_it
+FAILED tests/security/test_safe_error_identifiers.py::test_generated_package_mirror_never_leaks_the_raw_path_on_refusal
+FAILED tests/security/test_safe_tool_boundary.py::test_no_safe_tool_calls_subprocess_directly
+FAILED tests/security/test_sandbox_controls.py::test_every_docker_invocation_carries_the_resource_flags
+FAILED tests/security/test_sandbox_controls.py::test_process_timeout_breach_terminates
+FAILED tests/security/test_sandbox_controls.py::test_output_size_breach_terminates_rather_than_truncating
+FAILED tests/security/test_sandbox_controls.py::test_output_at_exactly_the_cap_is_not_a_breach
+FAILED tests/security/test_sandbox_controls.py::test_agent_supplied_control_values_are_ignored_not_merged
+FAILED tests/security/test_sandbox_fail_closed.py::test_no_environment_variable_or_config_can_disable_sandboxing
+FAILED tests/security/test_sandbox_fail_closed.py::test_runtime_absent_refuses
+FAILED tests/security/test_sandbox_fail_closed.py::test_runtime_present_but_unreachable_refuses_on_timeout
+FAILED tests/security/test_sandbox_fail_closed.py::test_runtime_present_but_unreachable_refuses_on_oserror
+FAILED tests/security/test_sandbox_fail_closed.py::test_daemon_unreachable_nonzero_returncode_refuses
+FAILED tests/security/test_sandbox_fail_closed.py::test_sandbox_image_unavailable_refuses_distinctly
+FAILED tests/security/test_sandbox_fail_closed.py::test_declared_control_unenforceable_refuses_distinctly
+FAILED tests/security/test_sandbox_fail_closed.py::test_generic_container_creation_failure_refuses_distinctly
+FAILED tests/security/test_sandbox_fail_closed.py::test_containerized_command_failure_is_not_a_sandbox_refusal
+FAILED tests/security/test_sandbox_fail_closed.py::test_sandbox_unavailable_mid_run_refuses_on_next_call
+FAILED tests/security/test_sandbox_fail_closed.py::test_sandbox_unavailable_never_falls_back_to_host_execution
+======================== 25 failed, 18 passed in 4.65s ========================

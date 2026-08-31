@@ -1,0 +1,105 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-9.1.1, pluggy-1.6.0 -- C:\Projects\CoinPela\Projects\team_maker\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Projects\CoinPela\Projects\team_maker
+configfile: pyproject.toml
+plugins: anyio-4.14.2, cov-7.1.0
+collecting ... collected 13 items
+
+tests/unit/test_validation.py::test_valid_package_passes PASSED          [  7%]
+tests/unit/test_validation.py::test_missing_readme_fails PASSED          [ 15%]
+tests/unit/test_validation.py::test_missing_team_config_fails PASSED     [ 23%]
+tests/unit/test_validation.py::test_missing_agent_file_fails PASSED      [ 30%]
+tests/unit/test_validation.py::test_missing_task_file_fails PASSED       [ 38%]
+tests/unit/test_validation.py::test_malformed_yaml_fails PASSED          [ 46%]
+tests/unit/test_validation.py::test_no_tasks_produces_warning PASSED     [ 53%]
+tests/unit/test_validation.py::test_all_canonical_package_is_unaffected PASSED [ 61%]
+tests/unit/test_validation.py::test_invented_tool_name_fails_validation_naming_it FAILED [ 69%]
+tests/unit/test_validation.py::test_unauthorized_risky_tool_fails_validation FAILED [ 76%]
+tests/unit/test_validation.py::test_unresolvable_tool_fails_validation FAILED [ 84%]
+tests/unit/test_validation.py::test_failure_scoped_to_offending_declaration_only FAILED [ 92%]
+tests/unit/test_validation.py::test_pre_remediation_package_fails_validation FAILED [100%]
+
+================================== FAILURES ===================================
+_____________ test_invented_tool_name_fails_validation_naming_it ______________
+
+tmp_path = WindowsPath('C:/Users/gurua/AppData/Local/Temp/pytest-of-gurua/pytest-591/test_invented_tool_name_fails_0')
+
+    def test_invented_tool_name_fails_validation_naming_it(tmp_path):
+        _write_package_with_tools(tmp_path, ["text_summarizer"], tools_source=_current_tools_source())
+        result = OutputValidator().validate(tmp_path, _team_with_tools(tools=["text_summarizer"]))
+>       assert not result.passed
+E       assert not True
+E        +  where True = ValidationResult(passed=True, issues=[], warnings=[]).passed
+
+tests\unit\test_validation.py:227: AssertionError
+________________ test_unauthorized_risky_tool_fails_validation ________________
+
+tmp_path = WindowsPath('C:/Users/gurua/AppData/Local/Temp/pytest-of-gurua/pytest-591/test_unauthorized_risky_tool_f0')
+
+    def test_unauthorized_risky_tool_fails_validation(tmp_path):
+        _write_package_with_tools(tmp_path, ["shell"], tools_source=_current_tools_source())
+        result = OutputValidator().validate(tmp_path, _team_with_tools(tools=["shell"]))
+>       assert not result.passed
+E       assert not True
+E        +  where True = ValidationResult(passed=True, issues=[], warnings=[]).passed
+
+tests\unit\test_validation.py:234: AssertionError
+___________________ test_unresolvable_tool_fails_validation ___________________
+
+tmp_path = WindowsPath('C:/Users/gurua/AppData/Local/Temp/pytest-of-gurua/pytest-591/test_unresolvable_tool_fails_v0')
+
+    def test_unresolvable_tool_fails_validation(tmp_path):
+        """A canonical, authorized, SAFE name with no binding in this specific
+        package's registry (catalog/registry drift)."""
+        source = _current_tools_source().replace('"state_reader":   state_reader_tool,\n', "")
+        _write_package_with_tools(tmp_path, ["state_reader"], tools_source=source)
+        result = OutputValidator().validate(tmp_path, _team_with_tools(tools=["state_reader"]))
+>       assert not result.passed
+E       assert not True
+E        +  where True = ValidationResult(passed=True, issues=[], warnings=[]).passed
+
+tests\unit\test_validation.py:244: AssertionError
+______________ test_failure_scoped_to_offending_declaration_only ______________
+
+tmp_path = WindowsPath('C:/Users/gurua/AppData/Local/Temp/pytest-of-gurua/pytest-591/test_failure_scoped_to_offendi0')
+
+    def test_failure_scoped_to_offending_declaration_only(tmp_path):
+        """FR-038: four safe tools plus one invented one names only the
+        offending declaration."""
+        tools = ["state_reader", "state_writer", "http_client", "ci_tool", "text_summarizer"]
+        _write_package_with_tools(tmp_path, tools, tools_source=_current_tools_source())
+        result = OutputValidator().validate(tmp_path, _team_with_tools(tools=tools))
+>       assert not result.passed
+E       assert not True
+E        +  where True = ValidationResult(passed=True, issues=[], warnings=[]).passed
+
+tests\unit\test_validation.py:254: AssertionError
+________________ test_pre_remediation_package_fails_validation ________________
+
+tmp_path = WindowsPath('C:/Users/gurua/AppData/Local/Temp/pytest-of-gurua/pytest-591/test_pre_remediation_package_f0')
+
+    def test_pre_remediation_package_fails_validation(tmp_path):
+        """Uses a SAFE tool (`state_reader`) so the pre-remediation-shape check
+        is exercised in isolation, not shadowed by the (also correct, but
+        distinct) unauthorized-RISKY-tool rejection a name like `shell` would
+        also trigger."""
+        old_shape = (
+            'USE_SANDBOX = os.environ.get("SANDBOX_ENABLED", "false").lower() == "true"\n'
+            "def state_reader_tool(key):\n    pass\n"
+            "TOOL_REGISTRY = {'state_reader': state_reader_tool}\n"
+        )
+        _write_package_with_tools(tmp_path, ["state_reader"], tools_source=old_shape)
+        result = OutputValidator().validate(tmp_path, _team_with_tools(tools=["state_reader"]))
+>       assert not result.passed
+E       assert not True
+E        +  where True = ValidationResult(passed=True, issues=[], warnings=[]).passed
+
+tests\unit\test_validation.py:271: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/unit/test_validation.py::test_invented_tool_name_fails_validation_naming_it
+FAILED tests/unit/test_validation.py::test_unauthorized_risky_tool_fails_validation
+FAILED tests/unit/test_validation.py::test_unresolvable_tool_fails_validation
+FAILED tests/unit/test_validation.py::test_failure_scoped_to_offending_declaration_only
+FAILED tests/unit/test_validation.py::test_pre_remediation_package_fails_validation
+========================= 5 failed, 8 passed in 0.50s =========================

@@ -1,0 +1,8 @@
+=== 1. Compose-stage: TeamCreationRequest.desired_roles[].tools ===
+FAIL (defect reproduced): invented name 'text_summarizer' was ACCEPTED, desired_roles[0].tools = ['text_summarizer']
+
+=== 2. Planner-path: ToolAssignment (llm/schemas.py) ===
+FAIL (defect reproduced): invented name 'text_summarizer' was ACCEPTED as a planner ToolAssignment: 'text_summarizer'
+
+=== 3. Template default injection (software_delivery, DEFAULT_TEMPLATE_ID) ===
+FAIL (defect reproduced): DEFAULT_TEMPLATE_ID declares phantom names with no gate anywhere in the pipeline: ['browser_preview', 'cli_runner', 'communication_channel', 'config_generator', 'diagram_generator', 'linter', 'monitoring_dashboard', 'static_analyser', 'task_tracker']

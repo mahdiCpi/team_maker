@@ -10,6 +10,7 @@ Fully offline — no crewai, no network, no filesystem.
 from __future__ import annotations
 
 import pickle
+from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
@@ -21,8 +22,15 @@ from team_maker.runtime.preflight import (
     InvalidPackageError,
     InvalidTaskNamesError,
     MissingCredentialsError,
+    UnauthorizedToolError,
+    UnavailableToolError,
+    UnsafeMountPolicyError,
     check_credentials,
+    check_mount_allowlist_safety,
+    check_tool_authorization,
+    check_tool_availability,
 )
+from team_maker.tools.authorization import AuthorizationPolicy
 from tests.support.team_factories import agent_spec, generated_team, task_spec
 
 
@@ -286,3 +294,277 @@ def test_duplicate_task_names_are_refused():
 def test_invalid_package_errors_share_one_base_so_the_cli_can_catch_them_together():
     assert issubclass(DuplicateAgentRoleError, InvalidPackageError)
     assert issubclass(InvalidTaskNamesError, InvalidPackageError)
+
+
+# ---------------------------------------------------------------------------
+# Tool authorization at preflight (spec FR-050 to FR-055, FR-058;
+# Amendment 1; tasks T106-T108)
+# ---------------------------------------------------------------------------
+
+
+def test_risky_tool_without_operator_enablement_refuses_before_any_agent_runs():
+    team = generated_team(
+        [agent_spec("architect", tools=["shell"])],
+        [task_spec("design", "architect")],
+    )
+    with pytest.raises(UnauthorizedToolError, match="shell"):
+        check_tool_authorization(team, AuthorizationPolicy())
+
+
+def test_safe_tool_needs_no_operator_enablement():
+    team = generated_team(
+        [agent_spec("architect", tools=["state_reader"])],
+        [task_spec("design", "architect")],
+    )
+    check_tool_authorization(team, AuthorizationPolicy())  # must not raise
+
+
+def test_risky_tool_explicitly_enabled_is_authorized():
+    team = generated_team(
+        [agent_spec("architect", tools=["shell"])],
+        [task_spec("design", "architect")],
+    )
+    check_tool_authorization(team, AuthorizationPolicy(enabled_tools=frozenset({"shell"})))
+
+
+def test_every_denied_tool_is_named_not_just_the_first():
+    team = generated_team(
+        [agent_spec("architect", tools=["shell", "docker_runner"])],
+        [task_spec("design", "architect")],
+    )
+    with pytest.raises(UnauthorizedToolError) as exc_info:
+        check_tool_authorization(team, AuthorizationPolicy())
+    assert set(exc_info.value.denied) == {"shell", "docker_runner"}
+
+
+def test_unauthorized_tool_error_message_is_actionable():
+    team = generated_team(
+        [agent_spec("architect", tools=["shell"])],
+        [task_spec("design", "architect")],
+    )
+    with pytest.raises(UnauthorizedToolError) as exc_info:
+        check_tool_authorization(team, AuthorizationPolicy())
+    assert "operator" in str(exc_info.value).lower()
+
+
+def test_hand_edited_package_gets_the_identical_gate():
+    """FR-080: this check takes only the team and the policy — nothing here
+    could special-case a package's provenance even if it wanted to."""
+    import inspect
+
+    assert set(inspect.signature(check_tool_authorization).parameters) == {"team", "policy"}
+
+
+# ---------------------------------------------------------------------------
+# Tool availability at preflight (spec FR-030, FR-031, FR-058, FR-067,
+# FR-068; tasks T132-T136)
+# ---------------------------------------------------------------------------
+
+
+def _write_package(tmp_path, tools_source: str):
+    from team_maker.codegen import render_template
+
+    package_dir = tmp_path / "pkg"
+    package_dir.mkdir()
+    (package_dir / "tools.py").write_text(tools_source, encoding="utf-8")
+    (package_dir / "state_store.py").write_text(
+        render_template("state_store.py.j2", use_vector=False, use_file=True), encoding="utf-8"
+    )
+    return package_dir
+
+
+def _current_tools_source():
+    from team_maker.codegen import render_template
+    from team_maker.schema.request import SandboxConfig
+    from team_maker.tools.limits import DEFAULT_CONTROLS
+    from team_maker.tools.policy import EMPTY_ALLOWLIST
+
+    return render_template(
+        "tools.py.j2",
+        sandbox=SandboxConfig(),
+        suggested_tools=[],
+        context_dir=None,
+        effective_network="none",
+        network_allowed=False,
+        controls=DEFAULT_CONTROLS,
+        mount_allowlist=EMPTY_ALLOWLIST.entries,
+    )
+
+
+def test_available_canonical_tool_passes_preflight(tmp_path):
+    package_dir = _write_package(tmp_path, _current_tools_source())
+    team = generated_team(
+        [agent_spec("architect", tools=["state_reader"])],
+        [task_spec("design", "architect")],
+    )
+    check_tool_availability(team, package_dir)  # must not raise
+
+
+def test_unknown_tool_name_is_unavailable(tmp_path):
+    package_dir = _write_package(tmp_path, _current_tools_source())
+    team = generated_team(
+        [agent_spec("architect", tools=["text_summarizer"])],
+        [task_spec("design", "architect")],
+    )
+    with pytest.raises(UnavailableToolError, match="text_summarizer"):
+        check_tool_availability(team, package_dir)
+
+
+def test_missing_required_credential_is_unavailable(tmp_path, monkeypatch):
+    """Uses `git_account` (GIT_ACCOUNT_TOKEN), not `web_search` — the
+    latter is in CONDITIONALLY_AVAILABLE_TOOL_NAMES and is deliberately
+    exempted from this check (see the dedicated test below)."""
+    monkeypatch.delenv("GIT_ACCOUNT_TOKEN", raising=False)
+    package_dir = _write_package(tmp_path, _current_tools_source())
+    team = generated_team(
+        [agent_spec("architect", tools=["git_account"])],
+        [task_spec("design", "architect")],
+    )
+    with pytest.raises(UnavailableToolError, match="GIT_ACCOUNT_TOKEN"):
+        check_tool_availability(team, package_dir)
+
+
+def test_missing_required_credential_message_never_leaks_a_value(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_ACCOUNT_TOKEN", "")
+    package_dir = _write_package(tmp_path, _current_tools_source())
+    team = generated_team(
+        [agent_spec("architect", tools=["git_account"])],
+        [task_spec("design", "architect")],
+    )
+    with pytest.raises(UnavailableToolError) as exc_info:
+        check_tool_availability(team, package_dir)
+    assert "GIT_ACCOUNT_TOKEN" in str(exc_info.value)
+    assert "not set" in str(exc_info.value)
+
+
+def test_present_credential_is_available(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_ACCOUNT_TOKEN", "a-real-looking-token")
+    package_dir = _write_package(tmp_path, _current_tools_source())
+    team = generated_team(
+        [agent_spec("architect", tools=["git_account"])],
+        [task_spec("design", "architect")],
+    )
+    check_tool_availability(team, package_dir)  # must not raise
+
+
+def test_unresolvable_registry_drift_is_unavailable(tmp_path):
+    source = _current_tools_source().replace('"state_reader":   state_reader_tool,\n', "")
+    package_dir = _write_package(tmp_path, source)
+    team = generated_team(
+        [agent_spec("architect", tools=["state_reader"])],
+        [task_spec("design", "architect")],
+    )
+    with pytest.raises(UnavailableToolError, match="state_reader"):
+        check_tool_availability(team, package_dir)
+
+
+def test_availability_and_authorization_are_distinct_reason_classes(tmp_path):
+    """T107: a diagnostic can tell "not permitted here" from "not
+    available here" — a RISKY-but-unauthorized tool raises
+    `UnauthorizedToolError`, never `UnavailableToolError`, and a genuinely
+    unresolvable SAFE tool raises the other way around."""
+    package_dir = _write_package(tmp_path, _current_tools_source())
+    team = generated_team(
+        [agent_spec("architect", tools=["shell"])],
+        [task_spec("design", "architect")],
+    )
+    with pytest.raises(UnauthorizedToolError):
+        check_tool_authorization(team, AuthorizationPolicy())
+    check_tool_availability(team, package_dir)  # shell IS resolvable — must not raise
+
+
+def test_conditionally_available_tool_missing_credential_does_not_hard_fail(tmp_path, monkeypatch):
+    """D-IMPL-007's warn-and-omit leniency for `code_reader`/`web_search`/
+    `filesystem` must not be re-broken by the credential check added in
+    Phase 7 — found via a real regression in `tests/conformance/`
+    (`code_reader` declared, no `OPENAI_API_KEY`, this dev environment
+    never has `crewai-tools` installed either)."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    package_dir = _write_package(tmp_path, _current_tools_source())
+    team = generated_team(
+        [agent_spec("architect", tools=["code_reader"])],
+        [task_spec("design", "architect")],
+    )
+    check_tool_availability(team, package_dir)  # must not raise
+
+
+def test_no_tools_declared_is_unaffected(tmp_path):
+    package_dir = _write_package(tmp_path, _current_tools_source())
+    team = generated_team([agent_spec("architect")], [task_spec("design", "architect")])
+    check_tool_availability(team, package_dir)  # must not raise
+
+
+def test_preflight_reason_class_matches_compose_and_build(tmp_path):
+    """F1, T139: the same invalid declaration rejected at compose (schema/
+    request.py, a `TeamCreationRequest` construction-time check) and build
+    (structurally guaranteed by the same shared `validate_declarations`
+    core, since an invalid `TeamCreationRequest` can never reach
+    `PipelineRunner`) is also hard-failed at preflight with the identical
+    `RejectionReason` — completing the three-stage determinism claim Phase
+    3 deliberately could not verify (F1)."""
+    from team_maker.tools.validation import RejectionReason, validate_declarations
+
+    declaration = [("text_summarizer", "architect")]
+    compose_outcome = validate_declarations(declaration, stage="compose")
+    preflight_outcome = validate_declarations(declaration, stage="preflight")
+
+    assert len(compose_outcome.rejections) == len(preflight_outcome.rejections) == 1
+    assert compose_outcome.rejections[0].reason == RejectionReason.UNKNOWN
+    assert preflight_outcome.rejections[0].reason == RejectionReason.UNKNOWN
+
+    # And it is actually reachable through check_tool_availability, not just
+    # the shared core in isolation.
+    package_dir = _write_package(tmp_path, _current_tools_source())
+    team = generated_team(
+        [agent_spec("architect", tools=["text_summarizer"])],
+        [task_spec("design", "architect")],
+    )
+    with pytest.raises(UnavailableToolError, match="text_summarizer"):
+        check_tool_availability(team, package_dir)
+
+
+# ---------------------------------------------------------------------------
+# Mount allowlist safety at preflight (spec FR-032, FR-016, FR-079)
+# ---------------------------------------------------------------------------
+
+
+def test_dangerous_allowlist_entry_refuses():
+    from team_maker.tools.config import ToolPolicyConfig
+    from team_maker.tools.limits import DEFAULT_CONTROLS
+    from team_maker.tools.policy import MountAllowlist, MountAllowlistEntry
+
+    policy = ToolPolicyConfig(
+        authorization=AuthorizationPolicy(),
+        mount_allowlist=MountAllowlist((MountAllowlistEntry(alias="dangerous-root", host_path="/"),)),
+        network_allowed=False,
+        controls=DEFAULT_CONTROLS,
+        source="test",
+    )
+    with pytest.raises(UnsafeMountPolicyError, match="dangerous-root"):
+        check_mount_allowlist_safety(policy)
+
+
+def test_safe_allowlist_entry_passes():
+    """Uses a scratch dir under the repo's own working tree, not `tmp_path`
+    (which sits under the OS user's home tree — see
+    tests/unit/tools/test_policy.py's `non_home_workspace` fixture for why
+    that would false-positive against the dangerous-location floor)."""
+    import shutil
+    from team_maker.tools.config import ToolPolicyConfig
+    from team_maker.tools.limits import DEFAULT_CONTROLS
+    from team_maker.tools.policy import MountAllowlist, MountAllowlistEntry
+
+    root = Path.cwd() / "_test_scratch_preflight_mount_safety"
+    workspace = root / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    policy = ToolPolicyConfig(
+        authorization=AuthorizationPolicy(),
+        mount_allowlist=MountAllowlist((MountAllowlistEntry(alias="ws", host_path=str(workspace)),)),
+        network_allowed=False,
+        controls=DEFAULT_CONTROLS,
+        source="test",
+    )
+    try:
+        check_mount_allowlist_safety(policy)  # must not raise
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

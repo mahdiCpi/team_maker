@@ -18,18 +18,31 @@ when it is `None` — see the comment there.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from crewai import LLM, Agent, Crew, Process, Task
 
 from team_maker.adapters.runtime_crewai.transcript_capture import TranscriptRecorder
+from team_maker.adapters.tools.package_tool_resolver import PackageToolResolver
 from team_maker.domain.models import AgentSpec, GeneratedTeam, ResolvedCredential
 from team_maker.ports.execution_engine import ExecutionEngine
+from team_maker.ports.tool_resolver import ToolResolver
+from team_maker.runtime.completion import compute_unevidenced_capabilities
 from team_maker.runtime.ordering import topological_sort
-from team_maker.runtime.results import RunResult, TaskResult, TranscriptEntry
+from team_maker.runtime.results import RunResult, TaskResult, ToolReceipt, TranscriptEntry
 from team_maker.runtime.run_context import require_goal_injected
 
 
 class CrewAIExecutionEngine(ExecutionEngine):
     """Executes a `GeneratedTeam` via real crewai `Agent`/`Task`/`Crew` objects."""
+
+    def __init__(self, tool_resolver: Optional[ToolResolver] = None) -> None:
+        # Optional and defaulted so every existing caller and all
+        # pre-Phase-5 engine tests are unaffected (FR-048, spec T103). The
+        # no-package fallback (`PackageToolResolver(None)`) still resolves
+        # every canonical name — see its docstring — which is what makes
+        # this engine's own Step 0 oracle test pass with no package on disk.
+        self._tool_resolver: ToolResolver = tool_resolver if tool_resolver is not None else PackageToolResolver(None)
 
     def run(
         self,
@@ -48,7 +61,7 @@ class CrewAIExecutionEngine(ExecutionEngine):
         require_goal_injected(team, goal)
 
         agents_by_role = {
-            agent.role: self._build_agent(agent, credentials[agent.role])
+            agent.role: self._build_agent(agent, credentials[agent.role], self._tool_resolver)
             for agent in team.agents
         }
 
@@ -111,6 +124,7 @@ class CrewAIExecutionEngine(ExecutionEngine):
                 # discarded".
                 output = crew.kickoff()
             transcript: list[TranscriptEntry] = recorder.entries() if recorder else []
+            tool_receipts: list[ToolReceipt] = recorder.receipts() if recorder else []
         except Exception as exc:
             # Kickoff failed: return the partial transcript (AC 1) *and* the
             # failure itself via `RunResult.error` — a caller must still learn
@@ -119,11 +133,13 @@ class CrewAIExecutionEngine(ExecutionEngine):
             # the bus and unsubscribing, so the entries collected before the
             # failure are safe to read from `recorder`.
             partial_transcript: list[TranscriptEntry] = recorder.entries() if recorder else []
+            partial_receipts: list[ToolReceipt] = recorder.receipts() if recorder else []
             return RunResult(
                 final_output="",
                 task_results=[],
                 transcript=partial_transcript,
                 error=str(exc),
+                tool_receipts=partial_receipts,
             )
 
         if len(output.tasks_output) != len(ordered_tasks):
@@ -140,10 +156,17 @@ class CrewAIExecutionEngine(ExecutionEngine):
             )
             for task_spec, task_output in zip(ordered_tasks, output.tasks_output)
         ]
+        # FR-027: unevidenced_capabilities is computed from the tasks as
+        # *declared* (team.tasks), not `ordered_tasks`' topological copy —
+        # the two carry the same TaskSpec objects, but this keys the rule on
+        # the team's own declarations rather than an execution-order detail.
+        unevidenced = compute_unevidenced_capabilities(team.tasks, tool_receipts)
         return RunResult(
             final_output=str(output.raw),
             task_results=task_results,
             transcript=transcript,
+            tool_receipts=tool_receipts,
+            unevidenced_capabilities=unevidenced,
         )
 
     @staticmethod
@@ -156,6 +179,18 @@ class CrewAIExecutionEngine(ExecutionEngine):
             # also present in agents (crewai>=1.x — this rejects the pattern
             # the *generated* run_example.py template still uses; fixing that
             # template is out of this story's scope, see Dev Notes).
+            #
+            # It also rejects a manager_agent carrying any `tools` at all
+            # ("Manager agent should not have tools" — crewai 1.14.6): a
+            # manager only ever delegates, never executes directly.
+            # `_build_agent` attaches whatever the role declared (Phase 5,
+            # FR-020); this is the one place that knows this agent is about
+            # to become manager_agent, so it strips them here rather than in
+            # `_build_agent`. Any `is_orchestrator=True` agent always
+            # selects this branch (see below) — there is no sequential
+            # orchestrator case where the constraint would not apply.
+            manager = agents_by_role[orchestrator.role]
+            manager.tools = []
             workers = [
                 agent
                 for role, agent in agents_by_role.items()
@@ -174,13 +209,21 @@ class CrewAIExecutionEngine(ExecutionEngine):
         )
 
     @classmethod
-    def _build_agent(cls, agent: AgentSpec, credential: ResolvedCredential) -> Agent:
+    def _build_agent(
+        cls, agent: AgentSpec, credential: ResolvedCredential, tool_resolver: ToolResolver
+    ) -> Agent:
+        # RC-5 fix: `AgentSpec.tools` used to be read off disk and then
+        # discarded here — no `tools=` argument existed. `resolve_all` fails
+        # closed (spec FR-023): one unresolvable declaration refuses the
+        # whole run rather than constructing a partially-tooled agent.
+        resolved_tools = tool_resolver.resolve_all(agent.tools)
         return Agent(
             role=agent.role,
             goal=agent.goal,
             backstory=agent.backstory,
             llm=cls._build_llm(credential),
             allow_delegation=agent.is_orchestrator,
+            tools=[r.instance for r in resolved_tools],
         )
 
     @staticmethod

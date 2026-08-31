@@ -516,3 +516,48 @@ class TestComprehensiveSecretLeakage:
         captured = capsys.readouterr()
         for sentinel in sentinels:
             assert sentinel not in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Tool receipt argument redaction (Phase 6, spec FR-029, FR-071; tasks
+# T118, T126). Permanent regression — see also tests/security/.
+# ---------------------------------------------------------------------------
+
+
+def test_receipt_arguments_redact_a_configured_secret_value(monkeypatch):
+    from team_maker.adapters.runtime_crewai.transcript_capture import _sanitize_arguments
+
+    monkeypatch.setenv("SOME_TOKEN", SENTINEL_ANTHROPIC)
+    sanitized = _sanitize_arguments({"body": f'{{"token": "{SENTINEL_ANTHROPIC}"}}'})
+    assert SENTINEL_ANTHROPIC not in sanitized["body"]
+
+
+def test_receipt_arguments_redact_labeled_secret_shapes():
+    from team_maker.adapters.runtime_crewai.transcript_capture import _sanitize_arguments
+
+    sanitized = _sanitize_arguments({"body": 'api_key=sk-ant-not-a-real-key-0123456789'})
+    assert "sk-ant-not-a-real-key" not in sanitized["body"]
+
+
+def test_receipt_arguments_redact_raw_host_paths():
+    from team_maker.adapters.runtime_crewai.transcript_capture import _sanitize_arguments
+
+    sanitized = _sanitize_arguments({"mounts": "C:\\Users\\actual_operator\\secret_project"})
+    assert "secret_project" not in sanitized["mounts"]
+    assert sanitized["mounts"] == "[REDACTED_PATH]"
+
+    sanitized_posix = _sanitize_arguments({"mounts": "/home/actual_operator/secret_project"})
+    assert sanitized_posix["mounts"] == "[REDACTED_PATH]"
+
+
+def test_tool_receipt_dataclass_has_no_output_field():
+    """FR-026: `output_ref` identifies the transcript entry; a receipt never
+    carries the output text itself — proven structurally, not by a runtime
+    check that a future field addition could silently bypass."""
+    import dataclasses
+
+    from team_maker.runtime.results import ToolReceipt
+
+    field_names = {f.name for f in dataclasses.fields(ToolReceipt)}
+    assert "output" not in field_names
+    assert "output_ref" in field_names

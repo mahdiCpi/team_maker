@@ -21,7 +21,13 @@ def agent_spec(
     api_key_env: Optional[str] = "ANTHROPIC_API_KEY",
     base_url: Optional[str] = None,
     is_orchestrator: bool = False,
+    tools: Optional[list[str]] = None,
 ) -> AgentSpec:
+    """`tools` defaults to `[]`, unchanged from every pre-existing call site
+    (spec FR-035; tasks.md T009). Pass `tools=[...]` explicitly to build an
+    agent that declares tools — this is the non-empty-tools variant RC-12
+    requires, added as a parameter rather than by flipping the shared default,
+    so the 15 pre-existing engine tests stay behaviourally identical."""
     return AgentSpec(
         role=role,
         display_name=role.title(),
@@ -29,7 +35,7 @@ def agent_spec(
         goal=f"{role} goal",
         backstory=f"{role} backstory",
         capabilities=[],
-        tools=[],
+        tools=tools if tools is not None else [],
         routing=ProviderRouting(
             provider=provider, model=model, api_key_env=api_key_env, base_url=base_url
         ),
@@ -38,14 +44,21 @@ def agent_spec(
 
 
 def task_spec(
-    name: str, agent_role: str, dependencies: Optional[list[str]] = None
+    name: str,
+    agent_role: str,
+    dependencies: Optional[list[str]] = None,
+    *,
+    required_capabilities: Optional[list[str]] = None,
 ) -> TaskSpec:
+    """`required_capabilities` defaults to `[]`, unchanged from every
+    pre-existing call site (spec FR-069, T124; tasks.md T120)."""
     return TaskSpec(
         name=name,
         description=f"do {name}",
         expected_output="an output",
         agent_role=agent_role,
         dependencies=dependencies or [],
+        required_capabilities=required_capabilities or [],
     )
 
 

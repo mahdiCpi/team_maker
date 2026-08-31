@@ -8,6 +8,25 @@ from pydantic import ValidationError
 from team_maker.codegen import render_template
 from team_maker.llm.prompts import build_user_message, _load_context_files
 from team_maker.schema.request import RoleDefinition, SandboxConfig, TeamCreationRequest
+from team_maker.tools.limits import DEFAULT_CONTROLS
+from team_maker.tools.policy import EMPTY_ALLOWLIST
+
+
+def _tools_kwargs(**overrides) -> dict:
+    """Default policy context for direct `tools.py.j2` rendering — matches
+    `pipeline/runner.py:_render_tools_module`'s context for an unconfigured
+    operator policy (FR-054: absent policy denies/defaults restrictively)."""
+    kwargs = dict(
+        sandbox=SandboxConfig(),
+        suggested_tools=[],
+        context_dir=None,
+        effective_network="none",
+        network_allowed=False,
+        controls=DEFAULT_CONTROLS,
+        mount_allowlist=EMPTY_ALLOWLIST.entries,
+    )
+    kwargs.update(overrides)
+    return kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -130,18 +149,13 @@ def test_user_message_skips_empty_context_dir(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_tools_template_no_context_dir():
-    out = render_template("tools.py.j2", sandbox=SandboxConfig(), suggested_tools=[], context_dir=None)
+    out = render_template("tools.py.j2", **_tools_kwargs())
     assert "context_reader" not in out
     assert "CONTEXT_DIR" not in out
 
 
 def test_tools_template_with_context_dir(tmp_path):
-    out = render_template(
-        "tools.py.j2",
-        sandbox=SandboxConfig(),
-        suggested_tools=[],
-        context_dir=str(tmp_path),
-    )
+    out = render_template("tools.py.j2", **_tools_kwargs(context_dir=str(tmp_path)))
     assert "CONTEXT_DIR" in out
     assert "context_reader_tool" in out
     assert str(tmp_path) in out
@@ -149,11 +163,6 @@ def test_tools_template_with_context_dir(tmp_path):
 
 
 def test_tools_template_context_reader_lists_files(tmp_path):
-    out = render_template(
-        "tools.py.j2",
-        sandbox=SandboxConfig(),
-        suggested_tools=[],
-        context_dir=str(tmp_path),
-    )
+    out = render_template("tools.py.j2", **_tools_kwargs(context_dir=str(tmp_path)))
     assert "CONTEXT_DIR.rglob" in out
     assert "path.read_text" in out

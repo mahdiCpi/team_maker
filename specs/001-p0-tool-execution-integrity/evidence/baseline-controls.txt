@@ -1,0 +1,9 @@
+=== timeouts in tools.py.j2 ===
+64:        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+66:        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=60)
+114:    with urllib.request.urlopen(req, timeout=30) as resp:
+137:    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+218:            urllib.request.urlopen(req, timeout=15)
+225:        with urllib.request.urlopen(req, timeout=15) as resp:
+=== network default in schema/request.py ===
+128:    network: Literal["none", "host", "bridge"] = "bridge"

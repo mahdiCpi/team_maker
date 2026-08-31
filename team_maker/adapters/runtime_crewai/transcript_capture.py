@@ -67,8 +67,10 @@ stringifies an arbitrary object into ``content`` (AD-9, NFR3).
 from __future__ import annotations
 
 import json
+import re
 import threading
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from crewai.events import crewai_event_bus
@@ -76,6 +78,7 @@ from crewai.events.types.agent_events import AgentExecutionStartedEvent
 from crewai.events.types.logging_events import AgentLogsExecutionEvent
 from crewai.events.types.task_events import TaskCompletedEvent, TaskStartedEvent
 from crewai.events.types.tool_usage_events import (
+    ToolUsageErrorEvent,
     ToolUsageFinishedEvent,
     ToolUsageStartedEvent,
 )
@@ -88,8 +91,10 @@ from team_maker.runtime.results import (
     ENTRY_DELEGATION_RESULT,
     ENTRY_TASK_COMPLETED,
     ENTRY_TASK_STARTED,
+    ToolReceipt,
     TranscriptEntry,
 )
+from team_maker.utils.text_sanitizer import sanitize_text_for_display
 
 # crewai's delegation tools, by their sanitized names. The raw `name` differs
 # between emit sites ("Delegate work to coworker" on Started, the snake_case
@@ -128,6 +133,34 @@ def _as_args_dict(raw: Any) -> dict[str, Any]:
             return {}
         return parsed if isinstance(parsed, dict) else {}
     return {}
+
+
+# An absolute filesystem path — Windows drive-letter or POSIX-rooted. A raw
+# resolved host path must never appear in a receipt (spec FR-071); rather
+# than only recognizing the operator's own dangerous-location prefixes (a
+# list that could drift from `tools/policy.py`), any absolute path is
+# redacted outright — over-redaction here costs a little receipt fidelity
+# for something like a harmless in-sandbox `/workspace/...` argument, never
+# a leaked secret location. Mirrors `_redact_secrets`' own stated preference
+# for over- over under-redaction (utils/text_sanitizer.py).
+_ABS_PATH_PATTERN = re.compile(r"^(?:[A-Za-z]:[\\/]|/)\S*$")
+
+
+def _sanitize_argument_value(value: Any) -> str:
+    """One tool-call argument value, safe to store in a `ToolReceipt` (spec
+    FR-029, FR-071). Routes through the same secret-redaction guard used
+    for exception messages and CLI/API-facing text
+    (`utils/text_sanitizer.sanitize_text_for_display`), then additionally
+    redacts anything shaped like an absolute host path."""
+    text = str(value)
+    text = sanitize_text_for_display(text)
+    if _ABS_PATH_PATTERN.match(text.strip()):
+        return "[REDACTED_PATH]"
+    return text
+
+
+def _sanitize_arguments(args: dict[str, Any]) -> dict[str, str]:
+    return {key: _sanitize_argument_value(value) for key, value in args.items()}
 
 
 def _text_of(value: Any) -> Optional[str]:
@@ -190,6 +223,7 @@ class TranscriptRecorder:
     def __init__(self, task_owners: Optional[dict[str, str]] = None) -> None:
         self._task_owners = dict(task_owners or {})
         self._pending: list[_Pending] = []
+        self._receipts: list[ToolReceipt] = []
         # event_id -> (task_name | None, agent_role | None). Only real values.
         self._attribution: dict[str, tuple[Optional[str], Optional[str]]] = {}
         # event_id -> parent_event_id, so the walk can climb past a link whose
@@ -228,6 +262,13 @@ class TranscriptRecorder:
         resolved = [self._attribute(item) for item in pending]
         return sorted(resolved, key=lambda entry: entry.sequence)
 
+    def receipts(self) -> list[ToolReceipt]:
+        """Every tool execution recorded during this run (spec FR-026,
+        FR-028), ordered by emission sequence — the sole admissible
+        evidence for `runtime/completion.py`'s completion rule."""
+        with self._lock:
+            return sorted(self._receipts, key=lambda receipt: receipt.sequence)
+
     # -- subscription ------------------------------------------------------
 
     def _subscribe(self) -> None:
@@ -238,6 +279,7 @@ class TranscriptRecorder:
             (AgentLogsExecutionEvent, self._on_agent_turn),
             (ToolUsageStartedEvent, self._on_tool_started),
             (ToolUsageFinishedEvent, self._on_tool_finished),
+            (ToolUsageErrorEvent, self._on_tool_error),
         ]
         try:
             for event_type, handler in handlers:
@@ -420,6 +462,7 @@ class TranscriptRecorder:
         task_name = getattr(event, "task_name", None)
         agent_role = getattr(event, "agent_role", None)
         self._remember(event, task_name, agent_role)
+        self._record_receipt(event, succeeded=True)
         target = self._delegate_of(event)
         if target is None:
             return
@@ -431,6 +474,44 @@ class TranscriptRecorder:
             agent_role=agent_role,
             target_role=target,
         )
+
+    def _on_tool_error(self, source: Any, event: Any) -> None:
+        """`ToolUsageErrorEvent` is a distinct event from `Finished` (D-3,
+        D-IMPL-003 Decision A) — this is how a `ToolPolicyRefusal` (Phase 4:
+        a refused sandbox, mount or resource-limit breach) and any other
+        tool exception surface as a **failed** receipt (FR-077) rather than
+        producing no receipt at all."""
+        task_name = getattr(event, "task_name", None)
+        agent_role = getattr(event, "agent_role", None)
+        self._remember(event, task_name, agent_role)
+        self._record_receipt(event, succeeded=False)
+
+    def _record_receipt(self, event: Any, *, succeeded: bool) -> None:
+        """One receipt per execution (data-model.md §5), built entirely
+        from the outcome event (`Finished`/`Error`) — both inherit every
+        field a receipt needs (`tool_name`, `tool_args`, `agent_role`,
+        `task_name`) from `ToolUsageEvent`, so no correlation with the
+        earlier `Started` event is required."""
+        sequence = getattr(event, "emission_sequence", None)
+        if not isinstance(sequence, int):
+            return  # not orderable — not admissible, matching `_add`'s rule
+        tool_name = getattr(event, "tool_name", None)
+        if not tool_name:
+            return
+        args = _sanitize_arguments(_as_args_dict(getattr(event, "tool_args", None)))
+        event_id = getattr(event, "event_id", None)
+        receipt = ToolReceipt(
+            sequence=sequence,
+            tool_name=str(tool_name),
+            agent_role=str(getattr(event, "agent_role", None) or _UNKNOWN_AGENT),
+            task_name=str(getattr(event, "task_name", None) or _UNKNOWN_TASK),
+            arguments=args,
+            succeeded=succeeded,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            output_ref=str(event_id) if event_id else f"tool-receipt-{sequence}",
+        )
+        with self._lock:
+            self._receipts.append(receipt)
 
     @classmethod
     def _delegate_of(cls, event: Any) -> Optional[str]:

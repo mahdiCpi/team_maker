@@ -3,12 +3,33 @@ from __future__ import annotations
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from team_maker.tools.catalog import is_canonical, resolve_alias
 
 
 class ToolAssignment(BaseModel):
     name: str = Field(..., description="Tool name from the registry (e.g. git_account, shell)")
     reason: str = Field(..., description="Why this agent needs this specific tool")
+
+    @field_validator("name")
+    @classmethod
+    def validate_canonical_name(cls, v: str) -> str:
+        """Spec FR-002; audit RC-3, P4-F2/F3/F4. The LLM planner's structured
+        output (`AgentPlan` -> `map_plan_to_team`) is a *second* free-form
+        surface distinct from `TeamCreationRequest.desired_roles`, and had no
+        validation at all before this — the exact gap that let invented tool
+        names and CrewAI class-name leaks reach `AgentSpec.tools` for any team
+        planned by the LLM rather than built from a template. Raising here
+        surfaces as a pydantic ValidationError, which `TeamPlanner.plan()`
+        propagates rather than swallowing (see its docstring), so no package
+        is ever built from a plan carrying an invalid tool name."""
+        if is_canonical(v):
+            return v
+        canonical = resolve_alias(v)
+        if canonical is not None:
+            raise ValueError(f"'{v}' is a legacy alias - use the canonical name '{canonical}'")
+        raise ValueError(f"'{v}' is not in the canonical tool catalog")
 
 
 class AgentDesign(BaseModel):

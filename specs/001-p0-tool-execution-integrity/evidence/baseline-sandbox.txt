@@ -1,0 +1,9 @@
+6:when SANDBOX_ENABLED=true.
+45:USE_SANDBOX = os.environ.get("SANDBOX_ENABLED", "false").lower() == "true"
+49:    """Execute a shell command directly or inside Docker (when SANDBOX_ENABLED=true)."""
+76:    """Execute a shell command (sandboxed when SANDBOX_ENABLED=true)."""
+---
+64:        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+66:        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=60)
+137:    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+162:            res = subprocess.run(["git", "clone", r.clone_url], capture_output=True, text=True)

@@ -81,16 +81,31 @@ def test_run_team_package_rejects_non_crewai_framework(tmp_path):
     assert engine.calls == []
 
 
-def test_run_team_package_defaults_to_the_crewai_execution_engine(minimal_request, monkeypatch):
+def test_run_team_package_defaults_to_the_crewai_execution_engine(monkeypatch, tmp_path):
     """When no engine is passed, run_team_package must default to
     CrewAIExecutionEngine — patch the class at its *source* module (where the
     lazy import in executor.py reads it from), not on executor.py itself
-    (which has no such module-level attribute, by design)."""
-    build = PipelineRunner().run(minimal_request)
+    (which has no such module-level attribute, by design).
+
+    Uses a role name absent from `SoftwareDeliveryTemplate._ROLE_DEFAULTS`
+    (unlike `minimal_request`'s "architect") so no default tools are merged
+    in (`role_based.py`'s `role.tools or defaults.get("tools", [])`) — this
+    test is about engine selection, not tool resolution, and a role like
+    "architect" declares `code_reader`, whose registry entry is
+    conditionally present only when `crewai-tools` is installed (Phase 5's
+    new preflight resolution gate would otherwise refuse this run for an
+    unrelated, environment-dependent reason)."""
+    request = TeamCreationRequest(
+        team_name="Test Team",
+        purpose="A team for testing default engine selection.",
+        output_path=str(tmp_path / "output"),
+        desired_roles=[RoleDefinition(name="generalist", description="Does general work.")],
+    )
+    build = PipelineRunner().run(request)
     fake = _FakeEngine()
     monkeypatch.setattr(
         "team_maker.adapters.runtime_crewai.crewai_execution_engine.CrewAIExecutionEngine",
-        lambda: fake,
+        lambda tool_resolver=None: fake,
     )
 
     result = run_team_package(build.output_path, "ship it", _DEFAULT_KEYS)

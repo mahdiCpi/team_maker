@@ -95,6 +95,13 @@ class TaskSpec:
     agent_role: str
     dependencies: List[str] = field(default_factory=list)
     is_optional: bool = False
+    # Capabilities (canonical tool names) this task REQUIRES, distinct from
+    # tools merely available to its agent (spec FR-061, D-12, A-3; audit
+    # RC-11). Empty by default so a legacy task with no marking — including
+    # every task in a package predating this remediation — declares only
+    # optional capabilities (spec Assumptions, T124): the completion rule in
+    # `runtime/completion.py` never blocks on an empty list.
+    required_capabilities: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -104,6 +111,7 @@ class TaskSpec:
             "agent_role": self.agent_role,
             "dependencies": self.dependencies,
             "is_optional": self.is_optional,
+            "required_capabilities": self.required_capabilities,
         }
 
 

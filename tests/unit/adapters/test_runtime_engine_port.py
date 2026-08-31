@@ -154,6 +154,8 @@ def test_runtime_and_execution_port_modules_stay_crewai_free():
         root / "adapters" / "providers" / "resolution.py",
         root / "adapters" / "providers" / "registry.py",
         root / "ports" / "execution_engine.py",
+        root / "ports" / "tool_resolver.py",
+        root / "adapters" / "tools" / "package_tool_resolver.py",
     ]
     missing = [str(path) for path in must_stay_clean if not path.exists()]
     assert missing == [], f"named modules no longer exist: {missing}"

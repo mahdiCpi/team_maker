@@ -81,6 +81,7 @@ python run_example.py
 
     def render_how_to_run(self, team: GeneratedTeam) -> str:
         agent_env_vars = self._agent_env_vars(team)
+        tool_credentials = self._tool_credential_requirements(team)
         compose_section = self._compose_section(team)
         return f"""\
 # How to Run: {team.team_name}
@@ -94,6 +95,7 @@ python run_example.py
 ## Environment Variables
 
 {agent_env_vars}
+{tool_credentials}
 {compose_section}
 ## Running the Example (host)
 
@@ -349,6 +351,23 @@ which Ollama models fit your host.
             lines.append(f'export {env}="your-{provider}-api-key-here"')
         lines.append("```")
         return "\n".join(lines)
+
+    def _tool_credential_requirements(self, team: GeneratedTeam) -> str:
+        """FR-066: build emits each declared tool's dependency/credential
+        requirements from the canonical catalog, so preflight (Phase 7) has a
+        written manifest to validate against rather than re-deriving it."""
+        from team_maker.tools.catalog import required_credentials_for
+
+        all_tool_names = sorted({t for a in team.agents for t in a.tools})
+        requirements = required_credentials_for(all_tool_names)
+        needed = {name: creds for name, creds in requirements.items() if creds}
+        if not needed:
+            return ""
+        lines = ["\n## Tool Credential Requirements\n"]
+        for name, creds in sorted(needed.items()):
+            for cred in creds:
+                lines.append(f'- `{name}` requires `{cred}` — export {cred}="your-value-here"')
+        return "\n".join(lines) + "\n"
 
     def _task_order_list(self, team: GeneratedTeam) -> str:
         lines = []

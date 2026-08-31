@@ -112,4 +112,7 @@ def _load_task(package_path: Path, name: str) -> TaskSpec:
         agent_role=_require(cfg, "agent_role", rel),
         dependencies=cfg.get("dependencies", []),
         is_optional=cfg.get("is_optional", False),
+        # Absent on a legacy/pre-remediation package's task file — defaults
+        # to no required capabilities, i.e. fully optional (FR-069, T124).
+        required_capabilities=cfg.get("required_capabilities", []),
     )

@@ -1,0 +1,35 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-9.1.1, pluggy-1.6.0 -- C:\Projects\CoinPela\Projects\team_maker\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Projects\CoinPela\Projects\team_maker
+configfile: pyproject.toml
+plugins: anyio-4.14.2, cov-7.1.0
+collecting ... collected 0 items / 2 errors
+
+=================================== ERRORS ====================================
+_______ ERROR collecting tests/integration/test_truthful_completion.py ________
+ImportError while importing test module 'C:\Projects\CoinPela\Projects\team_maker\tests\integration\test_truthful_completion.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\gurua\AppData\Local\Programs\Python\Python313\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\integration\test_truthful_completion.py:21: in <module>
+    from team_maker.runtime.completion import run_is_successfully_complete  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'team_maker.runtime.completion'
+___________ ERROR collecting tests/unit/runtime/test_completion.py ____________
+ImportError while importing test module 'C:\Projects\CoinPela\Projects\team_maker\tests\unit\runtime\test_completion.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\gurua\AppData\Local\Programs\Python\Python313\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\unit\runtime\test_completion.py:5: in <module>
+    from team_maker.runtime.completion import (
+E   ModuleNotFoundError: No module named 'team_maker.runtime.completion'
+=========================== short test summary info ===========================
+ERROR tests/integration/test_truthful_completion.py
+ERROR tests/unit/runtime/test_completion.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!!
+============================== 2 errors in 4.14s ==============================

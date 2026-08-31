@@ -464,3 +464,130 @@ def test_a_flush_failure_does_not_mask_the_real_exception(monkeypatch):
     with pytest.raises(RuntimeError, match="the real failure"):
         with TranscriptRecorder():
             raise RuntimeError("the real failure")
+
+
+# ---------------------------------------------------------------------------
+# Tool receipts (Phase 6, spec FR-026 to FR-029; audit RC-11, P0-4; tasks
+# T115-T118, T125)
+# ---------------------------------------------------------------------------
+
+
+def test_a_successful_tool_use_produces_a_receipt_with_every_field():
+    recorder = _recorder()
+
+    recorder._on_tool_started(None, _Stub(
+        event_id="t1", parent_event_id=None, emission_sequence=1,
+        agent_role="architect", task_name="design",
+        tool_name="test_runner", tool_args='{"path": "."}',
+    ))
+    recorder._on_tool_finished(None, _Stub(
+        event_id="t2", parent_event_id=None, emission_sequence=2,
+        agent_role="architect", task_name="design",
+        tool_name="test_runner", tool_args={"path": "."},
+        output="42 passed",
+    ))
+
+    [receipt] = recorder.receipts()
+    assert receipt.sequence == 2
+    assert receipt.tool_name == "test_runner"
+    assert receipt.agent_role == "architect"
+    assert receipt.task_name == "design"
+    assert receipt.arguments == {"path": "."}
+    assert receipt.succeeded is True
+    assert receipt.timestamp  # non-empty ISO-8601 string
+    assert receipt.output_ref  # identifies the entry, never the output text
+    assert "42 passed" not in receipt.output_ref
+
+
+def test_a_failed_tool_use_produces_a_failed_receipt():
+    """`ToolUsageErrorEvent` — e.g. a Phase 4 `ToolPolicyRefusal` — is a
+    distinct crewai event from `Finished` (D-IMPL-003 Decision A). Without a
+    handler for it, a refused/failed tool call would produce no receipt at
+    all, which FR-077 forbids."""
+    recorder = _recorder()
+
+    recorder._on_tool_started(None, _Stub(
+        event_id="t1", parent_event_id=None, emission_sequence=1,
+        agent_role="architect", task_name="design",
+        tool_name="docker_runner", tool_args='{"image": "x"}',
+    ))
+    recorder._on_tool_error(None, _Stub(
+        event_id="t2", parent_event_id=None, emission_sequence=2,
+        agent_role="architect", task_name="design",
+        tool_name="docker_runner", tool_args={"image": "x"},
+        error="sandbox could not be established: docker runtime is not installed",
+    ))
+
+    [receipt] = recorder.receipts()
+    assert receipt.succeeded is False
+    assert receipt.tool_name == "docker_runner"
+
+
+def test_receipts_do_not_alter_existing_delegation_entries():
+    """Delegation transcript entries must be unchanged by the new receipt
+    recording — the recording code runs before the existing early return,
+    never replacing it."""
+    recorder = _recorder()
+
+    recorder._on_tool_started(None, _Stub(
+        event_id="t1", parent_event_id=None, emission_sequence=1,
+        agent_role="coordinator", task_name="coordinate",
+        tool_name="Delegate work to coworker",
+        tool_args='{"task": "design it", "coworker": "architect"}',
+    ))
+    recorder._on_tool_finished(None, _Stub(
+        event_id="t2", parent_event_id=None, emission_sequence=2,
+        agent_role="coordinator", task_name="coordinate",
+        tool_name="delegate_work_to_coworker",
+        tool_args={"task": "design it", "coworker": "architect"},
+        output="done by architect",
+    ))
+
+    entries = recorder.entries()
+    assert [e.kind for e in entries] == [ENTRY_DELEGATION, ENTRY_DELEGATION_RESULT]
+    # The delegation tool itself still produces a receipt — receipts and
+    # transcript entries are independent, parallel records.
+    [receipt] = recorder.receipts()
+    assert receipt.tool_name == "delegate_work_to_coworker"
+
+
+def test_repeated_invocations_of_the_same_tool_produce_repeated_receipts():
+    recorder = _recorder()
+    for i in range(3):
+        recorder._on_tool_finished(None, _Stub(
+            event_id=f"t{i}", parent_event_id=None, emission_sequence=i + 1,
+            agent_role="architect", task_name="design",
+            tool_name="test_runner", tool_args={}, output="ok",
+        ))
+
+    assert len(recorder.receipts()) == 3
+
+
+def test_receipts_are_ordered_by_sequence_not_arrival_order():
+    recorder = _recorder()
+    recorder._on_tool_finished(None, _Stub(
+        event_id="t2", parent_event_id=None, emission_sequence=9,
+        agent_role="architect", task_name="design",
+        tool_name="test_runner", tool_args={}, output="ok",
+    ))
+    recorder._on_tool_finished(None, _Stub(
+        event_id="t1", parent_event_id=None, emission_sequence=1,
+        agent_role="architect", task_name="design",
+        tool_name="state_reader", tool_args={}, output="ok",
+    ))
+
+    receipts = recorder.receipts()
+    assert [r.sequence for r in receipts] == [1, 9]
+
+
+def test_receipt_arguments_never_carry_a_secret():
+    recorder = _recorder()
+    recorder._on_tool_finished(None, _Stub(
+        event_id="t1", parent_event_id=None, emission_sequence=1,
+        agent_role="architect", task_name="design",
+        tool_name="git_account", tool_args={"body": f'{{"token": "{_SECRET}"}}'},
+        output="ok",
+    ))
+
+    [receipt] = recorder.receipts()
+    assert _SECRET not in receipt.arguments["body"]

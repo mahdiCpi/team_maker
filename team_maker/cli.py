@@ -639,6 +639,28 @@ def list_templates() -> None:
 
 
 # ---------------------------------------------------------------------------
+# tools
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def tools() -> None:
+    """Inspect declared tools across existing generated packages."""
+
+
+@tools.command("migration-report")
+@click.argument("directory", type=click.Path(exists=True, file_okay=False, path_type=Path))
+def tools_migration_report(directory: Path) -> None:
+    """Scan DIRECTORY for existing packages declaring non-canonical tool
+    names (spec FR-039 to FR-042). Advisory and read-only: no package is
+    modified. Packages whose tools all resolve safely are not listed."""
+    from team_maker.tools.migration import format_report, scan_directory
+
+    findings = scan_directory(directory)
+    console.print(format_report(findings))
+
+
+# ---------------------------------------------------------------------------
 # keys
 # ---------------------------------------------------------------------------
 

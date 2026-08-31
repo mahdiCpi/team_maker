@@ -6,6 +6,25 @@ import pytest
 from team_maker.codegen import render_template
 from team_maker.domain.models import AgentSpec, GeneratedTeam, ProviderRouting, TaskSpec
 from team_maker.schema.request import SandboxConfig
+from team_maker.tools.limits import DEFAULT_CONTROLS
+from team_maker.tools.policy import EMPTY_ALLOWLIST
+
+
+def _tools_render_kwargs(**overrides) -> dict:
+    """Default policy context for direct `tools.py.j2` rendering, matching
+    what `pipeline/runner.py:_render_tools_module` computes for a build with
+    no operator policy configured (spec FR-054: absent policy denies)."""
+    kwargs = {
+        "sandbox": SandboxConfig(),
+        "suggested_tools": [],
+        "context_dir": None,
+        "effective_network": "none",
+        "network_allowed": False,
+        "controls": DEFAULT_CONTROLS,
+        "mount_allowlist": EMPTY_ALLOWLIST.entries,
+    }
+    kwargs.update(overrides)
+    return kwargs
 
 
 def _make_team(
@@ -71,25 +90,31 @@ def _make_team(
 
 
 def test_tools_template_renders_default_sandbox():
-    out = render_template("tools.py.j2", sandbox=SandboxConfig(), suggested_tools=[], context_dir=None)
+    out = render_template("tools.py.j2", **_tools_render_kwargs())
     assert "SANDBOX_IMAGE = \"python:3.12-slim\"" in out
-    assert "SANDBOX_NETWORK = \"bridge\"" in out
+    # FR-073: denied by default when no operator policy permits it.
+    assert "SANDBOX_NETWORK = \"none\"" in out
     assert "SANDBOX_EXTRA_ENV: dict[str, str] = {}" in out
-    assert "def shell_command_tool" in out
+    assert "def shell_tool" in out
     assert "def state_reader_tool" in out
     assert "TOOL_REGISTRY" in out
     assert "get_tools_for" in out
+    # FR-012: no opt-out toggle survives. (The string "SANDBOX_ENABLED" may
+    # still appear in an explanatory comment describing why it was removed;
+    # what must be absent is the toggle variable and the env-var read.)
+    assert "USE_SANDBOX" not in out
+    assert 'os.environ.get("SANDBOX_ENABLED"' not in out
 
 
 def test_tools_template_renders_extra_env():
     sandbox = SandboxConfig(extra_env={"FOO": "bar", "ACCESS_TOKEN": ""})
-    out = render_template("tools.py.j2", sandbox=sandbox, suggested_tools=[], context_dir=None)
+    out = render_template("tools.py.j2", **_tools_render_kwargs(sandbox=sandbox))
     assert '"FOO": os.environ.get("FOO", "bar")' in out
     assert '"ACCESS_TOKEN": os.environ.get("ACCESS_TOKEN", "")' in out
 
 
 def test_tools_template_is_valid_python():
-    out = render_template("tools.py.j2", sandbox=SandboxConfig(), suggested_tools=[], context_dir=None)
+    out = render_template("tools.py.j2", **_tools_render_kwargs())
     compile(out, "<tools.py>", "exec")
 
 
@@ -396,7 +421,7 @@ def test_dockerignore_template_renders():
 
 def test_tools_template_uses_sandbox_workspace_mount():
     sandbox = SandboxConfig(workspace_mount="/app/workspace")
-    out = render_template("tools.py.j2", sandbox=sandbox, suggested_tools=[], context_dir=None)
+    out = render_template("tools.py.j2", **_tools_render_kwargs(sandbox=sandbox))
     assert 'os.environ.get("WORKSPACE_ROOT")' in out
     assert 'os.path.abspath("/app/workspace")' in out
 
@@ -413,17 +438,20 @@ def test_compose_healthcheck_uses_http_api():
     assert '["CMD", "ollama", "list"]' not in out
 
 
-def test_tools_template_emits_stub_for_suggested_tool():
+def test_tools_template_never_emits_a_stub_for_a_suggested_tool():
+    """FR-010, Amendment (audit P0-2b/RC-4): stub emission is removed
+    entirely, not merely deduplicated. A `suggested_tools` entry that never
+    resolves to a canonical name renders no binding at all — it is inert
+    metadata, never a placeholder that looks like a working tool."""
     from team_maker.schema.request import ToolSuggestion
 
     suggested = [ToolSuggestion(name="slack_notifier", description="Send Slack messages.", env_vars=["SLACK_WEBHOOK_URL"])]
-    out = render_template("tools.py.j2", sandbox=SandboxConfig(), suggested_tools=suggested, context_dir=None)
-    assert "def slack_notifier_tool" in out
-    assert "SLACK_WEBHOOK_URL" in out
-    assert '"slack_notifier"' in out   # registered in TOOL_REGISTRY
-    assert "NotImplementedError" in out
+    out = render_template("tools.py.j2", **_tools_render_kwargs(suggested_tools=suggested))
+    assert "slack_notifier" not in out
+    assert "NotImplementedError" not in out
+    assert "TODO: implement" not in out
 
 
 def test_tools_template_no_suggested_tools_still_valid():
-    out = render_template("tools.py.j2", sandbox=SandboxConfig(), suggested_tools=[], context_dir=None)
+    out = render_template("tools.py.j2", **_tools_render_kwargs())
     compile(out, "<tools.py>", "exec")  # must be valid Python

@@ -20,6 +20,23 @@ from typing import List, Optional
 
 import team_maker.templates  # noqa: F401 – triggers template registration
 from team_maker.adapters.runtime_engines import get_runtime_engine
+
+# Exactly the tool names `codegen/templates/tools.py.j2` binds today. A catalog
+# entry not in this set has no codegen implementation (spec FR-010) — a
+# maintainer-time drift, not something a build should silently tolerate.
+_IMPLEMENTED_TOOL_NAMES: frozenset[str] = frozenset({
+    "shell", "code_writer", "http_client", "test_runner", "docker_runner",
+    "git_account", "state_reader", "state_writer", "ci_tool", "context_reader",
+    "filesystem", "code_reader", "web_search",
+})
+
+
+class ToolImplementationError(Exception):
+    """A declared tool is canonical but has no codegen implementation
+    (spec FR-010). Distinct from an unknown/invented name, which Phase 3's
+    validation already rejects before this point is ever reached."""
+
+
 from team_maker.artifacts.writer import ArtifactManifest, ArtifactWriter
 from team_maker.codegen import render_template
 from team_maker.domain.models import GeneratedTeam
@@ -165,7 +182,7 @@ class PipelineRunner:
 
         # Phase 2: full tool bindings module (sandbox-aware + user-suggested tools + context)
         manifest["tools.py"] = self._render_tools_module(
-            request.sandbox, request.suggested_tools, request.context_dir
+            team, request.sandbox, request.suggested_tools, request.context_dir
         )
 
         # Phase 3: state store module
@@ -265,15 +282,54 @@ class PipelineRunner:
 
     @staticmethod
     def _render_tools_module(
+        team: GeneratedTeam,
         sandbox: SandboxConfig,
         suggested_tools: list,
         context_dir: Optional[str] = None,
     ) -> str:
+        """Renders the self-contained standalone tools.py — no team_maker
+        import in the generated package (README's stated compatibility
+        guarantee) — so the mount-evaluation and sandbox-control algorithms
+        below are duplicated as generated Python, not imported. Their single
+        source lives in `team_maker/tools/policy.py` and
+        `team_maker/tools/limits.py`; parity is enforced by
+        `tests/security/test_mount_allowlist.py` and
+        `tests/security/test_sandbox_controls.py`.
+
+        The no-implementation build failure (FR-010) gates here: a canonical
+        tool with no codegen binding never reaches a generated package.
+        Authorization (FR-050 to FR-055) is deliberately NOT enforced at
+        build — FR-057 scopes build's rejection to unknown-or-unsafe
+        declarations, and FR-058 places "unauthorized" at the pre-run
+        (preflight) gate instead. A package may be built with an
+        as-yet-unauthorized RISKY tool; `runtime/preflight.py` refuses to run
+        it (Phase 5, T106) until the operator enables it.
+        """
+        from team_maker.tools.catalog import TOOL_CATALOG
+        from team_maker.tools.config import load_tool_policy
+
+        assigned_tools = sorted({t for a in team.agents for t in a.tools})
+
+        no_implementation = [t for t in assigned_tools if t in TOOL_CATALOG and t not in _IMPLEMENTED_TOOL_NAMES]
+        if no_implementation:
+            raise ToolImplementationError(
+                f"declared tool(s) {no_implementation} are canonical but have no codegen "
+                f"implementation — this is a catalog/template drift, not a build the team "
+                f"author can fix"
+            )
+
+        policy = load_tool_policy()
+        effective_network = sandbox.network if policy.network_allowed else "none"
+
         return render_template(
             "tools.py.j2",
             sandbox=sandbox,
             suggested_tools=suggested_tools,
             context_dir=context_dir,
+            effective_network=effective_network,
+            network_allowed=policy.network_allowed,
+            controls=policy.controls,
+            mount_allowlist=policy.mount_allowlist.entries,
         )
 
     @staticmethod
